@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: workwise
+      POSTGRES_PASSWORD: workwise_dev
+      POSTGRES_DB: workwise_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workwise"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql://workwise:workwise_dev@postgres:5432/workwise_db
+      JWT_SECRET: dev-secret-key-change-in-production
+      NODE_ENV: development
+      FRONTEND_URL: http://localhost:5173
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # Python ML Service
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      DATABASE_URL: postgresql://workwise:workwise_dev@postgres:5432/workwise_db
+      ML_PORT: 5001
+      NODE_ENV: development
+      BACKEND_API_URL: http://backend:5000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./ml-service:/app
+    command: python app.py
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: workwise-network
