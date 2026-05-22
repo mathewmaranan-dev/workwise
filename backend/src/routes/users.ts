@@ -107,7 +107,7 @@ router.get('/next-email', async (req, res) => {
     const fullName = `${capitalizeName(firstName)} ${capitalizeName(lastName)}`.trim();
     return res.json({ email: localPreview, full_name: fullName });
   } catch (error) {
-    console.error('Next email suggestion error:', error?.stack || error);
+    console.error('Next email suggestion error:', (error as any)?.stack || error);
     res.status(500).json({ error: 'Failed to generate email suggestion' });
   }
 });
@@ -192,8 +192,8 @@ router.post('/', verifyToken, requireRole('admin'), async (req, res) => {
 
     res.status(201).json(userResult.rows[0]);
   } catch (error) {
-    console.error('Create user error:', error?.stack || error);
-    const message = isDev ? (error && (error as any).message ? (error as any).message : String(error)) : 'Failed to create user';
+    console.error('Create user error:', (error as any)?.stack || error);
+    const message = isDev ? ((error as any)?.message ? (error as any).message : String(error)) : 'Failed to create user';
     res.status(500).json({ error: message });
   }
 });
