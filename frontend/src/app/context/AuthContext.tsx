@@ -251,7 +251,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const { first_name, last_name } = getNameParts(newUser.name);
+      // Prefer explicit first_name/last_name provided by the form.
+      const providedFirst = (newUser as any).first_name?.trim();
+      const providedLast = (newUser as any).last_name?.trim();
+      const nameParts = getNameParts(newUser.name);
+      const first_name = providedFirst || nameParts.first_name;
+      const last_name = providedLast || nameParts.last_name;
       const response = await fetch(`${API_BASE}/api/users`, {
         method: 'POST',
         headers: getHeaders(),
