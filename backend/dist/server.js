@@ -15,10 +15,19 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 // Middleware
 app.use(helmet());
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production'
-        ? process.env.FRONTEND_URL
-        : 'http://localhost:5173',
+    origin: (origin, callback) => {
+        const allowedOrigin = process.env.FRONTEND_URL?.trim();
+        if (!origin) {
+            // Allow non-browser requests like curl/postman
+            return callback(null, true);
+        }
+        if (!allowedOrigin || origin === allowedOrigin) {
+            return callback(null, true);
+        }
+        callback(new Error(`CORS block: origin ${origin} not allowed`));
+    },
     credentials: true,
+    optionsSuccessStatus: 200,
 }));
 app.use(express.json());
 // Health check

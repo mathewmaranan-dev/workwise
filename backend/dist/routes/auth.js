@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../config/database.js';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { verifyToken } from '../middleware/auth.js';
 const router = Router();
 // Login endpoint
 router.post('/login', async (req, res) => {
@@ -61,6 +62,33 @@ router.get('/me', async (req, res) => {
     catch (error) {
         console.error('Get current user error:', error);
         res.status(500).json({ error: 'Failed to fetch user' });
+    }
+});
+router.post('/change-password', verifyToken, async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+        const { currentPassword, newPassword } = req.body;
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ error: 'Current and new passwords are required' });
+        }
+        const result = await query(`SELECT password_hash FROM users WHERE user_id = $1`, [req.user.id]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const { password_hash } = result.rows[0];
+        const passwordMatch = await bcrypt.compare(currentPassword, password_hash);
+        if (!passwordMatch) {
+            return res.status(401).json({ error: 'Invalid current password' });
+        }
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE user_id = $2`, [hashedPassword, req.user.id]);
+        res.json({ success: true });
+    }
+    catch (error) {
+        console.error('Change password error:', error);
+        res.status(500).json({ error: 'Failed to change password' });
     }
 });
 export default router;
