@@ -34,6 +34,9 @@ export default function UserManagementPage() {
     return str.replace(/[\s']/g, '').replace(/[^a-zA-Z0-9]/g, '');
   };
 
+  const env = (import.meta as any).env as Record<string, string | undefined>;
+  const API_BASE = env.VITE_API_BASE_URL || env.VITE_API_URL || '';
+
   const capitalizeName = (value: string): string => {
     return value
       .trim()
@@ -73,7 +76,9 @@ export default function UserManagementPage() {
     try {
       const token = localStorage.getItem('workwise_token');
       const params = new URLSearchParams({ first_name: firstName, last_name: lastName });
-      const response = await fetch(`/api/users/next-email?${params.toString()}`, {
+      const base = API_BASE ? API_BASE : '';
+      const fetchUrl = `${base}/api/users/next-email?${params.toString()}`;
+      const response = await fetch(fetchUrl, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
 

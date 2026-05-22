@@ -69,7 +69,8 @@ router.get('/', verifyToken, requireRole('admin'), async (req, res) => {
   }
 });
 
-router.get('/next-email', verifyToken, requireRole('admin'), async (req, res) => {
+// Public endpoint to suggest the next available email (no auth required)
+router.get('/next-email', async (req, res) => {
   try {
     const firstName = String(req.query.first_name || '').trim();
     const lastName = String(req.query.last_name || '').trim();
