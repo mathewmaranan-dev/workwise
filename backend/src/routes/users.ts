@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { query } from '../config/database.js';
 import { verifyToken, requireRole } from '../middleware/auth.js';
+import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 
 const router = Router();
+const isDev = process.env.NODE_ENV !== 'production';
 
 const sanitizeForEmail = (value: string) => {
   return String(value || '').trim().toLowerCase().replace(/[\s']/g, '').replace(/[^a-z0-9]/g, '');
@@ -69,7 +71,7 @@ router.get('/', verifyToken, requireRole('admin'), async (req, res) => {
   }
 });
 
-// Public endpoint to suggest the next available email (no auth required)
+// Suggest the next available email. If a valid token is provided, return authoritative suggestion.
 router.get('/next-email', async (req, res) => {
   try {
     const firstName = String(req.query.first_name || '').trim();
@@ -79,10 +81,33 @@ router.get('/next-email', async (req, res) => {
       return res.status(400).json({ error: 'First name and last name required' });
     }
 
-    const suggested = await getSuggestedEmail(firstName, lastName);
-    res.json(suggested);
+    // Check for optional token; don't reject if absent or invalid.
+    const authHeader = String(req.headers.authorization || '');
+    const token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader || '';
+    let isAuthenticated = false;
+    if (token) {
+      try {
+        jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        isAuthenticated = true;
+      } catch (e) {
+        // invalid token: treat as unauthenticated but do not fail
+        isAuthenticated = false;
+      }
+    }
+
+    if (isAuthenticated) {
+      const suggested = await getSuggestedEmail(firstName, lastName);
+      // Do not return generated password in the suggestion response
+      const { password, ...safe } = suggested as any;
+      return res.json(safe);
+    }
+
+    // Unauthenticated: return a safe local preview without touching DB or revealing password
+    const localPreview = `${sanitizeForEmail(firstName)}.${sanitizeForEmail(lastName)}00001@workwise.it.com`;
+    const fullName = `${capitalizeName(firstName)} ${capitalizeName(lastName)}`.trim();
+    return res.json({ email: localPreview, full_name: fullName });
   } catch (error) {
-    console.error('Next email suggestion error:', error);
+    console.error('Next email suggestion error:', error?.stack || error);
     res.status(500).json({ error: 'Failed to generate email suggestion' });
   }
 });
@@ -115,6 +140,9 @@ router.get('/:id', verifyToken, async (req, res) => {
 router.post('/', verifyToken, requireRole('admin'), async (req, res) => {
   try {
     const { first_name, last_name, email, password, role, assignment_group_id } = req.body;
+
+    // log request metadata for debugging (avoid logging raw passwords)
+    console.log('Create user request:', { first_name, last_name, email, role, assignment_group_id });
 
     if (!first_name || !last_name || !role) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -164,8 +192,9 @@ router.post('/', verifyToken, requireRole('admin'), async (req, res) => {
 
     res.status(201).json(userResult.rows[0]);
   } catch (error) {
-    console.error('Create user error:', error);
-    res.status(500).json({ error: 'Failed to create user' });
+    console.error('Create user error:', error?.stack || error);
+    const message = isDev ? (error && (error as any).message ? (error as any).message : String(error)) : 'Failed to create user';
+    res.status(500).json({ error: message });
   }
 });
 
