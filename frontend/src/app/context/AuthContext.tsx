@@ -7,17 +7,12 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
+  createdAt?: string;
+  first_name?: string;
+  last_name?: string;
+  assignment_group_id?: number;
   termsAccepted?: boolean;
 }
-
-interface StoredUser {
-  password: string;
-  user: User;
-  resetToken?: string;
-  resetTokenExpiry?: number;
-}
-
-type UsersMap = Record<string, StoredUser>;
 
 interface AuthContextType {
   user: User | null;
@@ -25,9 +20,9 @@ interface AuthContextType {
   logout: () => void;
   isAuthenticated: boolean;
   users: User[];
-  createUser: (user: User, password: string) => Promise<boolean>;
-  updateUser: (user: User) => boolean;
-  deleteUser: (email: string) => boolean;
+  createUser: (user: User, password: string, assignment_group_id?: number) => Promise<boolean>;
+  updateUser: (user: User) => Promise<boolean>;
+  deleteUser: (email: string) => Promise<boolean>;
   acceptTerms: () => void;
   forgotPassword: (email: string) => Promise<string | null>;
   validateResetToken: (token: string) => boolean;
@@ -37,8 +32,35 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const env = (import.meta as any).env as Record<string, string | undefined>;
+const API_BASE = env.VITE_API_BASE_URL || env.VITE_API_URL || '';
 
-const demoUsers: UsersMap = {
+const normalizeRole = (role: any): UserRole => {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (['admin', 'manager', 'hr', 'agent'].includes(normalized)) {
+    return normalized as UserRole;
+  }
+  return 'agent';
+};
+
+const parseApiUser = (raw: any): User => {
+  const first_name = raw.first_name || raw.firstName || '';
+  const last_name = raw.last_name || raw.lastName || '';
+  const name = raw.name || `${first_name} ${last_name}`.trim();
+
+  return {
+    id: String(raw.id || raw.user_id),
+    email: raw.email,
+    role: normalizeRole(raw.role || raw.role_name),
+    name: name || raw.email,
+    createdAt: raw.created_at || raw.createdAt || undefined,
+    first_name,
+    last_name,
+    assignment_group_id: raw.assignment_group_id ? Number(raw.assignment_group_id) : undefined,
+  };
+};
+
+const demoUsers: Record<string, { password: string; user: User }> = {
   'admin@workwise.app': {
     password: 'Admin!23',
     user: {
@@ -46,39 +68,9 @@ const demoUsers: UsersMap = {
       email: 'admin@workwise.app',
       name: 'Admin User',
       role: 'admin',
-      termsAccepted: false
-    }
+      termsAccepted: false,
+    },
   },
-  'manager@workwise.app': {
-    password: 'Manager!23',
-    user: {
-      id: '2',
-      email: 'manager@workwise.app',
-      name: 'ITSM Manager',
-      role: 'manager',
-      termsAccepted: false
-    }
-  },
-  'hr@workwise.app': {
-    password: 'HR!23',
-    user: {
-      id: '3',
-      email: 'hr@workwise.app',
-      name: 'HR Manager',
-      role: 'hr',
-      termsAccepted: false
-    }
-  },
-  'agent@workwise.app': {
-    password: 'Agent!23',
-    user: {
-      id: '4',
-      email: 'agent@workwise.app',
-      name: 'IT Support Agent',
-      role: 'agent',
-      termsAccepted: false
-    }
-  }
 };
 
 const hashPassword = async (password: string) => {
@@ -87,237 +79,262 @@ const hashPassword = async (password: string) => {
   return Array.from(new Uint8Array(data)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
-const isPasswordHash = (value: string) => /^[0-9a-f]{64}$/.test(value);
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [usersMap, setUsersMap] = useState<UsersMap>({});
+  const [token, setToken] = useState<string | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
 
-  const users = Object.values(usersMap).map(entry => entry.user);
+  const getAuthToken = () => token || localStorage.getItem('workwise_token');
 
-  useEffect(() => {
-    const storedUser = localStorage.getItem('workwise_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+  const getHeaders = () => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const authToken = getAuthToken();
+    if (authToken) {
+      headers.Authorization = `Bearer ${authToken}`;
     }
-
-    const initializeUsers = async () => {
-      const storedUsers = localStorage.getItem('workwise_users');
-      const rawUsers: UsersMap = storedUsers ? JSON.parse(storedUsers) : demoUsers;
-      const normalized: UsersMap = {};
-
-      for (const [email, entry] of Object.entries(rawUsers)) {
-        const password = entry.password || '';
-        const hashedPassword = isPasswordHash(password) ? password : await hashPassword(password);
-        normalized[email] = {
-          ...entry,
-          password: hashedPassword,
-          user: {
-            termsAccepted: false,
-            ...entry.user
-          }
-        };
-      }
-
-      setUsersMap(normalized);
-      localStorage.setItem('workwise_users', JSON.stringify(normalized));
-    };
-
-    initializeUsers();
-  }, []);
-
-  const saveUsers = (next: UsersMap) => {
-    setUsersMap(next);
-    localStorage.setItem('workwise_users', JSON.stringify(next));
+    return headers;
   };
 
+  const fetchUsers = async (authToken: string) => {
+    if (!API_BASE) return false;
+    try {
+      const response = await fetch(`${API_BASE}/api/users`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to load users');
+      }
+      const result = await response.json();
+      const parsedUsers = result.map((row: any) => parseApiUser(row));
+      setUsers(parsedUsers);
+      return true;
+    } catch (error) {
+      console.warn('Failed to fetch users from backend', error);
+      return false;
+    }
+  };
+
+  const fetchCurrentUser = async (authToken: string) => {
+    if (!API_BASE) return false;
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/me`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error('Session expired');
+      }
+      const result = await response.json();
+      const currentUser = parseApiUser(result);
+      setUser(currentUser);
+      localStorage.setItem('workwise_token', authToken);
+      localStorage.setItem('workwise_user', JSON.stringify(currentUser));
+      if (currentUser.role === 'admin') {
+        await fetchUsers(authToken);
+      }
+      return true;
+    } catch (error) {
+      console.warn('Failed to restore backend session', error);
+      logout();
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const storedToken = localStorage.getItem('workwise_token');
+    if (storedToken) {
+      setToken(storedToken);
+      fetchCurrentUser(storedToken);
+    }
+  }, []);
+
   const login = async (email: string, password: string) => {
-    const account = usersMap[email];
-    if (!account) {
+    if (!API_BASE) {
+      const account = demoUsers[email];
+      if (account && account.password === password) {
+        setUser(account.user);
+        localStorage.setItem('workwise_user', JSON.stringify(account.user));
+        return { success: true, termsAccepted: !!account.user.termsAccepted };
+      }
       return { success: false };
     }
 
-    const hashedPassword = await hashPassword(password);
-    if (account.password !== hashedPassword) {
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!response.ok) {
+        throw new Error('Invalid credentials');
+      }
+      const result = await response.json();
+      const authToken = result.token;
+      const currentUser = parseApiUser(result.user);
+      setToken(authToken);
+      setUser(currentUser);
+      localStorage.setItem('workwise_token', authToken);
+      localStorage.setItem('workwise_user', JSON.stringify(currentUser));
+      if (currentUser.role === 'admin') {
+        await fetchUsers(authToken);
+      }
+      return { success: true, termsAccepted: true };
+    } catch (error) {
+      console.warn('Login failed', error);
       return { success: false };
     }
-
-    setUser(account.user);
-    localStorage.setItem('workwise_user', JSON.stringify(account.user));
-    return { success: true, termsAccepted: !!account.user.termsAccepted };
   };
 
   const logout = () => {
     setUser(null);
+    setToken(null);
+    setUsers([]);
+    localStorage.removeItem('workwise_token');
     localStorage.removeItem('workwise_user');
   };
 
   const acceptTerms = () => {
     if (!user) return;
-    const account = usersMap[user.email];
-    if (!account) return;
-
-    const updatedUser = { ...account.user, termsAccepted: true };
-    const next = {
-      ...usersMap,
-      [user.email]: {
-        ...account,
-        user: updatedUser
-      }
-    };
-
-    saveUsers(next);
-    setUser(updatedUser);
-    localStorage.setItem('workwise_user', JSON.stringify(updatedUser));
+    const acceptedUser = { ...user, termsAccepted: true };
+    setUser(acceptedUser);
+    localStorage.setItem('workwise_user', JSON.stringify(acceptedUser));
   };
 
   const forgotPassword = async (email: string) => {
-    const account = usersMap[email];
-    if (!account) return null;
-
-    const token = crypto.randomUUID ? crypto.randomUUID() : Array.from(window.crypto.getRandomValues(new Uint8Array(16))).map((b) => b.toString(16).padStart(2, '0')).join('');
-    const expiry = Date.now() + 1000 * 60 * 30;
-    const next = {
-      ...usersMap,
-      [email]: {
-        ...account,
-        resetToken: token,
-        resetTokenExpiry: expiry
-      }
-    };
-
-    saveUsers(next);
-    return token;
+    return null;
   };
 
-  const getUserEmailByResetToken = (token: string) => {
-    return Object.keys(usersMap).find((email) => usersMap[email].resetToken === token) || null;
-  };
+  const getUserEmailByResetToken = (token: string) => null;
 
-  const validateResetToken = (token: string) => {
-    const email = getUserEmailByResetToken(token);
-    if (!email) return false;
-    const account = usersMap[email];
-    return Boolean(account.resetToken === token && account.resetTokenExpiry && account.resetTokenExpiry > Date.now());
-  };
+  const validateResetToken = (token: string) => false;
 
-  const resetPassword = async (token: string, newPassword: string) => {
-    const email = getUserEmailByResetToken(token);
-    if (!email) return false;
-
-    const account = usersMap[email];
-    if (!account || account.resetToken !== token || !account.resetTokenExpiry || account.resetTokenExpiry < Date.now()) {
-      return false;
-    }
-
-    const hashedPassword = await hashPassword(newPassword);
-    const next = {
-      ...usersMap,
-      [email]: {
-        ...account,
-        password: hashedPassword,
-        resetToken: undefined,
-        resetTokenExpiry: undefined
-      }
-    };
-
-    saveUsers(next);
-    return true;
-  };
+  const resetPassword = async (token: string, newPassword: string) => false;
 
   const changePassword = async (currentPassword: string, newPassword: string) => {
-    if (!user) return false;
-    const account = usersMap[user.email];
-    if (!account) return false;
-
-    const currentHash = await hashPassword(currentPassword);
-    if (account.password !== currentHash) {
+    if (!API_BASE || !getAuthToken()) {
       return false;
     }
 
-    const newHash = await hashPassword(newPassword);
-    const next = {
-      ...usersMap,
-      [user.email]: {
-        ...account,
-        password: newHash,
-        resetToken: undefined,
-        resetTokenExpiry: undefined
-      }
-    };
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/change-password`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
 
-    saveUsers(next);
-    return true;
+      return response.ok;
+    } catch (error) {
+      console.error('Change password error:', error);
+      return false;
+    }
   };
 
-  const updateUser = (updated: User) => {
-    const existingKey = Object.keys(usersMap).find((email) => usersMap[email].user.id === updated.id);
-    if (!existingKey) return false;
+  const getNameParts = (fullName: string) => {
+    const parts = fullName.trim().split(' ').filter(Boolean);
+    return {
+      first_name: parts[0] || '',
+      last_name: parts.slice(1).join(' ') || '',
+    };
+  };
 
-    if (updated.email !== existingKey && usersMap[updated.email]) {
+  const createUser = async (newUser: User, password: string, assignment_group_id?: number) => {
+    const authToken = getAuthToken();
+    if (!API_BASE || !authToken) {
       return false;
     }
 
-    const existing = usersMap[existingKey];
-    const nextMap = { ...usersMap };
-
-    if (updated.email !== existingKey) {
-      delete nextMap[existingKey];
-    }
-
-    nextMap[updated.email] = {
-      ...existing,
-      user: {
-        ...existing.user,
-        ...updated
+    try {
+      const { first_name, last_name } = getNameParts(newUser.name);
+      const response = await fetch(`${API_BASE}/api/users`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          first_name,
+          last_name,
+          email: newUser.email,
+          password,
+          role: newUser.role,
+          assignment_group_id: (assignment_group_id ?? newUser.assignment_group_id) || null,
+        }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Create user failed', response.status, errorText);
+        return false;
       }
-    };
-
-    saveUsers(nextMap);
-
-    if (user?.id === updated.id) {
-      setUser(nextMap[updated.email].user);
-      localStorage.setItem('workwise_user', JSON.stringify(nextMap[updated.email].user));
+      const createdUser = parseApiUser(await response.json());
+      setUsers((prev) => [createdUser, ...prev]);
+      return true;
+    } catch (error) {
+      console.error('Create user error:', error);
+      return false;
     }
-
-    return true;
   };
 
-  const createUser = async (newUser: User, password: string) => {
-    if (usersMap[newUser.email]) return false;
-
-    const hashedPassword = await hashPassword(password);
-    const next = {
-      ...usersMap,
-      [newUser.email]: {
-        password: hashedPassword,
-        user: {
-          ...newUser,
-          termsAccepted: false
-        }
-      }
-    };
-
-    saveUsers(next);
-    return true;
-  };
-
-  const deleteUser = (emailToDelete: string) => {
-    if (!usersMap[emailToDelete]) return false;
-    const allUsers = Object.values(usersMap).map((entry) => entry.user);
-    const adminCount = allUsers.filter((u) => u.role === 'admin').length;
-    if (usersMap[emailToDelete].user.role === 'admin' && adminCount <= 1) return false;
-
-    const copy = { ...usersMap };
-    delete copy[emailToDelete];
-    saveUsers(copy);
-
-    if (user?.email === emailToDelete) {
-      setUser(null);
-      localStorage.removeItem('workwise_user');
+  const updateUser = async (updated: User) => {
+    if (!API_BASE || !token) {
+      return false;
     }
 
-    return true;
+    try {
+      const { first_name, last_name } = getNameParts(updated.name);
+      const response = await fetch(`${API_BASE}/api/users/${updated.id}`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          first_name,
+          last_name,
+          role: updated.role,
+          assignment_group_id: updated.assignment_group_id ?? null,
+        }),
+      });
+      if (!response.ok) {
+        return false;
+      }
+      const parsedUser = parseApiUser(await response.json());
+      setUsers((prev) => prev.map((user) => (user.id === parsedUser.id ? parsedUser : user)));
+      if (user?.id === parsedUser.id) {
+        setUser(parsedUser);
+        localStorage.setItem('workwise_user', JSON.stringify(parsedUser));
+      }
+      return true;
+    } catch (error) {
+      console.error('Update user error:', error);
+      return false;
+    }
+  };
+
+  const deleteUser = async (emailToDelete: string) => {
+    if (!API_BASE || !token) {
+      return false;
+    }
+
+    const existing = users.find((u) => u.email === emailToDelete);
+    if (!existing) {
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/users/${existing.id}`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        return false;
+      }
+      setUsers((prev) => prev.filter((u) => u.id !== existing.id));
+      return true;
+    } catch (error) {
+      console.error('Delete user error:', error);
+      return false;
+    }
   };
 
   return (
@@ -336,7 +353,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         validateResetToken,
         resetPassword,
         changePassword,
-        getUserEmailByResetToken
+        getUserEmailByResetToken,
       }}
     >
       {children}

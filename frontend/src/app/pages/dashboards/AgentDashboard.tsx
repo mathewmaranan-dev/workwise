@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { ListTodo, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { tickets as seedDataTickets, getCategoryById, getPriorityById, getStatusById, users } from '../../data/seedData';
+import { tickets as seedDataTickets } from '../../data/seedData';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -10,21 +10,117 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 const COLORS = ['#4F46E5', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6'];
 
 export default function AgentDashboard({ showAgentSelector = false }: { showAgentSelector?: boolean }) {
-  const { user } = useAuth();
+  const { user, users: authUsers } = useAuth();
   const { data: uploadedData } = useData();
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [backendTickets, setBackendTickets] = useState<any[] | null>(null);
+  const [loadingTickets, setLoadingTickets] = useState(false);
 
-  // Use uploaded data if available, otherwise use seed data
-  const currentTickets = (uploadedData && uploadedData.length > 0) ? uploadedData : seedDataTickets;
+  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || '';
+  const token = typeof window !== 'undefined' ? localStorage.getItem('workwise_token') : null;
 
-  // Get all agents (users with role_id 4 = agent)
-  const agents = users.filter(u => u.role_id === 4);
-  const [selectedAgent, setSelectedAgent] = useState<number | null>(showAgentSelector ? (agents[0]?.user_id ?? null) : null);
+  // Use backend tickets if loaded, otherwise use uploaded or seed data.
+  const currentTickets = backendTickets !== null
+    ? backendTickets
+    : (uploadedData && uploadedData.length > 0) ? uploadedData : seedDataTickets;
+
+  // Get all agents from backend users
+  const agents = authUsers.filter(u => u.role === 'agent');
+  const [selectedAgent, setSelectedAgent] = useState<number | null>(showAgentSelector ? (agents[0]?.id ? parseInt(agents[0].id, 10) : null) : null);
   const currentUserId = user ? parseInt(user.id, 10) : null;
+
+  useEffect(() => {
+    if (showAgentSelector && selectedAgent === null && agents.length > 0) {
+      setSelectedAgent(parseInt(agents[0].id, 10));
+    }
+  }, [showAgentSelector, selectedAgent, agents]);
   const currentAgent = showAgentSelector
-    ? selectedAgent !== null ? agents.find(a => a.user_id === selectedAgent) : null
-    : currentUserId !== null ? agents.find(a => a.user_id === currentUserId) : null;
+    ? selectedAgent !== null ? agents.find(a => parseInt(a.id, 10) === selectedAgent) : null
+    : (user?.role === 'agent' && currentUserId !== null)
+      ? { user_id: currentUserId, first_name: user.first_name || '', last_name: user.last_name || '', email: user.email }
+      : null;
+
+  const getStatusId = (ticket: any): number => {
+    if (ticket?.status) {
+      const statusText = String(ticket.status || ticket.status_name || '').toLowerCase();
+      const statusMap: Record<string, number> = {
+        'resolved': 3,
+        'closed': 4,
+        'in progress': 2,
+        'on hold': 5,
+        'open': 6,
+        'new': 1
+      };
+      return statusMap[statusText] || 1;
+    }
+
+    if (ticket?.status_id !== undefined && ticket?.status_id !== null) {
+      return Number(ticket.status_id);
+    }
+
+    return 1;
+  };
+
+  const isResolvedOrClosed = (ticket: any): boolean => {
+    if (ticket?.status) {
+      const statusId = getStatusId(ticket);
+      return statusId === 3 || statusId === 4;
+    }
+    return Number(ticket?.status_id) === 3;
+  };
+
+  const getPriorityLabel = (ticket: any): string => {
+    if (ticket?.priority) return ticket.priority;
+    const map: Record<number, string> = {
+      1: 'Low',
+      2: 'Medium',
+      3: 'High',
+      4: 'Critical'
+    };
+    return map[Number(ticket?.priority_id)] || 'Unknown';
+  };
+
+  const getCategoryLabel = (ticket: any): string => {
+    if (ticket?.category) return ticket.category;
+    const map: Record<number, string> = {
+      1: 'Password',
+      2: 'Server',
+      3: 'Network',
+      4: 'Software',
+      5: 'Hardware'
+    };
+    return map[Number(ticket?.category_id)] || 'Uncategorized';
+  };
+
+  useEffect(() => {
+    if (!apiBase || !user || user.role !== 'agent' || !token) return;
+
+    setLoadingTickets(true);
+    fetch(`${apiBase}/api/tickets?assigned_to=${user.id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('Failed to load agent tickets');
+        }
+        return response.json();
+      })
+      .then((data) => {
+        setBackendTickets(Array.isArray(data) ? data : []);
+      })
+      .catch((error) => {
+        console.warn('Failed to load agent tickets from backend', error);
+        setBackendTickets([]);
+      })
+      .finally(() => {
+        setLoadingTickets(false);
+      });
+  }, [apiBase, user, token]);
 
   if (!currentAgent) {
     return (
@@ -43,33 +139,16 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
         return assignedToId === currentAgent.user_id;
       })
     : currentTickets.slice(0, 50);
-  
-  // Map CSV status text to status codes for filtering
-  const getStatusId = (statusText: string): number => {
-    const statusMap: Record<string, number> = {
-      'resolved': 3,
-      'closed': 4,
-      'in progress': 2,
-      'on hold': 5,
-      'open': 6,
-      'new': 1
-    };
-    return statusMap[statusText.toLowerCase()] || 1;
-  };
 
-  const openTickets = agentTickets.filter(t => {
-    const statusId = getStatusId((t as any).status || '');
-    return statusId !== 3 && statusId !== 4;
-  });
+  const openTickets = agentTickets.filter(t => !isResolvedOrClosed(t));
   
   const closedToday = agentTickets.filter(t => {
-    const statusId = getStatusId((t as any).status || '');
-    return (statusId === 3 || statusId === 4) && 
+    return isResolvedOrClosed(t) &&
       (t as any).resolved_date &&
       new Date((t as any).resolved_date).toDateString() === new Date().toDateString();
   });
 
-  // Calculate average resolution time (uses duration field from CSV)
+  // Calculate average resolution time (uses duration field from CSV or DB)
   const ticketsWithDuration = agentTickets.filter(t => (t as any).duration && (t as any).duration > 0);
   const avgResolutionHours = ticketsWithDuration.length > 0
     ? (ticketsWithDuration.reduce((sum, t) => sum + ((t as any).duration || 0), 0) / ticketsWithDuration.length / 60).toFixed(1)
@@ -78,15 +157,15 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
   // Apply filters
   let filteredTickets = openTickets;
   if (priorityFilter !== 'all') {
-    filteredTickets = filteredTickets.filter(t => (t as any).priority === priorityFilter);
+    filteredTickets = filteredTickets.filter(t => getPriorityLabel(t) === priorityFilter);
   }
   if (categoryFilter !== 'all') {
-    filteredTickets = filteredTickets.filter(t => (t as any).category === categoryFilter);
+    filteredTickets = filteredTickets.filter(t => getCategoryLabel(t) === categoryFilter);
   }
 
-  // Calculate category distribution from CSV category field
+  // Calculate category distribution from CSV or DB category field
   const categoryData = agentTickets.reduce((acc, ticket) => {
-    const category = (ticket as any).category || 'Uncategorized';
+    const category = getCategoryLabel(ticket);
     acc[category] = (acc[category] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
@@ -96,10 +175,10 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
     value: count
   }));
 
-  // Priority distribution from CSV priority field
+  // Priority distribution from CSV or DB priority field
   const priorityMap: Record<string, number> = {};
   agentTickets.forEach(t => {
-    const priority = (t as any).priority || 'Unknown';
+    const priority = getPriorityLabel(t);
     priorityMap[priority] = (priorityMap[priority] || 0) + 1;
   });
 
@@ -137,8 +216,8 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
               </SelectTrigger>
               <SelectContent>
                 {agents.map(agent => (
-                  <SelectItem key={agent.user_id} value={agent.user_id.toString()}>
-                    {agent.first_name} {agent.last_name}
+                  <SelectItem key={agent.id} value={agent.id}>
+                    {agent.first_name || agent.name} {agent.last_name || ''}
                   </SelectItem>
                 ))}
               </SelectContent>

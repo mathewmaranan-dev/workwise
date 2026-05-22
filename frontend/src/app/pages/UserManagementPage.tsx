@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -12,20 +12,12 @@ import { assignmentGroups } from '../data/seedData';
 
 interface AppUser extends AuthUser { createdAt: string }
 
-// Common weak passwords to reject
-const WEAK_PASSWORDS = [
-  'password', 'password1', 'password123', '123456', '12345678',
-  'qwerty', 'abc123', 'letmein', 'welcome', 'admin', 'user'
-];
-
 export default function UserManagementPage() {
   const { users: authUsers, createUser, updateUser, deleteUser } = useAuth();
   const [users, setUsers] = React.useState<AppUser[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
-  const [emailManuallyEdited, setEmailManuallyEdited] = useState(false);
   const [emailSuggestion, setEmailSuggestion] = useState('');
-  const [passwordError, setPasswordError] = useState('');
   
   const [formData, setFormData] = useState({
     firstName: '',
@@ -33,14 +25,74 @@ export default function UserManagementPage() {
     email: '',
     name: '',
     role: 'agent' as UserRole,
-    password: '',
     assignment_group_id: undefined as number | undefined
   });
 
   // Sanitize name for email generation
   const sanitizeForEmail = (str: string): string => {
-    // Remove spaces and apostrophes, keep only letters and digits
+    // Remove apostrophes and whitespace for the generated email local part
     return str.replace(/[\s']/g, '').replace(/[^a-zA-Z0-9]/g, '');
+  };
+
+  const capitalizeName = (value: string): string => {
+    return value
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  };
+
+  const getNextUserId = (): number => {
+    return users.reduce((maxId, user) => {
+      const numericId = Number(user.id);
+      return Number.isFinite(numericId) ? Math.max(maxId, numericId) : maxId;
+    }, 0) + 1;
+  };
+
+  const previewEmail = (firstName: string, lastName: string): string => {
+    if (!firstName || !lastName) return '';
+
+    const sanitizedFirst = sanitizeForEmail(firstName).toLowerCase();
+    const sanitizedLast = sanitizeForEmail(lastName).toLowerCase();
+    const nextId = getNextUserId();
+
+    return `${sanitizedFirst}.${sanitizedLast}${String(nextId).padStart(5, '0')}@workwise.it.com`;
+  };
+
+  const fetchSuggestedEmail = async (firstName: string, lastName: string) => {
+    if (!firstName || !lastName) return;
+
+    const fallbackEmail = previewEmail(firstName, lastName);
+    setFormData((prev) => ({
+      ...prev,
+      name: `${capitalizeName(firstName)} ${capitalizeName(lastName)}`.trim(),
+      email: fallbackEmail,
+    }));
+
+    try {
+      const token = localStorage.getItem('workwise_token');
+      const params = new URLSearchParams({ first_name: firstName, last_name: lastName });
+      const response = await fetch(`/api/users/next-email?${params.toString()}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+
+      if (!response.ok) {
+        setEmailSuggestion('Using local email preview while backend suggestion is unavailable.');
+        return;
+      }
+
+      const data = await response.json();
+      setFormData((prev) => ({
+        ...prev,
+        name: data.full_name || `${capitalizeName(firstName)} ${capitalizeName(lastName)}`.trim(),
+        email: data.email || prev.email,
+      }));
+      setEmailSuggestion('Auto-generated email using next available user ID.');
+    } catch (error) {
+      console.error('Failed to fetch email suggestion', error);
+      setEmailSuggestion('Using local email preview while backend suggestion is unavailable.');
+    }
   };
 
   // Generate unique email
@@ -54,15 +106,14 @@ export default function UserManagementPage() {
     const firstCap = sanitizedFirst.charAt(0).toUpperCase() + sanitizedFirst.slice(1);
     const lastCap = sanitizedLast.charAt(0).toUpperCase() + sanitizedLast.slice(1);
     
-    const baseEmail = `${firstCap}${lastCap}@workwise.app`;
+    const baseEmail = `${sanitizeForEmail(firstName).toLowerCase()}.${sanitizeForEmail(lastName).toLowerCase()}@workwise.it.com`;
     
-    // Check if email exists
     let finalEmail = baseEmail;
-    let counter = 2;
+    let counter = 1;
     
     while (users.some(u => u.email.toLowerCase() === finalEmail.toLowerCase())) {
-      finalEmail = `${firstCap}${lastCap}${counter}@workwise.app`;
-      counter++;
+      counter += 1;
+      finalEmail = `${sanitizeForEmail(firstName).toLowerCase()}.${sanitizeForEmail(lastName).toLowerCase()}${String(counter).padStart(5, '0')}@workwise.it.com`;
     }
     
     if (finalEmail !== baseEmail) {
@@ -74,135 +125,96 @@ export default function UserManagementPage() {
     return finalEmail;
   };
 
-  // Validate password strength
-  const validatePassword = (password: string): string => {
-    if (!password) return '';
-    
-    if (password.length < 8) {
-      return 'Use at least 8 characters.';
-    }
-    
-    const hasLetter = /[a-zA-Z]/.test(password);
-    const hasNumber = /[0-9]/.test(password);
-    const hasSymbol = /[!@#$%^&*?_+=\-]/.test(password);
-    
-    if (!hasLetter || !hasNumber || !hasSymbol) {
-      return 'Add letters, numbers, and a symbol.';
-    }
-    
-    // Check for weak passwords
-    const lowerPassword = password.toLowerCase();
-    if (WEAK_PASSWORDS.some(weak => lowerPassword.includes(weak))) {
-      return 'Avoid using your name or very common passwords.';
-    }
-    
-    // Check if password contains first or last name
-    const firstName = formData.firstName.trim().toLowerCase();
-    const lastName = formData.lastName.trim().toLowerCase();
-    
-    if (firstName && lowerPassword.includes(firstName)) {
-      return 'Avoid using your name or very common passwords.';
-    }
-    
-    if (lastName && lowerPassword.includes(lastName)) {
-      return 'Avoid using your name or very common passwords.';
-    }
-    
-    return '';
-  };
 
   // Auto-fill full name and email when first and last names are available
   const handleFirstNameChange = (value: string) => {
     const trimmedValue = value.trim();
+    const currentLastName = formData.lastName.trim();
     setFormData(prev => {
-      const newData = {
+      const newName = trimmedValue && currentLastName
+        ? `${capitalizeName(trimmedValue)} ${capitalizeName(currentLastName)}`
+        : prev.name;
+
+      return {
         ...prev,
         firstName: value,
-        name: trimmedValue && prev.lastName.trim() ? `${trimmedValue} ${prev.lastName.trim()}` : prev.name
+        name: newName,
       };
-      
-      // Auto-generate email if not manually edited
-      if (!emailManuallyEdited && trimmedValue && prev.lastName.trim()) {
-        newData.email = generateEmail(trimmedValue, prev.lastName.trim());
-      }
-      
-      return newData;
     });
-    
-    // Revalidate password if it exists
-    if (formData.password) {
-      setPasswordError(validatePassword(formData.password));
+
+    if (trimmedValue && currentLastName) {
+      fetchSuggestedEmail(trimmedValue, currentLastName);
     }
+
   };
 
   const handleLastNameChange = (value: string) => {
     const trimmedValue = value.trim();
+    const currentFirstName = formData.firstName.trim();
     setFormData(prev => {
-      const newData = {
+      const newName = currentFirstName && trimmedValue
+        ? `${capitalizeName(currentFirstName)} ${capitalizeName(trimmedValue)}`
+        : prev.name;
+
+      return {
         ...prev,
         lastName: value,
-        name: prev.firstName.trim() && trimmedValue ? `${prev.firstName.trim()} ${trimmedValue}` : prev.name
+        name: newName,
       };
-      
-      // Auto-generate email if not manually edited
-      if (!emailManuallyEdited && prev.firstName.trim() && trimmedValue) {
-        newData.email = generateEmail(prev.firstName.trim(), trimmedValue);
-      }
-      
-      return newData;
     });
-    
-    // Revalidate password if it exists
-    if (formData.password) {
-      setPasswordError(validatePassword(formData.password));
+
+    if (currentFirstName && trimmedValue) {
+      fetchSuggestedEmail(currentFirstName, trimmedValue);
     }
+
   };
 
-  const handleEmailChange = (value: string) => {
-    setEmailManuallyEdited(true);
-    setEmailSuggestion('');
-    setFormData(prev => ({ ...prev, email: value }));
+  const handleEmailChange = (_value: string) => {
+    // Email is read-only and auto-generated from the backend.
   };
 
-  const handlePasswordChange = (value: string) => {
-    setFormData(prev => ({ ...prev, password: value }));
-    setPasswordError(validatePassword(value));
-  };
+  useEffect(() => {
+    if (!formData.email && formData.firstName.trim() && formData.lastName.trim()) {
+      fetchSuggestedEmail(formData.firstName.trim(), formData.lastName.trim());
+    }
+  }, [formData.firstName, formData.lastName]);
 
   // Check if form is valid
+  const getEffectiveEmail = () => {
+    const trimmedEmail = formData.email.trim();
+    if (trimmedEmail) {
+      return trimmedEmail.toLowerCase();
+    }
+
+    return previewEmail(formData.firstName, formData.lastName).toLowerCase();
+  };
+
   const isFormValid = (): boolean => {
     const trimmedFirstName = formData.firstName.trim();
     const trimmedLastName = formData.lastName.trim();
-    const trimmedEmail = formData.email.trim();
+    const trimmedEmail = getEffectiveEmail();
     const trimmedName = formData.name.trim();
-    const trimmedPassword = formData.password.trim();
-    
-    if (!trimmedFirstName || !trimmedLastName || !trimmedName || !trimmedEmail || !trimmedPassword) {
+
+    if (!trimmedFirstName || !trimmedLastName || !trimmedName || !trimmedEmail) {
       return false;
     }
-    
+
     // Check email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(trimmedEmail)) {
       return false;
     }
-    
-    // Check password validation
-    if (validatePassword(trimmedPassword)) {
-      return false;
-    }
-    
+
     return true;
   };
 
   const handleAddUser = async () => {
     const trimmedFirstName = formData.firstName.trim();
     const trimmedLastName = formData.lastName.trim();
-    const trimmedEmail = formData.email.trim();
+    const trimmedEmail = getEffectiveEmail();
     const trimmedName = formData.name.trim();
-    const trimmedPassword = formData.password.trim();
-    
-    if (!trimmedFirstName || !trimmedLastName || !trimmedEmail || !trimmedName || !trimmedPassword) {
+
+    if (!trimmedFirstName || !trimmedLastName || !trimmedEmail || !trimmedName) {
       toast.error('Please fill in all required fields');
       return;
     }
@@ -220,24 +232,24 @@ export default function UserManagementPage() {
       return;
     }
     
-    // Password validation
-    const passwordValidation = validatePassword(trimmedPassword);
-    if (passwordValidation) {
-      toast.error('Please provide a stronger password');
-      return;
-    }
-
     const newUser: AppUser = {
       id: Date.now().toString(),
       email: trimmedEmail,
       name: trimmedName,
       role: formData.role,
-      createdAt: new Date().toISOString().split('T')[0]
+      createdAt: new Date().toISOString().split('T')[0],
+      first_name: formData.firstName.trim(),
+      last_name: formData.lastName.trim(),
+      assignment_group_id: formData.assignment_group_id,
     };
 
-    const created = await createUser({ id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role }, trimmedPassword);
+    const created = await createUser(
+      { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role, first_name: newUser.first_name, last_name: newUser.last_name, assignment_group_id: newUser.assignment_group_id },
+      '',
+      newUser.assignment_group_id
+    );
     if (!created) {
-      toast.error('Email already exists');
+      toast.error('Email already exists or backend failed');
       return;
     }
 
@@ -275,10 +287,8 @@ export default function UserManagementPage() {
   };
 
   const resetForm = () => {
-    setFormData({ firstName: '', lastName: '', email: '', name: '', role: 'agent', password: '', assignment_group_id: undefined });
-    setEmailManuallyEdited(false);
+    setFormData({ firstName: '', lastName: '', email: '', name: '', role: 'agent', assignment_group_id: undefined });
     setEmailSuggestion('');
-    setPasswordError('');
   };
 
   const openEditDialog = (user: AppUser) => {
@@ -289,7 +299,7 @@ export default function UserManagementPage() {
       email: user.email,
       name: user.name,
       role: user.role,
-      password: ''
+      assignment_group_id: user.assignment_group_id
     });
   };
 
@@ -391,10 +401,10 @@ export default function UserManagementPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="john@workwise.app"
-                    value={formData.email}
-                    onChange={(e) => handleEmailChange(e.target.value)}
-                    className="pl-10"
+                    placeholder="auto-generated"
+                    value={formData.email || previewEmail(formData.firstName, formData.lastName)}
+                    readOnly
+                    className="pl-10 bg-gray-100 cursor-not-allowed"
                   />
                 </div>
                 {emailSuggestion && (
@@ -402,24 +412,9 @@ export default function UserManagementPage() {
                     {emailSuggestion}
                   </div>
                 )}
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Mix of letters, numbers, and symbols"
-                    value={formData.password}
-                    onChange={(e) => handlePasswordChange(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-                {passwordError && (
-                  <div className="text-sm text-red-500 mt-1">
-                    {passwordError}
+                {formData.email && (
+                  <div className="text-sm text-gray-500 mt-1">
+                    Password is auto-generated from the same user-name pattern in camel-casing.
                   </div>
                 )}
               </div>

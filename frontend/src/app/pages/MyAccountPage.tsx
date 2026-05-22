@@ -43,24 +43,7 @@ export default function MyAccountPage() {
     return null;
   }
 
-  const handleProfileSave = () => {
-    setProfileError('');
-    setProfileMessage('');
-
-    if (!name.trim()) {
-      setProfileError('Name cannot be empty.');
-      return;
-    }
-
-    const success = updateUser({ ...user, name: name.trim(), email: email.trim() });
-    if (!success) {
-      setProfileError('Unable to update account. Email may already be in use.');
-      return;
-    }
-
-    setProfileMessage('Profile updated successfully.');
-  };
-
+ 
   const handlePasswordSave = async () => {
     setPasswordError('');
     setPasswordMessage('');
@@ -107,18 +90,13 @@ export default function MyAccountPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="account-name">Name</Label>
-              <Input id="account-name" value={name} onChange={(e) => setName(e.target.value)} required />
+              <Input id="account-name" value={name} readOnly className="bg-gray-100 cursor-not-allowed" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="account-email">Email</Label>
-              <Input id="account-email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Input id="account-email" value={email} readOnly className="bg-gray-100 cursor-not-allowed" />
             </div>
           </div>
-
-          {profileError && <p className="text-red-600 text-sm">{profileError}</p>}
-          {profileMessage && <p className="text-green-600 text-sm">{profileMessage}</p>}
-
-          <Button onClick={handleProfileSave}>Save Profile</Button>
         </CardContent>
       </Card>
 

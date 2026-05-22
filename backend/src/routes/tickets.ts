@@ -17,7 +17,7 @@ router.get('/', verifyToken, async (req, res) => {
       params.push(status);
     }
     if (assigned_to) {
-      queryStr += ` AND assigned_to = $${params.length + 1}`;
+      queryStr += ` AND assigned_to_id = $${params.length + 1}`;
       params.push(assigned_to);
     }
     if (priority) {

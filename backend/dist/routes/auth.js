@@ -11,7 +11,10 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ error: 'Email and password required' });
         }
         // Query user from database
-        const result = await query('SELECT id, email, password_hash, role FROM users WHERE email = $1', [email]);
+        const result = await query(`SELECT u.user_id AS id, u.email, u.password_hash, r.role_name AS role
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       WHERE u.email = $1`, [email]);
         if (result.rows.length === 0) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
@@ -46,7 +49,10 @@ router.get('/me', async (req, res) => {
         if (!req.user) {
             return res.status(401).json({ error: 'Not authenticated' });
         }
-        const result = await query('SELECT id, email, first_name, last_name, role FROM users WHERE id = $1', [req.user.id]);
+        const result = await query(`SELECT u.user_id AS id, u.email, u.first_name, u.last_name, r.role_name AS role
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       WHERE u.user_id = $1`, [req.user.id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });
         }

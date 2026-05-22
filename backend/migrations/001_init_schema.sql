@@ -309,6 +309,10 @@ ON CONFLICT (group_name) DO NOTHING;
 -- =====================================================
 
 INSERT INTO users (first_name, last_name, email, password_hash, role_id, assignment_group_id) VALUES
+  ('Default', 'Admin', 'admin@workwise.app', '$2b$10$2VoxOI8W4TCNUzwpU7eKrOnIOWnxgPJVtXjeL4QAV3R5vXx15SlIm', (SELECT role_id FROM roles WHERE role_name = 'admin'), NULL),
+  ('Default', 'Manager', 'manager@workwise.app', '$2b$10$0aNsmFjqK2dnWvc/xSZcp.qGVTKGCEwT8p6CV7bjvQPdR.2Wxzr7O', (SELECT role_id FROM roles WHERE role_name = 'manager'), (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Software Team')),
+  ('Default', 'HR', 'hr@workwise.app', '$2b$10$Q6SMrnE.0x9cmMYwhDMmw.nrzI7GaUxGkSKH4PGVJeTawPaQZW4SC', (SELECT role_id FROM roles WHERE role_name = 'hr'), NULL),
+  ('Default', 'Agent', 'agent@workwise.app', '$2b$10$./LleYt0MHErGkhRaERoyeKb43CSBH05MjquLlrfkDM8WsB77hODK', (SELECT role_id FROM roles WHERE role_name = 'agent'), (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Service Desk')),
   ('Laura', 'Diaz', 'laura.diaz@company.com', '$2b$10$dummy_hash_1', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Software Team')),
   ('Ulises', 'Gomez', 'ulises.gomez@company.com', '$2b$10$dummy_hash_2', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Network Team')),
   ('Alice', 'Mendoza', 'alice.mendoza@company.com', '$2b$10$dummy_hash_3', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Service Desk')),
