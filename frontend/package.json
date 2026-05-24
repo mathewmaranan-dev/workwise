@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "generate:synthetic-csv": "npx tsc ./scripts/generateSyntheticCsv.ts --module es2020 --target es2020 --moduleResolution node --outDir ./scripts/dist && node ./scripts/dist/generateSyntheticCsv.js"
+    "generate:synthetic-csv": "npx tsc ./scripts/generateSyntheticCsv.ts --module Node16 --target ES2020 --moduleResolution Node16 --outDir ./scripts/dist && node ./scripts/dist/scripts/generateSyntheticCsv.js"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

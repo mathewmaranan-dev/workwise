@@ -1,0 +1,21 @@
+agent_id,assignment_group_id,active_tickets,average_resolution_time,sla_compliance,fcr_rate,reopen_rate,workload_ratio,extreme_ratio,group_average_tickets,group_max_tickets,group_min_tickets,imbalance_label,imbalance_reason
+101,1,17,274,0.771,0.726,0.215,1.511,3.4,11.25,17,5,true,Agent workload substantially above group average; Large gap between busiest and freest agent; High load with low SLA compliance; SLA compliance below acceptable threshold
+102,1,11,212,0.966,0.811,0.075,0.978,3.4,11.25,17,5,true,Large gap between busiest and freest agent
+103,1,5,102,1,0.897,0,0.444,3.4,11.25,17,5,true,Large gap between busiest and freest agent
+104,1,12,318,0.874,0.656,0.105,1.067,3.4,11.25,17,5,true,Large gap between busiest and freest agent
+201,2,16,185,1,0.789,0.07,0.97,1.2,16.5,18,15,false,Balanced distribution
+202,2,15,256,1,0.86,0.09,0.909,1.2,16.5,18,15,false,Balanced distribution
+203,2,17,293,0.99,0.71,0.061,1.03,1.2,16.5,18,15,false,Balanced distribution
+204,2,18,313,0.972,0.725,0.122,1.091,1.2,16.5,18,15,false,Balanced distribution
+301,3,10,214,0.859,0.741,0.099,1.176,2.8,8.5,14,5,true,Large gap between busiest and freest agent
+302,3,5,220,1,0.726,0,0.588,2.8,8.5,14,5,true,Large gap between busiest and freest agent
+303,3,5,181,1,0.899,0.031,0.588,2.8,8.5,14,5,true,Large gap between busiest and freest agent
+304,3,14,269,0.646,0.682,0.153,1.647,2.8,8.5,14,5,true,Agent workload substantially above group average; Large gap between busiest and freest agent; High load with low SLA compliance; SLA compliance below acceptable threshold
+401,4,9,313,0.848,0.711,0.138,1.125,3.5,8,14,4,true,Large gap between busiest and freest agent
+402,4,5,242,1,0.836,0.002,0.625,3.5,8,14,4,true,Large gap between busiest and freest agent
+403,4,4,134,1,0.886,0.047,0.5,3.5,8,14,4,true,Large gap between busiest and freest agent
+404,4,14,343,0.646,0.656,0.216,1.75,3.5,8,14,4,true,Agent workload substantially above group average; Large gap between busiest and freest agent; High load with low SLA compliance; SLA compliance below acceptable threshold
+501,5,9,159,0.997,0.764,0.059,0.8,1.889,11.25,17,9,false,Balanced distribution
+502,5,17,281,0.769,0.727,0.16,1.511,1.889,11.25,17,9,true,Agent workload substantially above group average; High load with low SLA compliance; SLA compliance below acceptable threshold
+503,5,10,163,1,0.78,0.129,0.889,1.889,11.25,17,9,false,Balanced distribution
+504,5,9,255,1,0.717,0.029,0.8,1.889,11.25,17,9,false,Balanced distribution

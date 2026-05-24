@@ -1,0 +1,527 @@
+import * as Papa from 'papaparse';
+// ============= SEED DATA =============
+export const roles = [
+    { role_id: 1, role_name: 'admin' },
+    { role_id: 2, role_name: 'manager' },
+    { role_id: 3, role_name: 'hr' },
+    { role_id: 4, role_name: 'agent' }
+];
+export const priorities = [
+    { priority_id: 1, priority_level: 'Critical' },
+    { priority_id: 2, priority_level: 'High' },
+    { priority_id: 3, priority_level: 'Medium' },
+    { priority_id: 4, priority_level: 'Low' }
+];
+export const impacts = [
+    { impact_id: 1, impact_level: 'Critical' },
+    { impact_id: 2, impact_level: 'High' },
+    { impact_id: 3, impact_level: 'Medium' },
+    { impact_id: 4, impact_level: 'Low' }
+];
+export const urgencies = [
+    { urgency_id: 1, urgency_level: 'High' },
+    { urgency_id: 2, urgency_level: 'Medium' },
+    { urgency_id: 3, urgency_level: 'Low' }
+];
+export const assignmentGroups = [
+    { assignment_group_id: 1, group_name: 'Network Team' },
+    { assignment_group_id: 2, group_name: 'Server Team' },
+    { assignment_group_id: 3, group_name: 'Software Team' },
+    { assignment_group_id: 4, group_name: 'Hardware Team' },
+    { assignment_group_id: 5, group_name: 'Service Desk' }
+];
+export const statuses = [
+    { status_id: 1, status_name: 'New' },
+    { status_id: 2, status_name: 'In Progress' },
+    { status_id: 3, status_name: 'Resolved' },
+    { status_id: 4, status_name: 'Closed' },
+    { status_id: 5, status_name: 'On Hold' },
+    { status_id: 6, status_name: 'Open' }
+];
+export const subStatuses = [
+    { sub_status_id: 1, sub_status_name: 'Awaiting User', status_id: 2 },
+    { sub_status_id: 2, sub_status_name: 'In Review', status_id: 2 },
+    { sub_status_id: 3, sub_status_name: 'Pending', status_id: 1 }
+];
+export const categories = [
+    { category_id: 1, category_name: 'Network Issues' },
+    { category_id: 2, category_name: 'Software Installation' },
+    { category_id: 3, category_name: 'Hardware Failure' },
+    { category_id: 4, category_name: 'Account Access' },
+    { category_id: 5, category_name: 'Email Issues' },
+    { category_id: 6, category_name: 'VPN Access' },
+    { category_id: 7, category_name: 'Password Reset' },
+    { category_id: 8, category_name: 'Printer Issues' }
+];
+export const subCategories = [
+    { subcategory_id: 1, subcategory_name: 'WiFi Connectivity', category_id: 1 },
+    { subcategory_id: 2, subcategory_name: 'VPN Issues', category_id: 1 },
+    { subcategory_id: 3, subcategory_name: 'Application License', category_id: 2 },
+    { subcategory_id: 4, subcategory_name: 'System Patching', category_id: 2 }
+];
+export const channels = [
+    { channel_id: 1, channel_name: 'Email' },
+    { channel_id: 2, channel_name: 'Phone' },
+    { channel_id: 3, channel_name: 'Chat' },
+    { channel_id: 4, channel_name: 'Portal' },
+    { channel_id: 5, channel_name: 'Self-Service' }
+];
+export const sources = [
+    { source_id: 1, source_name: 'User Request' },
+    { source_id: 2, source_name: 'System Alert' },
+    { source_id: 3, source_name: 'Management Request' },
+    { source_id: 4, source_name: 'Incident' }
+];
+export const configurationItems = [
+    { config_item_id: 1, item_name: 'Server 1' },
+    { config_item_id: 2, item_name: 'Server 2' },
+    { config_item_id: 3, item_name: 'Workstations' },
+    { config_item_id: 4, item_name: 'Network Equipment' }
+];
+export const slas = [
+    { sla_id: 1, sla_name: 'Critical SLA', sla_hours: 2 },
+    { sla_id: 2, sla_name: 'High Priority SLA', sla_hours: 4 },
+    { sla_id: 3, sla_name: 'Medium Priority SLA', sla_hours: 8 },
+    { sla_id: 4, sla_name: 'Low Priority SLA', sla_hours: 24 }
+];
+// Extended user list including agents and requesters from Quatro_Data
+export const users = [
+    {
+        user_id: 1,
+        first_name: 'Admin',
+        last_name: 'User',
+        email: 'admin@workwise.app',
+        role_id: 1
+    },
+    {
+        user_id: 2,
+        first_name: 'ITSM',
+        last_name: 'Manager',
+        email: 'manager@workwise.app',
+        role_id: 2,
+        assignment_group_id: 1
+    },
+    {
+        user_id: 3,
+        first_name: 'HR',
+        last_name: 'Manager',
+        email: 'hr@workwise.app',
+        role_id: 3
+    },
+    {
+        user_id: 4,
+        first_name: 'IT Support',
+        last_name: 'Agent',
+        email: 'agent@workwise.app',
+        role_id: 4,
+        assignment_group_id: 1
+    },
+    // Agents from Quatro_Data
+    { user_id: 5, first_name: 'Laura', last_name: 'Diaz', email: 'laura.diaz@workwise.app', role_id: 4, assignment_group_id: 2 },
+    { user_id: 6, first_name: 'Ulises', last_name: 'Gomez', email: 'ulises.gomez@workwise.app', role_id: 4, assignment_group_id: 1 },
+    { user_id: 7, first_name: 'Alice', last_name: 'Mendoza', email: 'alice.mendoza@workwise.app', role_id: 4, assignment_group_id: 3 },
+    { user_id: 8, first_name: 'Teresa', last_name: 'Herrera', email: 'teresa.herrera@workwise.app', role_id: 4, assignment_group_id: 1 },
+    { user_id: 9, first_name: 'Kevin', last_name: 'Ramos', email: 'kevin.ramos@workwise.app', role_id: 4, assignment_group_id: 2 },
+    { user_id: 10, first_name: 'Quentin', last_name: 'De Leon', email: 'quentin.deleon@workwise.app', role_id: 4, assignment_group_id: 3 },
+    { user_id: 11, first_name: 'Mark', last_name: 'Castillo', email: 'mark.castillo@workwise.app', role_id: 4, assignment_group_id: 2 },
+    // Requesters from Quatro_Data
+    { user_id: 12, first_name: 'Pennie', last_name: 'Eldredge', email: 'pennie.eldredge@workwise.app', role_id: 4 },
+    { user_id: 13, first_name: 'Lidia', last_name: 'Wrennall', email: 'lidia.wrennall@workwise.app', role_id: 4 },
+    { user_id: 14, first_name: 'Werner', last_name: 'Kettlesting', email: 'werner.kettlesting@workwise.app', role_id: 4 },
+    { user_id: 15, first_name: 'Erena', last_name: 'Benezet', email: 'erena.benezet@workwise.app', role_id: 4 },
+    { user_id: 16, first_name: 'Jakob', last_name: 'Fleisch', email: 'jakob.fleisch@workwise.app', role_id: 4 },
+    { user_id: 17, first_name: 'Debee', last_name: 'Fatharly', email: 'debee.fatharly@workwise.app', role_id: 4 },
+    { user_id: 18, first_name: 'Loren', last_name: 'Isakovitch', email: 'loren.isakovitch@workwise.app', role_id: 4 },
+    { user_id: 19, first_name: 'Normand', last_name: 'Entwisle', email: 'normand.entwisle@workwise.app', role_id: 4 },
+    { user_id: 20, first_name: 'Dino', last_name: "O' Culligan", email: 'dino.oculligan@workwise.app', role_id: 4 },
+    { user_id: 21, first_name: 'Toni', last_name: 'Colcomb', email: 'toni.colcomb@workwise.app', role_id: 4 }
+];
+// ============= CSV PARSING & DATA MANAGEMENT =============
+/**
+ * Parses CSV data matching ERD headers:
+ * ticket_id, created_date, resolved_date, last_reopened_at, duration,
+ * reopen_count, reassignment_count, short_description, work_notes,
+ * made_sla, fcr, requester_id, assigned_to_id, closed_by_id,
+ * assignment_group_id, priority_id, impact_id, urgency_id, status_id,
+ * sub_status_id, category_id, subcategory_id, channel_id, source_id,
+ * config_item_id, sla_id, sla_duedate
+ */
+export const parseCSVData = (csvContent) => {
+    const parsedData = Papa.parse(csvContent, { header: true });
+    const tickets = [];
+    parsedData.data.forEach((row, index) => {
+        // Skip empty rows
+        if (!row.ticket_id || !row.created_date)
+            return;
+        try {
+            const ticket = {
+                ticket_id: String(row.ticket_id).trim(),
+                created_date: new Date(row.created_date).toISOString(),
+                resolved_date: row.resolved_date ? new Date(row.resolved_date).toISOString() : undefined,
+                last_reopened_at: row.last_reopened_at ? new Date(row.last_reopened_at).toISOString() : undefined,
+                duration: row.duration ? parseInt(row.duration) : undefined,
+                reopen_count: row.reopen_count ? parseInt(row.reopen_count) : 0,
+                reassignment_count: row.reassignment_count ? parseInt(row.reassignment_count) : 0,
+                short_description: String(row.short_description || '').trim(),
+                work_notes: row.work_notes ? String(row.work_notes).trim() : undefined,
+                made_sla: String(row.made_sla).toLowerCase() === 'true',
+                fcr: String(row.fcr).toLowerCase() === 'true',
+                requester_id: parseInt(row.requester_id) || 1,
+                assigned_to_id: row.assigned_to_id ? parseInt(row.assigned_to_id) : undefined,
+                closed_by_id: row.closed_by_id ? parseInt(row.closed_by_id) : undefined,
+                assignment_group_id: row.assignment_group_id ? parseInt(row.assignment_group_id) : undefined,
+                priority_id: parseInt(row.priority_id) || 3,
+                impact_id: parseInt(row.impact_id) || 3,
+                urgency_id: parseInt(row.urgency_id) || 2,
+                status_id: parseInt(row.status_id) || 1,
+                sub_status_id: row.sub_status_id ? parseInt(row.sub_status_id) : undefined,
+                category_id: parseInt(row.category_id) || 1,
+                subcategory_id: row.subcategory_id ? parseInt(row.subcategory_id) : undefined,
+                channel_id: parseInt(row.channel_id) || 1,
+                source_id: parseInt(row.source_id) || 1,
+                config_item_id: row.config_item_id ? parseInt(row.config_item_id) : undefined,
+                sla_id: parseInt(row.sla_id) || 3,
+                sla_duedate: row.sla_duedate ? new Date(row.sla_duedate).toISOString() : undefined
+            };
+            tickets.push(ticket);
+        }
+        catch (e) {
+            console.warn(`Error parsing row ${index}:`, e);
+        }
+    });
+    return tickets;
+};
+const calculateWeeklyCounts = (tickets) => {
+    const weeklyCountsMap = {};
+    tickets.forEach(ticket => {
+        const weekStart = new Date(ticket.created_date);
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+        weekStart.setHours(0, 0, 0, 0);
+        const weekStartStr = weekStart.toISOString().split('T')[0];
+        if (!weeklyCountsMap[weekStartStr]) {
+            weeklyCountsMap[weekStartStr] = 0;
+        }
+        weeklyCountsMap[weekStartStr]++;
+    });
+    return Object.entries(weeklyCountsMap)
+        .map(([week_start, ticket_count]) => ({
+        week_start,
+        ticket_count
+    }))
+        .sort((a, b) => new Date(a.week_start).getTime() - new Date(b.week_start).getTime());
+};
+// ============= EXPORTED MUTABLE DATA =============
+export let tickets = [];
+export let weeklyCounts = [];
+// Initialize with Quatro_Data (real CSV data)
+const initializeQuatroData = () => {
+    const quatroTickets = [
+        {
+            ticket_id: '1',
+            created_date: new Date('2025-11-06').toISOString(),
+            resolved_date: undefined,
+            duration: 115.71,
+            reopen_count: 1,
+            reassignment_count: 0,
+            short_description: 'Pellentesque at nulla.',
+            work_notes: 'Fusce posuere felis sed lacus. Morbi sem mauris, laoreet ut, rhoncus aliquet, pulvinar sed, nisl. Nunc rhoncus dui vel sem.',
+            made_sla: true,
+            fcr: true,
+            requester_id: 12,
+            assigned_to_id: 5,
+            closed_by_id: 5,
+            assignment_group_id: 3,
+            priority_id: 4,
+            impact_id: 3,
+            urgency_id: 1,
+            status_id: 3,
+            category_id: 7,
+            channel_id: 2,
+            source_id: 1,
+            sla_id: 4,
+            sla_duedate: new Date('2025-11-07').toISOString()
+        },
+        {
+            ticket_id: '2',
+            created_date: new Date('2025-03-06').toISOString(),
+            resolved_date: undefined,
+            duration: 45.14,
+            reopen_count: 1,
+            reassignment_count: 1,
+            short_description: 'Vivamus in felis eu sapien cursus vestibulum.',
+            work_notes: 'Cras non velit nec nisi vulputate nonummy.',
+            made_sla: false,
+            fcr: true,
+            requester_id: 13,
+            assigned_to_id: 6,
+            closed_by_id: 6,
+            assignment_group_id: 1,
+            priority_id: 4,
+            impact_id: 4,
+            urgency_id: 3,
+            status_id: 5,
+            category_id: 1,
+            channel_id: 2,
+            source_id: 1,
+            sla_id: 4,
+            sla_duedate: new Date('2025-03-07').toISOString()
+        },
+        {
+            ticket_id: '3',
+            created_date: new Date('2025-03-06').toISOString(),
+            resolved_date: undefined,
+            duration: 137.11,
+            reopen_count: 2,
+            reassignment_count: 0,
+            short_description: 'Cras non velit nec nisi vulputate nonummy.',
+            work_notes: 'Nullam porttitor lacus at turpis. Donec posuere metus vitae ipsum.',
+            made_sla: true,
+            fcr: true,
+            requester_id: 14,
+            assigned_to_id: 7,
+            closed_by_id: 7,
+            assignment_group_id: 5,
+            priority_id: 2,
+            impact_id: 2,
+            urgency_id: 2,
+            status_id: 2,
+            category_id: 1,
+            channel_id: 1,
+            source_id: 1,
+            sla_id: 2,
+            sla_duedate: new Date('2025-03-06').toISOString()
+        },
+        {
+            ticket_id: '4',
+            created_date: new Date('2025-02-20').toISOString(),
+            resolved_date: undefined,
+            duration: 151.52,
+            reopen_count: 4,
+            reassignment_count: 0,
+            short_description: 'Donec semper sapien a libero.',
+            work_notes: 'Fusce congue, diam id ornare imperdiet, sapien urna pretium nisl, ut volutpat sapien arcu sed augue. Aliquam erat volutpat. In congue. Etiam justo.',
+            made_sla: true,
+            fcr: false,
+            requester_id: 15,
+            assigned_to_id: 8,
+            closed_by_id: 8,
+            assignment_group_id: 1,
+            priority_id: 3,
+            impact_id: 3,
+            urgency_id: 1,
+            status_id: 2,
+            category_id: 7,
+            channel_id: 3,
+            source_id: 1,
+            sla_id: 3,
+            sla_duedate: new Date('2025-02-20').toISOString()
+        },
+        {
+            ticket_id: '5',
+            created_date: new Date('2025-11-14').toISOString(),
+            resolved_date: new Date('2021-12-11').toISOString(),
+            duration: 130.56,
+            reopen_count: 2,
+            reassignment_count: 0,
+            short_description: 'Pellentesque at nulla.',
+            work_notes: 'Integer tincidunt ante vel ipsum.',
+            made_sla: true,
+            fcr: true,
+            requester_id: 16,
+            assigned_to_id: 9,
+            closed_by_id: 9,
+            assignment_group_id: 3,
+            priority_id: 2,
+            impact_id: 4,
+            urgency_id: 3,
+            status_id: 3,
+            category_id: 1,
+            channel_id: 1,
+            source_id: 1,
+            sla_id: 2,
+            sla_duedate: new Date('2021-12-11').toISOString()
+        },
+        {
+            ticket_id: '6',
+            created_date: new Date('2025-04-19').toISOString(),
+            resolved_date: undefined,
+            duration: 151.67,
+            reopen_count: 2,
+            reassignment_count: 0,
+            short_description: 'Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia Curae; Donec pharetra, magna vestibulum aliquet ultrices, erat tortor sollicitudin mi, sit amet lobortis sapien sapien non mi. Integer ac neque.',
+            work_notes: 'Nulla justo. Aliquam quis turpis eget elit sodales scelerisque. Mauris sit amet eros. Suspendisse accumsan tortor quis turpis. Sed ante.',
+            made_sla: true,
+            fcr: true,
+            requester_id: 17,
+            assigned_to_id: 6,
+            closed_by_id: 6,
+            assignment_group_id: 1,
+            priority_id: 2,
+            impact_id: 2,
+            urgency_id: 2,
+            status_id: 2,
+            category_id: 1,
+            channel_id: 3,
+            source_id: 1,
+            sla_id: 2,
+            sla_duedate: new Date('2025-04-19').toISOString()
+        },
+        {
+            ticket_id: '7',
+            created_date: new Date('2025-05-14').toISOString(),
+            resolved_date: undefined,
+            duration: 26.49,
+            reopen_count: 0,
+            reassignment_count: 0,
+            short_description: 'Sed sagittis. Nam congue, risus semper porta volutpat, quam pede lobortis ligula, sit amet eleifend pede libero quis orci.',
+            work_notes: 'Morbi non quam nec dui luctus rutrum. Nulla tellus.',
+            made_sla: true,
+            fcr: false,
+            requester_id: 18,
+            assigned_to_id: 8,
+            closed_by_id: 8,
+            assignment_group_id: 1,
+            priority_id: 3,
+            impact_id: 3,
+            urgency_id: 1,
+            status_id: 1,
+            category_id: 7,
+            channel_id: 2,
+            source_id: 1,
+            sla_id: 3,
+            sla_duedate: new Date('2025-05-14').toISOString()
+        },
+        {
+            ticket_id: '8',
+            created_date: new Date('2023-01-22').toISOString(),
+            resolved_date: new Date('2023-01-22').toISOString(),
+            duration: 29.48,
+            reopen_count: 2,
+            reassignment_count: 0,
+            short_description: 'Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia Curae; Donec pharetra, magna vestibulum aliquet ultrices, erat tortor sollicitudin mi, sit amet lobortis sapien sapien non mi. Integer ac neque.',
+            work_notes: 'Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia Curae; Donec pharetra, magna vestibulum aliquet ultrices, erat tortor sollicitudin mi, sit amet lobortis sapien sapien non mi.',
+            made_sla: true,
+            fcr: true,
+            requester_id: 19,
+            assigned_to_id: 10,
+            closed_by_id: 10,
+            assignment_group_id: 4,
+            priority_id: 2,
+            impact_id: 4,
+            urgency_id: 2,
+            status_id: 3,
+            category_id: 2,
+            channel_id: 3,
+            source_id: 4,
+            sla_id: 2,
+            sla_duedate: new Date('2023-01-22').toISOString()
+        },
+        {
+            ticket_id: '9',
+            created_date: new Date('2020-07-26').toISOString(),
+            resolved_date: undefined,
+            duration: 143.74,
+            reopen_count: 0,
+            reassignment_count: 0,
+            short_description: 'Aenean auctor gravida sem.',
+            work_notes: 'Maecenas pulvinar lobortis est. Phasellus sit amet erat. Nulla tempus. Vivamus in felis eu sapien cursus vestibulum. Proin eu mi.',
+            made_sla: true,
+            fcr: true,
+            requester_id: 20,
+            assigned_to_id: 11,
+            closed_by_id: 11,
+            assignment_group_id: 3,
+            priority_id: 2,
+            impact_id: 2,
+            urgency_id: 2,
+            status_id: 2,
+            category_id: 2,
+            channel_id: 1,
+            source_id: 1,
+            sla_id: 2,
+            sla_duedate: new Date('2020-07-27').toISOString()
+        },
+        {
+            ticket_id: '10',
+            created_date: new Date('2025-09-10').toISOString(),
+            resolved_date: undefined,
+            duration: 37.01,
+            reopen_count: 4,
+            reassignment_count: 1,
+            short_description: 'Suspendisse potenti. Cras in purus eu magna vulputate luctus.',
+            work_notes: 'Integer ac leo.',
+            made_sla: true,
+            fcr: false,
+            requester_id: 21,
+            assigned_to_id: 5,
+            closed_by_id: 5,
+            assignment_group_id: 3,
+            priority_id: 2,
+            impact_id: 3,
+            urgency_id: 2,
+            status_id: 1,
+            category_id: 2,
+            channel_id: 1,
+            source_id: 1,
+            sla_id: 2,
+            sla_duedate: new Date('2025-09-10').toISOString()
+        }
+    ];
+    return quatroTickets;
+};
+// Initialize on first load with real Quatro_Data
+tickets = initializeQuatroData();
+weeklyCounts = calculateWeeklyCounts(tickets);
+// ============= DATA LOADING =============
+export const loadTicketsFromCSVString = (csvContent) => {
+    const parsedTickets = parseCSVData(csvContent);
+    const parsedWeekly = calculateWeeklyCounts(parsedTickets);
+    return { tickets: parsedTickets, weeklyCounts: parsedWeekly };
+};
+export const setTickets = (newTickets) => {
+    tickets = newTickets;
+    weeklyCounts = calculateWeeklyCounts(newTickets);
+};
+// ============= LOOKUP HELPERS =============
+export const getPriorityById = (id) => priorities.find(p => p.priority_id === id);
+export const getPriorityByLevel = (level) => priorities.find(p => p.priority_level.toLowerCase() === level.toLowerCase());
+export const getImpactById = (id) => impacts.find(i => i.impact_id === id);
+export const getUrgencyById = (id) => urgencies.find(u => u.urgency_id === id);
+export const getAssignmentGroupById = (id) => assignmentGroups.find(g => g.assignment_group_id === id);
+export const getAssignmentGroupByName = (name) => assignmentGroups.find(g => g.group_name.toLowerCase() === name.toLowerCase());
+export const getStatusById = (id) => statuses.find(s => s.status_id === id);
+export const getSubStatusById = (id) => subStatuses.find(ss => ss.sub_status_id === id);
+export const getCategoryById = (id) => categories.find(c => c.category_id === id);
+export const getCategoryByName = (name) => categories.find(c => c.category_name.toLowerCase() === name.toLowerCase());
+export const getChannelById = (id) => channels.find(ch => ch.channel_id === id);
+export const getSourceById = (id) => sources.find(s => s.source_id === id);
+export const getConfigItemById = (id) => configurationItems.find(ci => ci.config_item_id === id);
+export const getSLAById = (id) => slas.find(s => s.sla_id === id);
+export const getUserById = (id) => users.find(u => u.user_id === id);
+export const getUserByEmail = (email) => users.find(u => u.email.toLowerCase() === email.toLowerCase());
+export const getUserByName = (name) => {
+    if (!name)
+        return undefined;
+    const n = String(name).trim();
+    if (!n)
+        return undefined;
+    // Try exact email-like lookup first
+    const byEmail = users.find(u => (u.email || '').toLowerCase() === n.toLowerCase());
+    if (byEmail)
+        return byEmail;
+    // Handle "Last, First" or "First Last"
+    const parts = n.split(',').map(p => p.trim());
+    if (parts.length === 2) {
+        const last = parts[0].toLowerCase();
+        const first = parts[1].toLowerCase();
+        return users.find(u => u.last_name?.toLowerCase() === last && u.first_name?.toLowerCase() === first);
+    }
+    // Match tokens against full name
+    const tokens = n.toLowerCase().split(/\s+/).filter(Boolean);
+    return users.find(u => {
+        const full = `${u.first_name} ${u.last_name}`.toLowerCase();
+        const alt = `${u.last_name} ${u.first_name}`.toLowerCase();
+        return tokens.every(t => full.includes(t) || alt.includes(t));
+    });
+};
+export const getRoleById = (id) => roles.find(r => r.role_id === id);
