@@ -12,6 +12,7 @@ import { loadTicketsFromCSVString, setTickets, getPriorityByLevel, getCategoryBy
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [loadingSample, setLoadingSample] = useState(false);
   const [uploadResult, setUploadResult] = useState<{ success: boolean; message: string } | null>(null);
   const { setData } = useData();
 
@@ -141,6 +142,26 @@ export default function UploadPage() {
     }
   };
 
+  const loadGeneratedSample = async () => {
+    setLoadingSample(true);
+    try {
+      const sampleUrl = `${import.meta.env.BASE_URL || ''}generated/tickets_dataset.csv`;
+      const response = await fetch(sampleUrl);
+      if (!response.ok) {
+        throw new Error('Generated sample dataset not found in public/generated. Run npm run generate:synthetic-csv first.');
+      }
+      const text = await response.text();
+      const { tickets: erdTickets } = loadTicketsFromCSVString(text);
+      setData(erdTickets);
+      setTickets(erdTickets as any);
+      toast.success('Loaded generated sample ticket dataset');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not load generated sample dataset');
+    } finally {
+      setLoadingSample(false);
+    }
+  };
+
   return (
     <div className="max-w-4xl space-y-6">
       <div>
@@ -213,14 +234,25 @@ export default function UploadPage() {
               </div>
             </div>
 
-            <Button
-              onClick={handleUpload}
-              disabled={!file || uploading}
-              className="w-full sm:w-auto"
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              {uploading ? 'Processing...' : 'Upload and Process'}
-            </Button>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:gap-3">
+              <Button
+                onClick={handleUpload}
+                disabled={!file || uploading}
+                className="w-full sm:w-auto"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                {uploading ? 'Processing...' : 'Upload and Process'}
+              </Button>
+              <Button
+                onClick={loadGeneratedSample}
+                disabled={loadingSample}
+                variant="secondary"
+                className="w-full sm:w-auto"
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                {loadingSample ? 'Loading sample…' : 'Load generated sample tickets'}
+              </Button>
+            </div>
           </div>
 
           {uploadResult && (

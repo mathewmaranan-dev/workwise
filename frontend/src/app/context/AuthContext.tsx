@@ -33,7 +33,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const env = (import.meta as any).env as Record<string, string | undefined>;
-const API_BASE = env.VITE_API_BASE_URL || env.VITE_API_URL || '';
+const API_BASE = env.VITE_API_BASE_URL || env.VITE_API_URL || 'http://localhost:5000';
 
 const normalizeRole = (role: any): UserRole => {
   const normalized = String(role || '').trim().toLowerCase();

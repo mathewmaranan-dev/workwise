@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Users, Activity, AlertTriangle, Target, Filter } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance } from '../../utils/analytics';
+import { predictNonFCRRisk, NonFCRRiskScore } from '../../utils/mlAlgorithms';
 import { 
   tickets as seedDataTickets, 
   weeklyCounts, 
   getAssignmentGroupById, 
   getCategoryById,
   getUserById,
-  assignmentGroups 
+  assignmentGroups,
+  Ticket,
 } from '../../data/seedData';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -19,17 +21,28 @@ export default function ManagerDashboard() {
   const { user } = useAuth();
   const { data: uploadedData } = useData();
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'new' | 'closed'>('all');
-  
+
   // Use uploaded data if available; otherwise use seeded data
-  const currentTickets = (uploadedData && uploadedData.length > 0) ? uploadedData : seedDataTickets;
+  const currentTickets = useMemo(() => (uploadedData && uploadedData.length > 0 ? uploadedData : seedDataTickets), [uploadedData]);
   const hasData = currentTickets.length > 0;
   
-  // Get manager's assignment group
-  const managerGroupId = user?.id === '2' ? 1 : 2; // Default to group 1 for manager (can be dynamic)
-  const managerGroup = getAssignmentGroupById(managerGroupId);
-  
-  // Filter tickets by manager's assignment group
-  const groupTickets = currentTickets.filter(t => t.assignment_group_id === managerGroupId);
+  const initialGroupId = user?.assignment_group_id ?? (user?.role === 'manager' ? 1 : 2);
+  const [selectedGroupId, setSelectedGroupId] = useState<number>(initialGroupId);
+  const selectedGroup = getAssignmentGroupById(selectedGroupId);
+
+  const selectedGroupTickets = useMemo(
+    () => currentTickets.filter(t => t.assignment_group_id === selectedGroupId),
+    [currentTickets, selectedGroupId]
+  );
+  const selectedGroupNonFCRTickets = useMemo(
+    () => getNonFCRTickets(selectedGroupTickets),
+    [selectedGroupTickets]
+  );
+  const displayGroupId = selectedGroupId;
+  const displayGroup = getAssignmentGroupById(displayGroupId);
+  const groupTickets = selectedGroupTickets;
+  const groupNonFCRTickets = selectedGroupNonFCRTickets;
+  const isFallbackGroup = false;
   
   // Calculate KPIs for manager's group only
   const groupKPIs = {
@@ -62,7 +75,7 @@ export default function ManagerDashboard() {
     if (!hasData) return [] as { week: string; tickets: number }[];
     const map: Record<string, number> = {};
     currentTickets.forEach((t: any) => {
-      if (t.assignment_group_id !== managerGroupId) return;
+      if (t.assignment_group_id !== displayGroupId) return;
       const d = new Date(t.created_date);
       const wk = new Date(d);
       wk.setDate(wk.getDate() - wk.getDay());
@@ -74,9 +87,57 @@ export default function ManagerDashboard() {
       .map(([week, count]) => ({ week: new Date(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tickets: count }));
   })();
 
-  // Non-FCR tickets for this group
-  const groupNonFCRTickets = getNonFCRTickets(currentTickets)
-    .filter(t => t.assignment_group_id === managerGroupId);
+  const [riskScoreMap, setRiskScoreMap] = useState<Record<string, NonFCRRiskScore>>({});
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [riskError, setRiskError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadRiskScores = async () => {
+      if (groupNonFCRTickets.length === 0) {
+        setRiskScoreMap({});
+        setRiskError(null);
+        setRiskLoading(false);
+        return;
+      }
+
+      setRiskLoading(true);
+      setRiskError(null);
+
+      try {
+        const scores = await predictNonFCRRisk(groupNonFCRTickets, currentTickets);
+        if (!isMounted) return;
+        setRiskScoreMap(Object.fromEntries(scores.map(score => [score.ticket_id, score])));
+      } catch (error: any) {
+        if (!isMounted) return;
+        console.warn('Failed to load ML risk scores', error);
+        setRiskError('ML scoring unavailable, using fallback heuristics');
+      } finally {
+        if (isMounted) {
+          setRiskLoading(false);
+        }
+      }
+    };
+
+    loadRiskScores();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [groupNonFCRTickets, currentTickets]);
+
+  const computeAgentFcrHistory = (agentId?: number): number => {
+    const agentTickets = currentTickets.filter(t => t.assigned_to_id === agentId);
+    if (agentTickets.length === 0) return 0.7;
+    return agentTickets.filter(t => t.fcr).length / agentTickets.length;
+  };
+
+  const computeCategoryNonFcrRate = (categoryId: number): number => {
+    const categoryTickets = currentTickets.filter(t => t.category_id === categoryId);
+    if (categoryTickets.length === 0) return 0.3;
+    return categoryTickets.filter(t => !t.fcr).length / categoryTickets.length;
+  };
 
   // Active tickets based on filter
   let filteredTickets = groupTickets;
@@ -92,7 +153,24 @@ export default function ManagerDashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Team Manager Dashboard</h1>
-        <p className="text-gray-600 mt-1">Team: {managerGroup?.group_name}</p>
+        <p className="text-gray-600 mt-1">Logged in as: {user?.name || 'Manager'} ({user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Manager'})</p>
+        <p className="text-gray-600 mt-1">Viewing tickets for: {displayGroup?.group_name || `Group ${displayGroupId}`}</p>
+        {isFallbackGroup && (
+          <div className="mt-2 rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+            No non-FCR data exists for the selected team. Showing sample data for {displayGroup?.group_name || `Group ${displayGroupId}`} so ML behavior can be validated.
+          </div>
+        )}
+        <div className="mt-3 flex flex-wrap gap-3 items-center">
+          {assignmentGroups.map(group => (
+            <button
+              key={group.assignment_group_id}
+              type="button"
+              onClick={() => setSelectedGroupId(group.assignment_group_id)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${selectedGroupId === group.assignment_group_id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+              {group.group_name}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* KPI Cards for Manager's Group */}
@@ -208,7 +286,10 @@ export default function ManagerDashboard() {
       <Card>
         <CardHeader>
           <CardTitle>Non-FCR Detection List - Action Required</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Tickets requiring follow-up or escalation</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Tickets requiring follow-up or escalation
+            {riskLoading ? ' · Loading ML scores…' : riskError ? ` · ${riskError}` : ''}
+          </p>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -219,12 +300,20 @@ export default function ManagerDashboard() {
                   <th className="text-left p-3 font-medium">Priority</th>
                   <th className="text-left p-3 font-medium">Category</th>
                   <th className="text-left p-3 font-medium">Status</th>
+                  <th className="text-left p-3 font-medium">Risk</th>
+                  <th className="text-left p-3 font-medium">Action</th>
                   <th className="text-left p-3 font-medium">Age (days)</th>
                   <th className="text-left p-3 font-medium">Reopens</th>
                 </tr>
               </thead>
               <tbody>
-                {groupNonFCRTickets.slice(0, 10).map(ticket => {
+                {groupNonFCRTickets.length === 0 ? (
+                  <tr className="border-b hover:bg-gray-50">
+                    <td className="p-3 text-sm text-gray-500" colSpan={8}>
+                      No non-FCR tickets found for this team. Check that the manager is assigned to a valid group and that ticket data is loaded.
+                    </td>
+                  </tr>
+                ) : groupNonFCRTickets.slice(0, 10).map(ticket => {
                   const age = Math.floor(
                     (new Date().getTime() - new Date(ticket.created_date).getTime()) / (1000 * 60 * 60 * 24)
                   );
@@ -249,6 +338,20 @@ export default function ManagerDashboard() {
                         {fullTicket?.status_id === 3 && 'Resolved'}
                         {fullTicket?.status_id === 4 && 'Closed'}
                         {fullTicket?.status_id === 5 && 'On Hold'}
+                      </td>
+                      <td className="p-3">
+                        {riskScoreMap[ticket.ticket_id] ? (
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                            riskScoreMap[ticket.ticket_id].riskScore >= 70 ? 'bg-red-100 text-red-800' :
+                            riskScoreMap[ticket.ticket_id].riskScore >= 50 ? 'bg-orange-100 text-orange-800' :
+                            'bg-amber-100 text-amber-800'
+                          }`}>
+                            {riskScoreMap[ticket.ticket_id].riskScore}%
+                          </span>
+                        ) : 'N/A'}
+                      </td>
+                      <td className="p-3 text-sm text-slate-700">
+                        {riskScoreMap[ticket.ticket_id]?.recommendation ?? 'Monitor ticket'}
                       </td>
                       <td className="p-3">{age}d</td>
                       <td className="p-3 text-center">

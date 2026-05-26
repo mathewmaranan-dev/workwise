@@ -138,7 +138,8 @@ function AdminView({ currentTickets, hasData, user }: { currentTickets: any[]; h
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-xs text-gray-600 mt-0">System-wide overview and performance metrics</p>
+          <p className="text-xs text-gray-600 mt-0">Logged in as: {user?.name || 'Admin'} ({user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Admin'})</p>
+          <p className="text-xs text-gray-600 mt-1">System-wide overview and performance metrics</p>
         </div>
         <Button onClick={handleExport} variant="outline" size="sm" className="h-8 text-xs">
           <Download className="w-3 h-3 mr-1" />

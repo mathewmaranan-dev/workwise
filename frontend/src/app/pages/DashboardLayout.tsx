@@ -99,6 +99,14 @@ export default function DashboardLayout() {
         {/* Main content */}
         <main className="flex-1 overflow-y-auto">
           <div className="p-4 lg:p-6">
+            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="font-semibold text-slate-900">Logged in as:</span>
+                <span>{user?.name || 'User'}</span>
+                <span className="text-slate-500">({user?.role ? `${user.role.charAt(0).toUpperCase() + user.role.slice(1)}` : 'Unknown'})</span>
+              </div>
+              <div className="mt-1 text-xs text-slate-500">Current path: {location.pathname}</div>
+            </div>
             <Outlet />
           </div>
         </main>

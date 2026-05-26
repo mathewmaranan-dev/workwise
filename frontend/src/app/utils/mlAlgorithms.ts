@@ -77,10 +77,77 @@ export interface NonFCRRiskScore {
   recommendation: string;
 }
 
-/**
- * Predicts which tickets are likely to be non-FCR based on patterns
- */
-export const predictNonFCRRisk = (tickets: Ticket[]): NonFCRRiskScore[] => {
+interface FcrPredictionPayload {
+  assignment_group_id: number;
+  assigned_to_id: number;
+  category_id: number;
+  subcategory_id: string | number;
+  priority_id: number;
+  impact_id: number;
+  urgency_id: number;
+  channel_id: number;
+  source_id: number;
+  reopen_count: number;
+  reassignment_count: number;
+  duration: number;
+  ticket_complexity: number;
+  agent_fcr_history: number;
+  category_non_fcr_rate: number;
+}
+
+const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const buildFcrPredictionPayload = (ticket: Ticket, tickets: Ticket[] = seedDataTickets): FcrPredictionPayload => {
+  const assignment_group_id = ticket.assignment_group_id ?? 1;
+  const assigned_to_id = ticket.assigned_to_id ?? 1;
+  const category_id = ticket.category_id ?? 1;
+  const priority_id = ticket.priority_id ?? 3;
+  const impact_id = ticket.impact_id ?? 3;
+  const urgency_id = ticket.urgency_id ?? 2;
+  const channel_id = ticket.channel_id ?? 1;
+  const source_id = ticket.source_id ?? 1;
+  const duration = ticket.duration ?? 120;
+  const reopen_count = ticket.reopen_count ?? 0;
+  const reassignment_count = ticket.reassignment_count ?? 0;
+
+  const agentTickets = tickets.filter(t => t.assigned_to_id === assigned_to_id && t.ticket_id !== ticket.ticket_id);
+  const agentFcrHistory = agentTickets.length > 0
+    ? agentTickets.filter(t => t.fcr).length / agentTickets.length
+    : 0.7;
+
+  const categoryTickets = tickets.filter(t => t.category_id === category_id && t.ticket_id !== ticket.ticket_id);
+  const categoryNonFcrRate = categoryTickets.length > 0
+    ? categoryTickets.filter(t => !t.fcr).length / categoryTickets.length
+    : 0.3;
+
+  const complexityBase =
+    (priority_id - 1) * 1.5 +
+    (impact_id - 1) * 1.2 +
+    (urgency_id - 1) * 1.0 +
+    reopen_count * 1.8 +
+    reassignment_count * 1.6 +
+    clampValue((duration - 60) / 120, 0, 4);
+
+  return {
+    assignment_group_id,
+    assigned_to_id,
+    category_id,
+    subcategory_id: ticket.subcategory_id ?? 'missing',
+    priority_id,
+    impact_id,
+    urgency_id,
+    channel_id,
+    source_id,
+    reopen_count,
+    reassignment_count,
+    duration,
+    ticket_complexity: clampValue(Math.round(complexityBase), 1, 12),
+    agent_fcr_history: clampValue(Math.round(agentFcrHistory * 1000) / 1000, 0, 1),
+    category_non_fcr_rate: clampValue(Math.round(categoryNonFcrRate * 1000) / 1000, 0, 1),
+  };
+};
+
+const predictNonFCRRiskLocal = (tickets: Ticket[]): NonFCRRiskScore[] => {
   return tickets.map(ticket => {
     let score = 0;
     const factors: string[] = [];
@@ -140,6 +207,54 @@ export const predictNonFCRRisk = (tickets: Ticket[]): NonFCRRiskScore[] => {
       recommendation
     };
   });
+};
+
+export const predictNonFCRRisk = async (tickets: Ticket[], allTickets: Ticket[] = seedDataTickets): Promise<NonFCRRiskScore[]> => {
+  if (!tickets || tickets.length === 0) {
+    return [];
+  }
+
+  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
+  const endpoint = `${apiBase.replace(/\/$/, '')}/api/ml/fcr/predict`;
+
+  const predictions = await Promise.all(
+    tickets.map(async (ticket) => {
+      const payload = buildFcrPredictionPayload(ticket, allTickets);
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error(`ML service responded with status ${response.status}`);
+        }
+
+        const data = await response.json();
+        const riskData = data?.fcr_risk;
+
+        if (!riskData || typeof riskData.risk_score !== 'number') {
+          throw new Error('Unexpected ML service response');
+        }
+
+        return {
+          ticket_id: ticket.ticket_id,
+          riskScore: Math.min(100, Math.round(riskData.risk_score * 100)),
+          factors: Array.isArray(riskData.drivers) ? riskData.drivers : [],
+          recommendation: Array.isArray(riskData.recommendations) ? riskData.recommendations.join(' • ') : 'Monitor ticket'
+        };
+      } catch (error) {
+        console.warn('FCR model request failed, falling back to local heuristic:', error);
+        return predictNonFCRRiskLocal([ticket])[0];
+      }
+    })
+  );
+
+  return predictions;
 };
 
 // ============= INTELLIGENT TASK ALLOCATION =============
