@@ -1,4 +1,4 @@
-import { Ticket } from '../data/seedData';
+import { Ticket, getCategoryById } from '../data/seedData';
 
 /**
  * Machine Learning utilities for ITSM predictions and recommendations
@@ -128,6 +128,8 @@ const buildFcrPredictionPayload = (ticket: Ticket, tickets: Ticket[] = seedDataT
     reassignment_count * 1.6 +
     clampValue((duration - 60) / 120, 0, 4);
 
+  const categoryName = (getCategoryById(category_id)?.category_name || 'software').toLowerCase();
+
   return {
     assignment_group_id,
     assigned_to_id,
@@ -144,7 +146,7 @@ const buildFcrPredictionPayload = (ticket: Ticket, tickets: Ticket[] = seedDataT
     ticket_complexity: clampValue(Math.round(complexityBase), 1, 12),
     agent_fcr_history: clampValue(Math.round(agentFcrHistory * 1000) / 1000, 0, 1),
     category_non_fcr_rate: clampValue(Math.round(categoryNonFcrRate * 1000) / 1000, 0, 1),
-  };
+  } as FcrPredictionPayload;
 };
 
 const predictNonFCRRiskLocal = (tickets: Ticket[]): NonFCRRiskScore[] => {
@@ -220,6 +222,19 @@ export const predictNonFCRRisk = async (tickets: Ticket[], allTickets: Ticket[] 
   const predictions = await Promise.all(
     tickets.map(async (ticket) => {
       const payload = buildFcrPredictionPayload(ticket, allTickets);
+      const mlPayload = {
+        ticket_category: (getCategoryById(ticket.category_id ?? 1)?.category_name || 'software').toLowerCase(),
+        priority: ticket.priority_id ?? 3,
+        assigned_group: ticket.assignment_group_id ?? 1,
+        impact_id: ticket.impact_id ?? 3,
+        urgency_id: ticket.urgency_id ?? 2,
+        reopen_count: ticket.reopen_count ?? 0,
+        reassignment_count: ticket.reassignment_count ?? 0,
+        duration: ticket.duration ?? 120,
+        ticket_complexity: payload.ticket_complexity,
+        agent_fcr_history: payload.agent_fcr_history,
+        category_non_fcr_rate: payload.category_non_fcr_rate,
+      };
 
       try {
         const response = await fetch(endpoint, {
@@ -227,7 +242,7 @@ export const predictNonFCRRisk = async (tickets: Ticket[], allTickets: Ticket[] 
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(mlPayload)
         });
 
         if (!response.ok) {

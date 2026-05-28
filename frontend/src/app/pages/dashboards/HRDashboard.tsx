@@ -50,6 +50,25 @@ export default function HRDashboard() {
     overallScore: (g.slaCompliance + g.fcrRate) / 2
   }));
 
+  const staffingSummary = performanceScores.map(group => {
+    const groupTickets = currentTickets.filter((ticket: any) => ticket.assignment_group_id === group.groupId);
+    const assignedAgentIds = new Set(groupTickets
+      .map((ticket: any) => ticket.assigned_to_id)
+      .filter((value): value is number => typeof value === 'number'));
+
+    const currentStaff = Math.max(assignedAgentIds.size, 1);
+    const recommendedStaff = Math.max(Math.ceil(group.totalTickets / 12), currentStaff);
+    const staffingGap = Math.max(recommendedStaff - currentStaff, 0);
+
+    return {
+      ...group,
+      currentStaff,
+      recommendedStaff,
+      staffingGap,
+      priority: staffingGap >= 3 ? 'High' : staffingGap >= 1 ? 'Medium' : 'Low'
+    };
+  });
+
   const topPerformers = [...performanceScores]
     .sort((a, b) => b.overallScore - a.overallScore)
     .slice(0, 5);
@@ -61,12 +80,39 @@ export default function HRDashboard() {
   // Dynamic recommendations based on data
   const generateRecommendations = () => {
     const recs = [];
+
+    const staffingRecommendations = groupPerformance
+      .map((group) => {
+        const groupTickets = currentTickets.filter((ticket: any) => ticket.assignment_group_id === group.groupId);
+        const assignedAgentIds = new Set(groupTickets
+          .map((ticket: any) => ticket.assigned_to_id)
+          .filter((value): value is number => typeof value === 'number'));
+        const currentStaff = assignedAgentIds.size > 0 ? assignedAgentIds.size : 1;
+        const recommendedStaff = Math.ceil(group.totalTickets / 10);
+        const staffingGap = Math.max(recommendedStaff - currentStaff, 0);
+        const teamName = getAssignmentGroupById(group.groupId)?.group_name || `Group ${group.groupId}`;
+
+        return {
+          category: 'Staffing Planning',
+          teamName,
+          action: staffingGap > 0
+            ? `Add ${staffingGap} agent${staffingGap === 1 ? '' : 's'} to ${teamName} to cover ${group.totalTickets} forecasted tickets.`
+            : `Maintain ${currentStaff} agents in ${teamName} and monitor capacity balance.`,
+          impact: `${group.slaCompliance.toFixed(1)}% SLA, ${group.fcrRate.toFixed(1)}% FCR, ${group.avgResolutionTime.toFixed(1)}h average resolution`,
+          priority: staffingGap >= 3 ? 'High' : staffingGap >= 1 ? 'Medium' : 'Low'
+        };
+      })
+      .sort((a, b) => (b.priority === 'High' ? 2 : b.priority === 'Medium' ? 1 : 0) - (a.priority === 'High' ? 2 : a.priority === 'Medium' ? 1 : 0))
+      .slice(0, 5);
+
+    recs.push(...staffingRecommendations);
     
     if (optimizationNeeds.needsMoreStaff) {
       recs.push({
         category: 'Resource Allocation',
-        action: `Increase staffing - SLA compliance at ${kpis.slaCompliance.toFixed(1)}%`,
-        impact: 'Target: Increase SLA compliance to 90%+',
+        teamName: 'Organization-wide',
+        action: `Increase staffing to raise SLA compliance from ${kpis.slaCompliance.toFixed(1)}% toward 90%+`,
+        impact: `Overall workload is exceeding current capacity across the support org`,
         priority: 'High'
       });
     }
@@ -75,8 +121,9 @@ export default function HRDashboard() {
       const lowFCRGroup = underperformers[0];
       recs.push({
         category: 'Training',
-        action: `Implement troubleshooting workshop for ${lowFCRGroup?.teamName || 'teams'}`,
-        impact: `Expected 5-15% improvement in FCR rate (currently ${kpis.fcrRate.toFixed(1)}%)`,
+        teamName: lowFCRGroup?.teamName || 'Underperforming teams',
+        action: `Implement troubleshooting workshops for ${lowFCRGroup?.teamName || 'underperforming teams'}`,
+        impact: `Target a 5-15% FCR lift from the current ${kpis.fcrRate.toFixed(1)}%`,
         priority: 'High'
       });
     }
@@ -84,8 +131,9 @@ export default function HRDashboard() {
     if (optimizationNeeds.needsProcessReview) {
       recs.push({
         category: 'Process Improvement',
-        action: 'Review ticket triage and escalation procedures',
-        impact: `Reduce reopen rate from ${kpis.reopenRate.toFixed(1)}% to <5%`,
+        teamName: 'Organization-wide',
+        action: 'Review ticket triage and escalation routines to reduce reopen spikes',
+        impact: `Lower reopen rate from ${kpis.reopenRate.toFixed(1)}% toward the <5% target`,
         priority: 'Medium'
       });
     }
@@ -93,31 +141,14 @@ export default function HRDashboard() {
     if (productivityTrend < 0) {
       recs.push({
         category: 'Workload Analysis',
-        action: 'Analyze declining productivity trend',
-        impact: `Current trend: ${productivityTrend.toFixed(1)}% - investigate root causes`,
+        teamName: 'Organization-wide',
+        action: 'Investigate declining productivity trends and rebalance peak workloads',
+        impact: `Current trend is ${productivityTrend.toFixed(1)}% and requires intervention`,
         priority: 'High'
       });
     }
     
-    // Ensure we have at least some recommendations
-    if (recs.length === 0) {
-      recs.push(
-        {
-          category: 'Continuous Improvement',
-          action: 'Maintain current performance levels',
-          impact: 'Continue monitoring team metrics',
-          priority: 'Medium'
-        },
-        {
-          category: 'Knowledge Management',
-          action: 'Expand knowledge base and documentation',
-          impact: 'Support team efficiency and reduce resolution time',
-          priority: 'Medium'
-        }
-      );
-    }
-    
-    return recs;
+    return recs.slice(0, 8);
   };
 
   const recommendations = generateRecommendations();
@@ -220,6 +251,68 @@ export default function HRDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Staffing Gap Planning */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Team Staffing Gap Planning</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">Quantified headcount targets versus current assigned staff by team</p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={staffingSummary.map(group => ({
+              name: group.teamName,
+              currentStaff: group.currentStaff,
+              recommendedStaff: group.recommendedStaff
+            }))}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Legend />
+              <Bar dataKey="currentStaff" fill="#8B5CF6" name="Current Staff" />
+              <Bar dataKey="recommendedStaff" fill="#10B981" name="Recommended Staff" />
+            </BarChart>
+          </ResponsiveContainer>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left p-3 font-medium">Team</th>
+                  <th className="text-left p-3 font-medium">Workload</th>
+                  <th className="text-left p-3 font-medium">Current Staff</th>
+                  <th className="text-left p-3 font-medium">Recommended Staff</th>
+                  <th className="text-left p-3 font-medium">Gap</th>
+                  <th className="text-left p-3 font-medium">Priority</th>
+                </tr>
+              </thead>
+              <tbody>
+                {staffingSummary
+                  .sort((a, b) => b.staffingGap - a.staffingGap)
+                  .map(group => (
+                    <tr key={group.groupId} className="border-b hover:bg-gray-50">
+                      <td className="p-3 font-medium">{group.teamName}</td>
+                      <td className="p-3">{group.totalTickets} tickets</td>
+                      <td className="p-3">{group.currentStaff} agents</td>
+                      <td className="p-3">{group.recommendedStaff} agents</td>
+                      <td className="p-3 font-medium text-orange-700">{group.staffingGap > 0 ? `+${group.staffingGap}` : 'Balanced'}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          group.priority === 'High' ? 'bg-red-100 text-red-800' :
+                          group.priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-green-100 text-green-800'
+                        }`}>
+                          {group.priority}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Underperforming Teams Alert */}
       {underperformers.length > 0 && (

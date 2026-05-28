@@ -24,6 +24,7 @@ export interface NonFCRTicket {
   category_id: number;
   assignment_group_id?: number;
   created_date: string;
+  opened_at: string;
   status_id: number;
 }
 
@@ -117,6 +118,7 @@ export const getNonFCRTickets = (ticketData?: any[]): NonFCRTicket[] => {
       category_id: t.category_id,
       assignment_group_id: t.assignment_group_id,
       created_date: t.created_date,
+      opened_at: t.opened_at ?? t.created_date,
       status_id: t.status_id
     }))
     .sort((a, b) => {

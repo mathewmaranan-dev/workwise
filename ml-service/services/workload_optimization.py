@@ -48,21 +48,21 @@ class WorkloadOptimizer:
                 
                 recommendations.append({
                     'user_id': member['user_id'],
-                    'current_load': current,
-                    'recommended_load': target_load,
-                    'adjustment': adjustment,
+                    'current_load': float(current),
+                    'recommended_load': float(target_load),
+                    'adjustment': float(adjustment),
                     'tickets_to_assign': max(0, int(adjustment))
                 })
             
             # Check if balanced
             analysis = self.analyze_current_load(team_members)
-            is_balanced = analysis['coefficient_of_variation'] < self.target_variance
+            is_balanced = bool(analysis['coefficient_of_variation'] < self.target_variance)
             
             return {
                 'recommendations': recommendations,
                 'is_balanced': is_balanced,
-                'target_load': target_load,
-                'current_variance': analysis['coefficient_of_variation']
+                'target_load': float(target_load),
+                'current_variance': float(analysis['coefficient_of_variation'])
             }
         
         except Exception as e:

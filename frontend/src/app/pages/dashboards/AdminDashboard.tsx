@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { TrendingUp, TrendingDown, Clock, RefreshCcw, Download } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -95,15 +95,32 @@ export default function AdminDashboard() {
 }
 
 function AdminView({ currentTickets, hasData, user }: { currentTickets: any[]; hasData: boolean; user: any }) {
+  const [chartPriorityFilter, setChartPriorityFilter] = useState<'all' | 'Critical' | 'High' | 'Medium' | 'Low'>('all');
+
   const kpis = calculateKPIs(currentTickets);
   const priorityData = getTicketsByPriority(currentTickets);
-  const nonFCRTickets = getNonFCRTickets(currentTickets);
+  const nonFCRTickets = useMemo(() => getNonFCRTickets(currentTickets), [currentTickets]);
   const groupPerformance = getAssignmentGroupPerformance(currentTickets);
 
+  const filteredChartTickets = useMemo(() => {
+    if (chartPriorityFilter === 'all') return currentTickets;
+    return currentTickets.filter((ticket: any) => {
+      const label = getPriorityById(ticket.priority_id)?.priority_level || `Priority ${ticket.priority_id}`;
+      return label === chartPriorityFilter;
+    });
+  }, [chartPriorityFilter, currentTickets]);
+
+  const filteredNonFCRTickets = useMemo(() => {
+    if (chartPriorityFilter === 'all') return nonFCRTickets;
+    return nonFCRTickets.filter((ticket) => {
+      const label = getPriorityById(ticket.priority_id)?.priority_level || `Priority ${ticket.priority_id}`;
+      return label === chartPriorityFilter;
+    });
+  }, [chartPriorityFilter, nonFCRTickets]);
+
   // Aggregate tickets into weekly counts for the chart
-  const ticketsToUse = currentTickets;
   const weeklyMap: Record<string, number> = {};
-  ticketsToUse.forEach((t: any) => {
+  filteredChartTickets.forEach((t: any) => {
     const dateField = t.created_date || t.opened_at;
     if (!dateField) return;
     const d = new Date(dateField);
@@ -114,12 +131,32 @@ function AdminView({ currentTickets, hasData, user }: { currentTickets: any[]; h
     weeklyMap[key] = (weeklyMap[key] || 0) + 1;
   });
 
-  const weeklyData = Object.entries(weeklyMap)
+  const weeklyData = useMemo(() => Object.entries(weeklyMap)
     .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
     .map(([week, count]) => ({
       week: new Date(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       tickets: count
+    })), [weeklyMap]);
+
+  const trendForecastData = useMemo(() => {
+    if (weeklyData.length === 0) return [];
+
+    const xValues = weeklyData.map((_, index) => index);
+    const yValues = weeklyData.map(item => item.tickets);
+    const n = xValues.length;
+    const sumX = xValues.reduce((sum, value) => sum + value, 0);
+    const sumY = yValues.reduce((sum, value) => sum + value, 0);
+    const sumXY = xValues.reduce((sum, x, index) => sum + (x * yValues[index]), 0);
+    const sumX2 = xValues.reduce((sum, x) => sum + (x * x), 0);
+
+    const slope = (n * sumXY - sumX * sumY) / Math.max((n * sumX2 - sumX * sumX), 1);
+    const intercept = (sumY - slope * sumX) / n;
+
+    return weeklyData.map((entry, index) => ({
+      ...entry,
+      predictedTickets: Math.max(0, Number((intercept + slope * index).toFixed(1)))
     }));
+  }, [weeklyData]);
 
   const groupPerformanceData = groupPerformance.map(g => ({
     name: getAssignmentGroupById(g.groupId)?.group_name || `Group ${g.groupId}`,
@@ -194,23 +231,47 @@ function AdminView({ currentTickets, hasData, user }: { currentTickets: any[]; h
         </Card>
       </div>
 
+      <div className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        <div>
+          <span className="font-semibold text-slate-700">Priority-based chart filter:</span> Volume trend and non-FCR tickets update to the selected priority.
+        </div>
+        <label className="flex items-center gap-2">
+          <span className="font-medium text-slate-700">Priority</span>
+          <select
+            value={chartPriorityFilter}
+            onChange={(event) => setChartPriorityFilter(event.target.value as 'all' | 'Critical' | 'High' | 'Medium' | 'Low')}
+            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+          >
+            <option value="all">All priorities</option>
+            <option value="Critical">Critical</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </label>
+      </div>
+
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
         <Card>
           <CardHeader className="pt-2 px-2 pb-1">
-            <CardTitle className="text-xs">Weekly Ticket Volume</CardTitle>
+            <CardTitle className="text-xs">Weekly Ticket Volume {chartPriorityFilter === 'all' ? '' : `(${chartPriorityFilter})`}</CardTitle>
           </CardHeader>
           <CardContent className="px-2 pb-2">
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={weeklyData}>
+              <LineChart data={trendForecastData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="week" />
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="tickets" stroke="#4F46E5" strokeWidth={2} />
+                <Line type="monotone" dataKey="tickets" stroke="#4F46E5" strokeWidth={2} name="Actual tickets" />
+                <Line type="monotone" dataKey="predictedTickets" stroke="#10B981" strokeWidth={2} strokeDasharray="4 4" name="Predicted trend" />
               </LineChart>
             </ResponsiveContainer>
+            <p className="mt-2 text-[10px] text-slate-500">
+              Predicted trend uses a rolling linear fit over the filtered history so you can compare actual volume to projected workload.
+            </p>
           </CardContent>
         </Card>
 
@@ -266,6 +327,7 @@ function AdminView({ currentTickets, hasData, user }: { currentTickets: any[]; h
       <Card>
         <CardHeader>
           <CardTitle>Non-FCR Tickets (Priority Order)</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">Showing {filteredNonFCRTickets.length} ticket{filteredNonFCRTickets.length === 1 ? '' : 's'} after the current priority filter.</p>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -281,25 +343,31 @@ function AdminView({ currentTickets, hasData, user }: { currentTickets: any[]; h
                 </tr>
               </thead>
               <tbody>
-                {nonFCRTickets.slice(0, 10).map(ticket => {
-                  const age = Math.floor((new Date().getTime() - new Date(ticket.opened_at).getTime()) / (1000 * 60 * 60 * 24));
+                {filteredNonFCRTickets.slice(0, 10).map(ticket => {
+                  const openedAt = ticket.opened_at ? new Date(ticket.opened_at) : null;
+                  const age = openedAt && !isNaN(openedAt.getTime())
+                    ? Math.floor((Date.now() - openedAt.getTime()) / (1000 * 60 * 60 * 24))
+                    : 'N/A';
+                  const priorityLabel = getPriorityById(ticket.priority_id)?.priority_level || `P${ticket.priority_id}`;
+                  const categoryLabel = getCategoryById(ticket.category_id)?.category_name || 'Uncategorized';
+                  const reopenCount = (currentTickets.find(item => item.ticket_id === ticket.ticket_id)?.reopen_count ?? 0);
                   return (
                     <tr key={ticket.ticket_id} className="border-b hover:bg-gray-50">
                       <td className="p-2 font-mono text-xs">{ticket.ticket_id}</td>
                       <td className="p-2">
                         <span className={`px-2 py-1 rounded text-xs ${
-                          ticket.priority_code === 'P1' ? 'bg-red-100 text-red-800' :
-                          ticket.priority_code === 'P2' ? 'bg-orange-100 text-orange-800' :
-                          ticket.priority_code === 'P3' ? 'bg-yellow-100 text-yellow-800' :
+                          ticket.priority_id === 1 ? 'bg-red-100 text-red-800' :
+                          ticket.priority_id === 2 ? 'bg-orange-100 text-orange-800' :
+                          ticket.priority_id === 3 ? 'bg-yellow-100 text-yellow-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          {ticket.priority_code}
+                          {priorityLabel}
                         </span>
                       </td>
-                      <td className="p-2">{getCategoryById(ticket.category_id)?.category_name}</td>
-                      <td className="p-2">{new Date(ticket.opened_at).toLocaleDateString()}</td>
+                      <td className="p-2">{categoryLabel}</td>
+                      <td className="p-2">{openedAt && !isNaN(openedAt.getTime()) ? openedAt.toLocaleDateString() : 'Unknown'}</td>
                       <td className="p-2">{age}</td>
-                      <td className="p-2 text-center">{ticket.reopen_count}</td>
+                      <td className="p-2 text-center">{reopenCount}</td>
                     </tr>
                   );
                 })}

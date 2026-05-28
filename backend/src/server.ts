@@ -46,6 +46,46 @@ app.use('/api/users', usersRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/kpis', kpisRoutes);
 
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5001';
+
+app.use('/api/ml', async (req, res) => {
+  try {
+    const target = new URL(req.originalUrl, ML_SERVICE_URL);
+    const headers = new Headers();
+
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value === 'string') {
+        headers.set(key, value);
+      } else if (Array.isArray(value)) {
+        value.forEach(entry => headers.append(key, entry));
+      }
+    }
+
+    headers.delete('host');
+    headers.delete('connection');
+    headers.delete('content-length');
+
+    const response = await fetch(target.toString(), {
+      method: req.method,
+      headers,
+      body: (req.method === 'GET' || req.method === 'HEAD') ? undefined : JSON.stringify(req.body ?? {}),
+    });
+
+    res.status(response.status);
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== 'content-length') {
+        res.setHeader(key, value);
+      }
+    });
+
+    const content = await response.text();
+    res.send(content);
+  } catch (error) {
+    console.error('ML service proxy error:', error);
+    res.status(502).json({ error: 'Failed to reach ML service' });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });

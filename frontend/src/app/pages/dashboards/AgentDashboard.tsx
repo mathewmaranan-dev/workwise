@@ -41,6 +41,25 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
       ? { user_id: currentUserId, first_name: user.first_name || '', last_name: user.last_name || '', email: user.email }
       : null;
 
+  const matchesCurrentAgent = (ticket: any): boolean => {
+    const ticketAssignedToId = Number((ticket as any).assigned_to_id ?? (ticket as any).assigned_to ?? (ticket as any).agent_id);
+    const ticketAssignedTo = String((ticket as any).assigned_to || (ticket as any).assigned_to_name || '').toLowerCase();
+    const currentAgentId = currentAgent ? Number((currentAgent as any).user_id ?? (currentAgent as any).id) : NaN;
+    const currentAgentName = String((currentAgent as any).first_name || (currentAgent as any).name || '').toLowerCase();
+    const currentAgentLastName = String((currentAgent as any).last_name || '').toLowerCase();
+    const currentAgentEmail = String((currentAgent as any).email || '').toLowerCase();
+
+    return (
+      (!Number.isNaN(ticketAssignedToId) && ticketAssignedToId === currentAgentId) ||
+      (ticketAssignedTo && (
+        ticketAssignedTo.includes(currentAgentEmail) ||
+        ticketAssignedTo.includes(currentAgentName) ||
+        ticketAssignedTo.includes(currentAgentLastName)
+      )) ||
+      (currentAgentEmail && ticketAssignedTo.includes(currentAgentEmail))
+    );
+  };
+
   const getStatusId = (ticket: any): number => {
     if (ticket?.status) {
       const statusText = String(ticket.status || ticket.status_name || '').toLowerCase();
@@ -131,13 +150,9 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
     );
   }
 
-  // Get tickets assigned to current agent - match by numeric user_id
+  // Get tickets assigned to current agent across multiple common assignment fields.
   const agentTickets = currentAgent && currentTickets.length > 0
-    ? currentTickets.filter(t => {
-        const assignedToId = (t as any).assigned_to_id;
-        // Match by user_id (numeric from the converted CSV data)
-        return assignedToId === currentAgent.user_id;
-      })
+    ? currentTickets.filter((ticket) => matchesCurrentAgent(ticket))
     : currentTickets.slice(0, 50);
 
   const openTickets = agentTickets.filter(t => !isResolvedOrClosed(t));
@@ -170,10 +185,12 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
     return acc;
   }, {} as Record<string, number>);
 
-  const categoryChartData = Object.entries(categoryData).map(([name, count]) => ({
-    name,
-    value: count
-  }));
+  const categoryChartData = Object.entries(categoryData)
+    .map(([name, count]) => ({
+      name,
+      value: Number(count)
+    }))
+    .sort((a, b) => b.value - a.value);
 
   // Priority distribution from CSV or DB priority field
   const priorityMap: Record<string, number> = {};
@@ -304,25 +321,31 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
             <CardTitle>Ticket Distribution by Category</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={categoryChartData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {categoryChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            {categoryChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={categoryChartData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={100}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {categoryChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-80 items-center justify-center rounded border border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500">
+                No ticket categories available for this agent yet.
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
