@@ -1,0 +1,5 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+export function StatCard({ title, value, subtitle, icon: Icon, iconColor = 'text-indigo-600', trend }) {
+    return (_jsxs(Card, { children: [_jsxs(CardHeader, { className: "flex flex-row items-center justify-between pb-2 pt-4 px-4", children: [_jsx(CardTitle, { className: "text-sm font-medium text-gray-600", children: title }), _jsx(Icon, { className: `w-4 h-4 ${iconColor}` })] }), _jsxs(CardContent, { className: "pt-2 px-4 pb-4", children: [_jsx("div", { className: "text-2xl font-bold text-gray-900", children: value }), subtitle && _jsx("p", { className: "text-xs text-gray-500 mt-1", children: subtitle }), trend && (_jsxs("div", { className: `flex items-center gap-1 text-xs mt-2 ${trend.isPositive ? 'text-green-600' : 'text-red-600'}`, children: [_jsx("span", { children: trend.isPositive ? '↑' : '↓' }), _jsxs("span", { children: [Math.abs(trend.value), "% vs last period"] })] }))] })] }));
+}
