@@ -7,6 +7,7 @@ import HRDashboard from './pages/dashboards/HRDashboard';
 import AgentDashboard from './pages/dashboards/AgentDashboard';
 import UserManagementPage from './pages/UserManagementPage';
 import UploadPage from './pages/UploadPage';
+import TeamAgentsPage from './pages/TeamAgentsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import TermsPromptPage from './pages/TermsPromptPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
@@ -97,6 +98,10 @@ export const router = createBrowserRouter([
       {
         path: 'team-performance',
         element: <ManagerDashboard />
+      },
+      {
+        path: 'team-agents',
+        element: <TeamAgentsPage />
       },
       {
         path: 'my-tasks',
