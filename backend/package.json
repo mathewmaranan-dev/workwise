@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "reset-users": "node ./scripts/reset_users_table.js",
     "migrate": "echo 'To run migrations: 1) Start PostgreSQL database, 2) Run: psql -U workwise -d workwise_db -f migrations/combined_migration.sql'"
   },
   "dependencies": {

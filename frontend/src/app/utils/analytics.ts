@@ -181,9 +181,23 @@ export const getAssignmentGroupPerformance = (ticketData?: any[]): GroupPerforma
     }
     
     return acc;
-  }, {} as Record<number, any>);
+  }, {} as Record<number, {
+    totalTickets: number;
+    resolvedTickets: number;
+    slaMetCount: number;
+    fcrCount: number;
+    reopenCount: number;
+    totalResolutionTime: number;
+  }>);
 
-  return Object.entries(groupData)
+  return (Object.entries(groupData) as [string, {
+    totalTickets: number;
+    resolvedTickets: number;
+    slaMetCount: number;
+    fcrCount: number;
+    reopenCount: number;
+    totalResolutionTime: number;
+  }][])
     .filter(([id]) => parseInt(id) !== 0) // Exclude unassigned
     .map(([id, data]) => ({
       groupId: parseInt(id),

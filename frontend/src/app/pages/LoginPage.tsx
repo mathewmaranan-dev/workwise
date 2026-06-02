@@ -67,7 +67,7 @@ export default function LoginPage() {
         .sort((a, b) => {
           // Sort by similarity (fuzzy match) first, then by includes match
           if (b.similarity !== a.similarity) return b.similarity - a.similarity;
-          return item.email.toLowerCase().indexOf(q) - item.email.toLowerCase().indexOf(q);
+          return a.email.toLowerCase().indexOf(q) - b.email.toLowerCase().indexOf(q);
         })
         .slice(0, 5) // Show top 5 matches
         .map(item => item.email);

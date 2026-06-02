@@ -22,8 +22,8 @@ interface AuthContextType {
   users: User[];
   createUser: (user: User, password: string, assignment_group_id?: number) => Promise<boolean>;
   updateUser: (user: User) => Promise<boolean>;
-  deleteUser: (email: string) => Promise<boolean>;
-  acceptTerms: () => void;
+  deleteUser: (email: string) => Promise<{ success: boolean; message?: string }>;
+  acceptTerms: () => Promise<void>;
   forgotPassword: (email: string) => Promise<string | null>;
   validateResetToken: (token: string) => boolean;
   resetPassword: (token: string, newPassword: string) => Promise<boolean>;
@@ -57,6 +57,7 @@ const parseApiUser = (raw: any): User => {
     first_name,
     last_name,
     assignment_group_id: raw.assignment_group_id ? Number(raw.assignment_group_id) : undefined,
+    termsAccepted: !!(raw.termsAccepted || raw.terms_accepted),
   };
 };
 
@@ -176,8 +177,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Invalid credentials');
       }
       const result = await response.json();
-      const authToken = result.token;
-      const currentUser = parseApiUser(result.user);
+        const authToken = result.token;
+        const currentUser = parseApiUser(result.user);
       setToken(authToken);
       setUser(currentUser);
       localStorage.setItem('workwise_token', authToken);
@@ -185,7 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (currentUser.role === 'admin') {
         await fetchUsers(authToken);
       }
-      return { success: true, termsAccepted: true };
+        return { success: true, termsAccepted: !!currentUser.termsAccepted };
     } catch (error) {
       console.warn('Login failed', error);
       return { success: false };
@@ -200,11 +201,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('workwise_user');
   };
 
-  const acceptTerms = () => {
-    if (!user) return;
-    const acceptedUser = { ...user, termsAccepted: true };
-    setUser(acceptedUser);
-    localStorage.setItem('workwise_user', JSON.stringify(acceptedUser));
+  const acceptTerms = async () => {
+    if (!user || !API_BASE || !getAuthToken()) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/accept-terms`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!response.ok) {
+        console.error('Accept terms failed');
+        return;
+      }
+      const updated = parseApiUser(await response.json());
+      setUser(updated);
+      localStorage.setItem('workwise_user', JSON.stringify(updated));
+    } catch (error) {
+      console.error('Accept terms error:', error);
+    }
   };
 
   const forgotPassword = async (email: string) => {
@@ -318,12 +331,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const deleteUser = async (emailToDelete: string) => {
     if (!API_BASE || !token) {
-      return false;
+      return { success: false, message: 'Not connected to API' };
     }
 
     const existing = users.find((u) => u.email === emailToDelete);
     if (!existing) {
-      return false;
+      return { success: false, message: 'User not found' };
     }
 
     try {
@@ -332,13 +345,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         headers: getHeaders(),
       });
       if (!response.ok) {
-        return false;
+        let msg = 'Failed to delete user';
+        try {
+          const body = await response.json();
+          msg = body?.error || body?.message || msg;
+        } catch (e) {
+          try {
+            msg = await response.text();
+          } catch (e) {
+            // ignore
+          }
+        }
+        return { success: false, message: msg };
       }
       setUsers((prev) => prev.filter((u) => u.id !== existing.id));
-      return true;
+      return { success: true };
     } catch (error) {
       console.error('Delete user error:', error);
-      return false;
+      return { success: false, message: 'Delete request failed' };
     }
   };
 

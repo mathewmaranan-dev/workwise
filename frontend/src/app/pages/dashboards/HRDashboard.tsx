@@ -244,7 +244,7 @@ export default function HRDashboard() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" domain={[0, 100]} />
                 <YAxis dataKey="name" type="category" width={140} />
-                <Tooltip formatter={(value) => `${value.toFixed(1)}%`} />
+                <Tooltip formatter={(value) => `${Number(value).toFixed(1)}%`} />
                 <Bar dataKey="performance" fill="#10B981" name="Performance Score" />
               </BarChart>
             </ResponsiveContainer>

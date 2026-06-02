@@ -238,9 +238,40 @@ router.put('/:id', verifyToken, requireRole('admin'), async (req, res) => {
 });
 
 // Delete user (admin only)
-router.delete('/:id', verifyToken, requireRole('admin'), async (req, res) => {
+router.delete('/:id', verifyToken, requireRole('admin'), async (req: any, res) => {
   try {
     const { id } = req.params;
+
+    // Identify super-admin by email (configurable via env)
+    const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'admin@workwise.app';
+
+    // Fetch target user and role
+    const targetResult = await query(
+      `SELECT u.user_id AS id, u.email, r.role_name AS role
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       WHERE u.user_id = $1`,
+      [id]
+    );
+
+    if (targetResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const target = targetResult.rows[0];
+
+    // Prevent deleting the super admin account
+    if (String(target.email).toLowerCase() === String(SUPER_ADMIN_EMAIL).toLowerCase()) {
+      return res.status(403).json({ error: 'Cannot delete the super admin account' });
+    }
+
+    // If target is an admin, only the super admin may delete them
+    if (String(target.role).toLowerCase() === 'admin') {
+      const requesterEmail = String(req.user?.email || '').toLowerCase();
+      if (requesterEmail !== String(SUPER_ADMIN_EMAIL).toLowerCase()) {
+        return res.status(403).json({ error: 'Only the super admin can delete other admin users' });
+      }
+    }
 
     await query('DELETE FROM users WHERE user_id = $1', [id]);
     res.json({ message: 'User deleted successfully' });

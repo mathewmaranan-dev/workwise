@@ -22,7 +22,7 @@ router.post('/login', async (req, res) => {
 
     // Query user from database
     const result = await query(
-      `SELECT u.user_id AS id, u.email, u.password_hash, r.role_name AS role
+      `SELECT u.user_id AS id, u.email, u.password_hash, r.role_name AS role, u.terms_accepted
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
        WHERE u.email = $1`,
@@ -57,6 +57,7 @@ router.post('/login', async (req, res) => {
         id: user.id,
         email: user.email,
         role: user.role,
+        termsAccepted: !!user.terms_accepted
       },
     });
   } catch (error) {
@@ -66,14 +67,14 @@ router.post('/login', async (req, res) => {
 });
 
 // Get current user
-router.get('/me', async (req: AuthRequest, res: Response) => {
+router.get('/me', verifyToken, async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
     const result = await query(
-      `SELECT u.user_id AS id, u.email, u.first_name, u.last_name, r.role_name AS role
+      `SELECT u.user_id AS id, u.email, u.first_name, u.last_name, r.role_name AS role, u.terms_accepted
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
        WHERE u.user_id = $1`,
@@ -84,10 +85,45 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json(result.rows[0]);
+    const row = result.rows[0];
+    // normalize terms_accepted column
+    const responseUser = {
+      ...row,
+      termsAccepted: !!row.terms_accepted,
+    };
+    res.json(responseUser);
   } catch (error) {
     console.error('Get current user error:', error);
     res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+// Accept terms (persist for user)
+router.post('/accept-terms', verifyToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    await query('UPDATE users SET terms_accepted = TRUE, updated_at = NOW() WHERE user_id = $1', [req.user.id]);
+
+    const result = await query(
+      `SELECT u.user_id AS id, u.email, u.first_name, u.last_name, r.role_name AS role, u.terms_accepted
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       WHERE u.user_id = $1`,
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const row = result.rows[0];
+    res.json({ id: row.id, email: row.email, first_name: row.first_name, last_name: row.last_name, role: row.role, termsAccepted: !!row.terms_accepted });
+  } catch (error) {
+    console.error('Accept terms error:', error);
+    res.status(500).json({ error: 'Failed to accept terms' });
   }
 });
 

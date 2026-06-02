@@ -23,8 +23,8 @@ export default function TermsPromptPage() {
     }
   }, [user, navigate]);
 
-  const handleAgree = () => {
-    acceptTerms();
+  const handleAgree = async () => {
+    await acceptTerms();
     toast.success('Thank you. Terms accepted.');
     navigate('/dashboard');
   };

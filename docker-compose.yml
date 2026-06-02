@@ -36,6 +36,26 @@ services:
       - /app/node_modules
     command: npm run dev
 
+  # Frontend Vite App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://backend:5000
+      VITE_ML_API_URL: http://ml-service:5001
+    depends_on:
+      backend:
+        condition: service_started
+      ml-service:
+        condition: service_started
+    volumes:
+      - ./frontend:/usr/src/app
+      - /usr/src/app/node_modules
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
   # Python ML Service
   ml-service:
     build:

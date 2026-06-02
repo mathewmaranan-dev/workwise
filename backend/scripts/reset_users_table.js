@@ -82,27 +82,32 @@ async function resetUsersTable() {
   try {
     console.log('🔄 Starting users table reset...\n');
 
-    // Drop existing users table
-    console.log('🗑️  Dropping existing users table...');
-    await client.query('DROP TABLE IF EXISTS users CASCADE');
-    console.log('✅ Users table dropped\n');
-
-    // Recreate users table
-    console.log('📋 Creating users table with fresh schema...');
-    await client.query(`
-      CREATE TABLE users (
-        user_id SERIAL PRIMARY KEY,
-        first_name VARCHAR(100) NOT NULL,
-        last_name VARCHAR(100) NOT NULL,
-        email VARCHAR(150) NOT NULL UNIQUE,
-        password_hash VARCHAR(255) NOT NULL,
-        role_id INT NOT NULL DEFAULT 3 REFERENCES roles(role_id),
-        assignment_group_id INT REFERENCES assignment_groups(assignment_group_id),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+    const tableExistsResult = await client.query(`
+      SELECT to_regclass('public.users') AS table_name
     `);
-    console.log('✅ Users table created\n');
+    const usersTableExists = tableExistsResult.rows[0].table_name !== null;
+
+    if (!usersTableExists) {
+      console.log('📋 Creating users table with fresh schema...');
+      await client.query(`
+        CREATE TABLE users (
+          user_id SERIAL PRIMARY KEY,
+          first_name VARCHAR(100) NOT NULL,
+          last_name VARCHAR(100) NOT NULL,
+          email VARCHAR(150) NOT NULL UNIQUE,
+          password_hash VARCHAR(255) NOT NULL,
+          role_id INT NOT NULL DEFAULT 3 REFERENCES roles(role_id),
+          assignment_group_id INT REFERENCES assignment_groups(assignment_group_id),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ Users table created\n');
+    } else {
+      console.log('🧹 Truncating existing users table and resetting user_id sequence...');
+      await client.query('TRUNCATE TABLE users RESTART IDENTITY CASCADE');
+      console.log('✅ Users table truncated and sequence reset\n');
+    }
 
     // Seed default users
     console.log('👤 Seeding default users...');
@@ -143,6 +148,7 @@ async function resetUsersTable() {
     }
 
     // Verify results
+    await client.query(`SELECT setval(pg_get_serial_sequence('users','user_id'), (SELECT COALESCE(MAX(user_id), 0) FROM users))`);
     const result = await client.query(
       'SELECT COUNT(*) AS total, MAX(user_id) AS max_id FROM users'
     );

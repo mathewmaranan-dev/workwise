@@ -105,7 +105,6 @@ export default function DashboardLayout() {
                 <span>{user?.name || 'User'}</span>
                 <span className="text-slate-500">({user?.role ? `${user.role.charAt(0).toUpperCase() + user.role.slice(1)}` : 'Unknown'})</span>
               </div>
-              <div className="mt-1 text-xs text-slate-500">Current path: {location.pathname}</div>
             </div>
             <Outlet />
           </div>

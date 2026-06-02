@@ -145,7 +145,7 @@ export default function UploadPage() {
   const loadGeneratedSample = async () => {
     setLoadingSample(true);
     try {
-      const sampleUrl = `${import.meta.env.BASE_URL || ''}generated/tickets_dataset.csv`;
+      const sampleUrl = `${(import.meta as any).env?.BASE_URL || ''}generated/tickets_dataset.csv`;
       const response = await fetch(sampleUrl);
       if (!response.ok) {
         throw new Error('Generated sample dataset not found in public/generated. Run npm run generate:synthetic-csv first.');

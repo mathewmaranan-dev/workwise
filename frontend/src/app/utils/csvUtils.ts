@@ -40,15 +40,15 @@ export const exportToCSV = (data: any[], filename: string) => {
 export const exportTicketsToCSV = () => {
   const ticketData = tickets.map(ticket => ({
     'Ticket Number': ticket.ticket_id,
-    'Created': ticket.opened_at,
-    'Resolved': ticket.resolved_at || '',
+    'Created': ticket.created_date,
+    'Resolved': ticket.resolved_date || '',
     'Status': statuses.find(s => s.status_id === ticket.status_id)?.status_name || '',
     'Assignment Group': assignmentGroups.find(g => g.assignment_group_id === ticket.assignment_group_id)?.group_name || '',
     'Category': categories.find(c => c.category_id === ticket.category_id)?.category_name || '',
-    'Priority': ticket.priority_code,
-    'SLA Status': ticket.sla_status,
+    'Priority': ticket.priority_id,
+    'SLA Status': ticket.made_sla ? 'Met' : 'Missed',
     'FCR': ticket.fcr ? 'Yes' : 'No',
-    'Duration (minutes)': ticket.resolution_time_minutes || '',
+    'Duration (minutes)': ticket.duration ?? '',
     'Reopen Count': ticket.reopen_count
   }));
 

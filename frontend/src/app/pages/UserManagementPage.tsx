@@ -280,12 +280,17 @@ export default function UserManagementPage() {
     resetForm();
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
-    const ok = deleteUser(user.email);
-    if (!ok) {
-      toast.error('Cannot delete user (maybe last admin)');
+    const result = await deleteUser(user.email);
+    if (!result.success) {
+      const msg = String(result.message || '').toLowerCase();
+      if (msg.includes('super admin') || msg.includes('cannot delete') || msg.includes('only the super admin')) {
+        toast.error("Admin can't be deleted");
+      } else {
+        toast.error(result.message || 'Cannot delete user');
+      }
       return;
     }
     toast.success('User deleted successfully');
