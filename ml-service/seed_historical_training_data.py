@@ -256,9 +256,13 @@ def seed_training_samples(sample_count: int = 5000, seed: int = 42) -> None:
                 'synthetic_history',
                 True,
                 created_at,
+                created_at,
             ))
 
         with conn.cursor() as cur:
+            print('DEBUG: rows generated =', len(rows))
+            if rows:
+                print('DEBUG: sample row length =', len(rows[0]), 'sample row =', rows[0][:5])
             cur.executemany(
                 """
                 INSERT INTO ml_training_samples (
@@ -284,7 +288,7 @@ def seed_training_samples(sample_count: int = 5000, seed: int = 42) -> None:
                     is_active,
                     generated_at,
                     updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (ticket_id) DO UPDATE SET
                     created_at = EXCLUDED.created_at,
                     assignment_group_id = EXCLUDED.assignment_group_id,

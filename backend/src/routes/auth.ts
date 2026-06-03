@@ -22,9 +22,11 @@ router.post('/login', async (req, res) => {
 
     // Query user from database
     const result = await query(
-      `SELECT u.user_id AS id, u.email, u.password_hash, r.role_name AS role, u.terms_accepted
+      `SELECT u.user_id AS id, u.email, u.password_hash, r.role_name AS role, u.terms_accepted,
+                u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        WHERE u.email = $1`,
       [email]
     );
@@ -57,7 +59,10 @@ router.post('/login', async (req, res) => {
         id: user.id,
         email: user.email,
         role: user.role,
-        termsAccepted: !!user.terms_accepted
+        termsAccepted: !!user.terms_accepted,
+        assignment_group_id: user.assignment_group_id ?? null,
+        assignment_group: user.assignment_group || null,
+        shift: user.shift || null,
       },
     });
   } catch (error) {
@@ -74,9 +79,11 @@ router.get('/me', verifyToken, async (req: AuthRequest, res: Response) => {
     }
 
     const result = await query(
-      `SELECT u.user_id AS id, u.email, u.first_name, u.last_name, r.role_name AS role, u.terms_accepted
+      `SELECT u.user_id AS id, u.email, u.first_name, u.last_name, r.role_name AS role, u.terms_accepted,
+              u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        WHERE u.user_id = $1`,
       [req.user.id]
     );
@@ -88,8 +95,15 @@ router.get('/me', verifyToken, async (req: AuthRequest, res: Response) => {
     const row = result.rows[0];
     // normalize terms_accepted column
     const responseUser = {
-      ...row,
+      id: row.id,
+      email: row.email,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      role: row.role,
       termsAccepted: !!row.terms_accepted,
+      assignment_group_id: row.assignment_group_id ?? null,
+      assignment_group: row.assignment_group || null,
+      shift: row.shift || null,
     };
     res.json(responseUser);
   } catch (error) {
@@ -108,9 +122,11 @@ router.post('/accept-terms', verifyToken, async (req: AuthRequest, res: Response
     await query('UPDATE users SET terms_accepted = TRUE, updated_at = NOW() WHERE user_id = $1', [req.user.id]);
 
     const result = await query(
-      `SELECT u.user_id AS id, u.email, u.first_name, u.last_name, r.role_name AS role, u.terms_accepted
+      `SELECT u.user_id AS id, u.email, u.first_name, u.last_name, r.role_name AS role, u.terms_accepted,
+              u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        WHERE u.user_id = $1`,
       [req.user.id]
     );
@@ -120,7 +136,7 @@ router.post('/accept-terms', verifyToken, async (req: AuthRequest, res: Response
     }
 
     const row = result.rows[0];
-    res.json({ id: row.id, email: row.email, first_name: row.first_name, last_name: row.last_name, role: row.role, termsAccepted: !!row.terms_accepted });
+    res.json({ id: row.id, email: row.email, first_name: row.first_name, last_name: row.last_name, role: row.role, termsAccepted: !!row.terms_accepted, assignment_group_id: row.assignment_group_id ?? null, assignment_group: row.assignment_group || null, shift: row.shift || null });
   } catch (error) {
     console.error('Accept terms error:', error);
     res.status(500).json({ error: 'Failed to accept terms' });

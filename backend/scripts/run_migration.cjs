@@ -5,7 +5,8 @@ const { Client } = require('pg');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 async function run() {
-  const sqlPath = path.resolve(__dirname, '..', 'migrations', '003_add_terms_accepted.sql');
+  const supplied = process.argv[2];
+  const sqlPath = supplied ? path.resolve(supplied) : path.resolve(__dirname, '..', 'migrations', '003_add_terms_accepted.sql');
   if (!fs.existsSync(sqlPath)) {
     console.error('Migration file not found:', sqlPath);
     process.exit(1);

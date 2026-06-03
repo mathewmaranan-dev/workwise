@@ -11,7 +11,9 @@ export interface User {
   first_name?: string;
   last_name?: string;
   assignment_group_id?: number;
+  assignment_group?: string;
   termsAccepted?: boolean;
+  shift?: string;
 }
 
 interface AuthContextType {
@@ -69,7 +71,9 @@ const parseApiUser = (raw: any): User => {
     first_name,
     last_name,
     assignment_group_id: raw.assignment_group_id ? Number(raw.assignment_group_id) : undefined,
+    assignment_group: raw.assignment_group || raw.assignment_group_name || undefined,
     termsAccepted: !!(raw.termsAccepted || raw.terms_accepted),
+    shift: raw.shift || undefined,
   };
 };
 

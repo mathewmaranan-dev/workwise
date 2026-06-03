@@ -1,0 +1,4 @@
+Ticket Number,Created,Priority,Status,Category,Made SLA,FCR,Reopen count,Reassignment count,Short description,Work notes,Requester,Assigned to,Closed by,Assignment group,Due Date,SLA due,Duration
+4,2025-02-20T10:15:00Z,3,Open,Account,TRUE,FALSE,4,0,User account locked again after prior close,Reopened ticket for follow-up and additional investigation,user@example.com,Jane Doe,Jane Doe,IT Support,2025-02-21T15:00:00Z,2025-02-21T16:00:00Z,151
+7,2025-05-14T09:30:00Z,2,In Progress,Network,TRUE,FALSE,1,0,Branch Wi-Fi issue reopened,Ticket reopened after user reported repeated disconnects,another@example.com,John Smith,John Smith,Network Ops,2025-05-15T12:00:00Z,2025-05-15T13:00:00Z,137
+12,2025-08-22T14:20:00Z,1,Resolved,Server,FALSE,TRUE,2,1,Server access issue resolved,Resolved after credential verification and remote restart,ops@example.com,Sam Lee,Sam Lee,Server Team,2025-08-23T18:00:00Z,2025-08-23T18:30:00Z,211

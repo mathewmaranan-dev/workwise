@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { UserPlus, Edit, Trash2, Mail, Lock, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth, User as AuthUser, UserRole } from '../context/AuthContext';
-import { assignmentGroups } from '../data/seedData';
+import { assignmentGroups, getAssignmentGroupById } from '../data/seedData';
 
 interface AppUser extends AuthUser { createdAt: string }
 
@@ -444,14 +444,14 @@ export default function UserManagementPage() {
                 </Select>
               </div>
               
-              {formData.role === 'agent' && (
+              {(formData.role === 'agent' || formData.role === 'manager') && (
                 <div className="space-y-2">
-                  <Label htmlFor="assignmentGroup">Assignment Group (optional)</Label>
+                  <Label htmlFor="assignmentGroup">Assignment Group {formData.role === 'manager' ? '' : '(optional)'}</Label>
                   <Select 
-                    value={formData.assignment_group_id?.toString() || ''} 
+                    value={formData.assignment_group_id != null ? formData.assignment_group_id.toString() : undefined} 
                     onValueChange={(value) => setFormData({ 
                       ...formData, 
-                      assignment_group_id: value === '__none' || value === '' ? undefined : parseInt(value) 
+                      assignment_group_id: value === '__none' ? undefined : parseInt(value) 
                     })}
                   >
                     <SelectTrigger>
@@ -466,7 +466,11 @@ export default function UserManagementPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-gray-500">Assign user to a support team for task allocation</p>
+                  <p className="text-xs text-gray-500">
+                    {formData.role === 'manager'
+                      ? 'Assign this manager to a team so they only see agents for that group.'
+                      : 'Assign user to a support team for task allocation.'}
+                  </p>
                 </div>
               )}
             </div>
@@ -493,6 +497,7 @@ export default function UserManagementPage() {
                   <th className="text-left p-3 font-medium">Name</th>
                   <th className="text-left p-3 font-medium">Email</th>
                   <th className="text-left p-3 font-medium">Role</th>
+                  <th className="text-left p-3 font-medium">Assignment Group</th>
                   <th className="text-left p-3 font-medium">Created</th>
                   <th className="text-right p-3 font-medium">Actions</th>
                 </tr>
@@ -506,6 +511,9 @@ export default function UserManagementPage() {
                       <span className={`px-2 py-1 rounded text-xs ${getRoleBadgeColor(user.role)}`}>
                         {getRoleLabel(user.role)}
                       </span>
+                    </td>
+                    <td className="p-3 text-gray-600">
+                      {user.assignment_group || (user.assignment_group_id ? getAssignmentGroupById(user.assignment_group_id)?.group_name : '—')}
                     </td>
                     <td className="p-3 text-gray-600">{new Date(user.createdAt).toLocaleDateString()}</td>
                     <td className="p-3">
@@ -562,6 +570,36 @@ export default function UserManagementPage() {
                                   </SelectContent>
                                 </Select>
                               </div>
+
+                              {(formData.role === 'agent' || formData.role === 'manager') && (
+                                <div className="space-y-2">
+                                  <Label htmlFor="edit-assignmentGroup">Assignment Group {formData.role === 'manager' ? '' : '(optional)'}</Label>
+                                  <Select
+                                    value={formData.assignment_group_id != null ? formData.assignment_group_id.toString() : undefined}
+                                    onValueChange={(value) => setFormData({
+                                      ...formData,
+                                      assignment_group_id: value === '__none' ? undefined : parseInt(value)
+                                    })}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select a team..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__none">None</SelectItem>
+                                      {assignmentGroups.map(group => (
+                                        <SelectItem key={group.assignment_group_id} value={group.assignment_group_id.toString()}>
+                                          {group.group_name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <p className="text-xs text-gray-500">
+                                    {formData.role === 'manager'
+                                      ? 'Assign this manager to a team so they only see agents for that group.'
+                                      : 'Assign user to a support team for task allocation.'}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                             
                             <DialogFooter>

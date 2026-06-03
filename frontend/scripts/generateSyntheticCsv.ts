@@ -28,10 +28,10 @@ const safeWriteCsv = async (filename: string, contents: string): Promise<string>
 const main = async () => {
   await mkdir(outputDir, { recursive: true });
 
-  const workloadData = generateWorkloadBalanceDataset(24);
-  const nonFCRData = generateNonFCRDataset(400);
-  const staffingData = generateStaffingIntelligenceDataset(52);
-  const ticketData = generateTicketDataset(500);
+  const workloadData = generateWorkloadBalanceDataset(48);
+  const nonFCRData = generateNonFCRDataset(2000);
+  const staffingData = generateStaffingIntelligenceDataset(104);
+  const ticketData = generateTicketDataset(2000);
 
   const workloadPath = await safeWriteCsv('workload_balance.csv', exportSyntheticDatasetAsCSV(workloadData));
   const nonFCRPath = await safeWriteCsv('non_fcr_dataset.csv', exportSyntheticDatasetAsCSV(nonFCRData));

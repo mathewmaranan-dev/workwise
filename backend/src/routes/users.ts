@@ -59,9 +59,10 @@ router.get('/', verifyToken, requireRole('admin'), async (req, res) => {
   try {
     const result = await query(
       `SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
-              u.assignment_group_id, u.created_at
+            u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        ORDER BY u.created_at DESC`
     );
     res.json(result.rows);
@@ -112,15 +113,58 @@ router.get('/next-email', async (req, res) => {
   }
 });
 
+// Get users by assignment group (admins, or the manager of that group)
+router.get('/group/:groupId', verifyToken, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const gid = parseInt(groupId as string, 10);
+    if (Number.isNaN(gid)) return res.status(400).json({ error: 'Invalid group id' });
+
+    // requester info from verifyToken
+    const requester = (req as any).user;
+    if (!requester) return res.status(401).json({ error: 'Not authenticated' });
+
+    // Admins can access any group; managers only their own group
+    if (requester.role !== 'admin') {
+      if (requester.role === 'manager') {
+        const mgr = await query('SELECT assignment_group_id FROM users WHERE user_id = $1', [requester.id]);
+        const mgrGroup = mgr.rows[0]?.assignment_group_id;
+        if (!mgrGroup || Number(mgrGroup) !== gid) {
+          return res.status(403).json({ error: 'Managers can only access their own assignment group' });
+        }
+      } else {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+    }
+
+    const result = await query(
+      `SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
+              u.assignment_group_id, ag.group_name AS assignment_group, u.created_at
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
+       WHERE u.assignment_group_id = $1
+       ORDER BY u.first_name, u.last_name`,
+      [gid]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get users by group error:', error);
+    res.status(500).json({ error: 'Failed to fetch users for group' });
+  }
+});
+
 // Get user by ID
 router.get('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await query(
       `SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
-              u.assignment_group_id, u.created_at
+            u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        WHERE u.user_id = $1`,
       [id]
     );
@@ -133,6 +177,48 @@ router.get('/:id', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Get user error:', error);
     res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+// Get users by assignment group (admins, or the manager of that group)
+router.get('/group/:groupId', verifyToken, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const gid = parseInt(groupId as string, 10);
+    if (Number.isNaN(gid)) return res.status(400).json({ error: 'Invalid group id' });
+
+    // requester info from verifyToken
+    const requester = (req as any).user;
+    if (!requester) return res.status(401).json({ error: 'Not authenticated' });
+
+    // Admins can access any group; managers only their own group
+    if (requester.role !== 'admin') {
+      if (requester.role === 'manager') {
+        const mgr = await query('SELECT assignment_group_id FROM users WHERE user_id = $1', [requester.id]);
+        const mgrGroup = mgr.rows[0]?.assignment_group_id;
+        if (!mgrGroup || Number(mgrGroup) !== gid) {
+          return res.status(403).json({ error: 'Managers can only access their own assignment group' });
+        }
+      } else {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+    }
+
+    const result = await query(
+      `SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
+              u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
+       WHERE u.assignment_group_id = $1
+       ORDER BY u.first_name, u.last_name`,
+      [gid]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Get users by group error:', error);
+    res.status(500).json({ error: 'Failed to fetch users for group' });
   }
 });
 
@@ -183,9 +269,10 @@ router.post('/', verifyToken, requireRole('admin'), async (req, res) => {
     const userId = insertResult.rows[0].user_id;
     const userResult = await query(
       `SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
-              u.assignment_group_id, u.created_at
+              u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        WHERE u.user_id = $1`,
       [userId]
     );
@@ -223,9 +310,10 @@ router.put('/:id', verifyToken, requireRole('admin'), async (req, res) => {
 
     const userResult = await query(
       `SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
-              u.assignment_group_id, u.created_at
+              u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        WHERE u.user_id = $1`,
       [id]
     );

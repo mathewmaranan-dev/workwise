@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { query } from '../config/database.js';
 import { verifyToken, requireRole } from '../middleware/auth.js';
+import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 const router = Router();
+const isDev = process.env.NODE_ENV !== 'production';
 const sanitizeForEmail = (value) => {
     return String(value || '').trim().toLowerCase().replace(/[\s']/g, '').replace(/[^a-z0-9]/g, '');
 };
@@ -44,9 +46,10 @@ const getSuggestedEmail = async (firstName, lastName) => {
 router.get('/', verifyToken, requireRole('admin'), async (req, res) => {
     try {
         const result = await query(`SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
-              u.assignment_group_id, u.created_at
+            u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        ORDER BY u.created_at DESC`);
         res.json(result.rows);
     }
@@ -55,19 +58,80 @@ router.get('/', verifyToken, requireRole('admin'), async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch users' });
     }
 });
-router.get('/next-email', verifyToken, requireRole('admin'), async (req, res) => {
+// Suggest the next available email. If a valid token is provided, return authoritative suggestion.
+router.get('/next-email', async (req, res) => {
     try {
         const firstName = String(req.query.first_name || '').trim();
         const lastName = String(req.query.last_name || '').trim();
         if (!firstName || !lastName) {
             return res.status(400).json({ error: 'First name and last name required' });
         }
-        const suggested = await getSuggestedEmail(firstName, lastName);
-        res.json(suggested);
+        // Check for optional token; don't reject if absent or invalid.
+        const authHeader = String(req.headers.authorization || '');
+        const token = authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader || '';
+        let isAuthenticated = false;
+        if (token) {
+            try {
+                jwt.verify(token, process.env.JWT_SECRET || 'secret');
+                isAuthenticated = true;
+            }
+            catch (e) {
+                // invalid token: treat as unauthenticated but do not fail
+                isAuthenticated = false;
+            }
+        }
+        if (isAuthenticated) {
+            const suggested = await getSuggestedEmail(firstName, lastName);
+            // Do not return generated password in the suggestion response
+            const { password, ...safe } = suggested;
+            return res.json(safe);
+        }
+        // Unauthenticated: return a safe local preview without touching DB or revealing password
+        const localPreview = `${sanitizeForEmail(firstName)}.${sanitizeForEmail(lastName)}00001@workwise.it.com`;
+        const fullName = `${capitalizeName(firstName)} ${capitalizeName(lastName)}`.trim();
+        return res.json({ email: localPreview, full_name: fullName });
     }
     catch (error) {
-        console.error('Next email suggestion error:', error);
+        console.error('Next email suggestion error:', error?.stack || error);
         res.status(500).json({ error: 'Failed to generate email suggestion' });
+    }
+});
+// Get users by assignment group (admins, or the manager of that group)
+router.get('/group/:groupId', verifyToken, async (req, res) => {
+    try {
+        const { groupId } = req.params;
+        const gid = parseInt(groupId, 10);
+        if (Number.isNaN(gid))
+            return res.status(400).json({ error: 'Invalid group id' });
+        // requester info from verifyToken
+        const requester = req.user;
+        if (!requester)
+            return res.status(401).json({ error: 'Not authenticated' });
+        // Admins can access any group; managers only their own group
+        if (requester.role !== 'admin') {
+            if (requester.role === 'manager') {
+                const mgr = await query('SELECT assignment_group_id FROM users WHERE user_id = $1', [requester.id]);
+                const mgrGroup = mgr.rows[0]?.assignment_group_id;
+                if (!mgrGroup || Number(mgrGroup) !== gid) {
+                    return res.status(403).json({ error: 'Managers can only access their own assignment group' });
+                }
+            }
+            else {
+                return res.status(403).json({ error: 'Insufficient permissions' });
+            }
+        }
+        const result = await query(`SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
+              u.assignment_group_id, ag.group_name AS assignment_group, u.created_at
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
+       WHERE u.assignment_group_id = $1
+       ORDER BY u.first_name, u.last_name`, [gid]);
+        res.json(result.rows);
+    }
+    catch (error) {
+        console.error('Get users by group error:', error);
+        res.status(500).json({ error: 'Failed to fetch users for group' });
     }
 });
 // Get user by ID
@@ -75,9 +139,10 @@ router.get('/:id', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
         const result = await query(`SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
-              u.assignment_group_id, u.created_at
+            u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        WHERE u.user_id = $1`, [id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });
@@ -89,10 +154,50 @@ router.get('/:id', verifyToken, async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch user' });
     }
 });
+// Get users by assignment group (admins, or the manager of that group)
+router.get('/group/:groupId', verifyToken, async (req, res) => {
+    try {
+        const { groupId } = req.params;
+        const gid = parseInt(groupId, 10);
+        if (Number.isNaN(gid))
+            return res.status(400).json({ error: 'Invalid group id' });
+        // requester info from verifyToken
+        const requester = req.user;
+        if (!requester)
+            return res.status(401).json({ error: 'Not authenticated' });
+        // Admins can access any group; managers only their own group
+        if (requester.role !== 'admin') {
+            if (requester.role === 'manager') {
+                const mgr = await query('SELECT assignment_group_id FROM users WHERE user_id = $1', [requester.id]);
+                const mgrGroup = mgr.rows[0]?.assignment_group_id;
+                if (!mgrGroup || Number(mgrGroup) !== gid) {
+                    return res.status(403).json({ error: 'Managers can only access their own assignment group' });
+                }
+            }
+            else {
+                return res.status(403).json({ error: 'Insufficient permissions' });
+            }
+        }
+        const result = await query(`SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
+              u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
+       WHERE u.assignment_group_id = $1
+       ORDER BY u.first_name, u.last_name`, [gid]);
+        res.json(result.rows);
+    }
+    catch (error) {
+        console.error('Get users by group error:', error);
+        res.status(500).json({ error: 'Failed to fetch users for group' });
+    }
+});
 // Create user (admin only)
 router.post('/', verifyToken, requireRole('admin'), async (req, res) => {
     try {
         const { first_name, last_name, email, password, role, assignment_group_id } = req.body;
+        // log request metadata for debugging (avoid logging raw passwords)
+        console.log('Create user request:', { first_name, last_name, email, role, assignment_group_id });
         if (!first_name || !last_name || !role) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
@@ -120,15 +225,17 @@ router.post('/', verifyToken, requireRole('admin'), async (req, res) => {
        RETURNING user_id`, [first_name, last_name, finalEmail, hashedPassword, roleId, assignment_group_id || null]);
         const userId = insertResult.rows[0].user_id;
         const userResult = await query(`SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
-              u.assignment_group_id, u.created_at
+              u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        WHERE u.user_id = $1`, [userId]);
         res.status(201).json(userResult.rows[0]);
     }
     catch (error) {
-        console.error('Create user error:', error);
-        res.status(500).json({ error: 'Failed to create user' });
+        console.error('Create user error:', error?.stack || error);
+        const message = isDev ? (error?.message ? error.message : String(error)) : 'Failed to create user';
+        res.status(500).json({ error: message });
     }
 });
 // Update user (admin only)
@@ -148,9 +255,10 @@ router.put('/:id', verifyToken, requireRole('admin'), async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
         const userResult = await query(`SELECT u.user_id AS id, u.first_name, u.last_name, u.email, r.role_name AS role,
-              u.assignment_group_id, u.created_at
+              u.assignment_group_id, ag.group_name AS assignment_group, u.shift AS shift, u.created_at
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
+       LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
        WHERE u.user_id = $1`, [id]);
         res.json(userResult.rows[0]);
     }
@@ -163,6 +271,28 @@ router.put('/:id', verifyToken, requireRole('admin'), async (req, res) => {
 router.delete('/:id', verifyToken, requireRole('admin'), async (req, res) => {
     try {
         const { id } = req.params;
+        // Identify super-admin by email (configurable via env)
+        const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'admin@workwise.app';
+        // Fetch target user and role
+        const targetResult = await query(`SELECT u.user_id AS id, u.email, r.role_name AS role
+       FROM users u
+       JOIN roles r ON u.role_id = r.role_id
+       WHERE u.user_id = $1`, [id]);
+        if (targetResult.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        const target = targetResult.rows[0];
+        // Prevent deleting the super admin account
+        if (String(target.email).toLowerCase() === String(SUPER_ADMIN_EMAIL).toLowerCase()) {
+            return res.status(403).json({ error: 'Cannot delete the super admin account' });
+        }
+        // If target is an admin, only the super admin may delete them
+        if (String(target.role).toLowerCase() === 'admin') {
+            const requesterEmail = String(req.user?.email || '').toLowerCase();
+            if (requesterEmail !== String(SUPER_ADMIN_EMAIL).toLowerCase()) {
+                return res.status(403).json({ error: 'Only the super admin can delete other admin users' });
+            }
+        }
         await query('DELETE FROM users WHERE user_id = $1', [id]);
         res.json({ message: 'User deleted successfully' });
     }

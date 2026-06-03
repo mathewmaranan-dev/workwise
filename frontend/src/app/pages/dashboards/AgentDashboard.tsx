@@ -227,13 +227,13 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
         {showAgentSelector ? (
           <div className="w-full max-w-xs">
             <label className="text-sm font-medium text-gray-700 block mb-2">Select Agent</label>
-            <Select value={selectedAgent?.toString() || ''} onValueChange={(value) => setSelectedAgent(parseInt(value, 10))}>
+            <Select value={selectedAgent != null ? String(selectedAgent) : undefined} onValueChange={(value) => setSelectedAgent(parseInt(value, 10))}>
               <SelectTrigger>
                 <SelectValue placeholder="Choose an agent" />
               </SelectTrigger>
               <SelectContent>
                 {agents.map(agent => (
-                  <SelectItem key={agent.id} value={agent.id}>
+                  <SelectItem key={agent.id} value={String(agent.id)}>
                     {agent.first_name || agent.name} {agent.last_name || ''}
                   </SelectItem>
                 ))}
