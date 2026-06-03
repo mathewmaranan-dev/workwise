@@ -350,72 +350,7 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
         </Card>
       </div>
 
-      {/* Task Allocation Suggestions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recommended Task Allocation - Start Here</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-gray-600 mb-4">
-            Tasks ordered by priority and age. We recommend starting with P1 critical issues.
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left p-2 font-medium">Ticket ID</th>
-                  <th className="text-left p-2 font-medium">Priority</th>
-                  <th className="text-left p-2 font-medium">Category</th>
-                  <th className="text-left p-2 font-medium">Status</th>
-                  <th className="text-left p-2 font-medium">Age (days)</th>
-                  <th className="text-left p-2 font-medium">SLA Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {suggestedTasks.map(ticket => {
-                  const createdDate = new Date((ticket as any).created_date || '');
-                  const age = Math.floor((new Date().getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
-                  const status = (ticket as any).status || 'Unknown';
-                  const priority = (ticket as any).priority || 'Unknown';
-                  const category = (ticket as any).category || 'Unknown';
-                  const madeSla = (ticket as any).made_sla;
-                  const slaStatus = madeSla ? 'met' : 'at_risk';
-                  
-                  return (
-                    <tr key={(ticket as any).ticket_id} className="border-b hover:bg-gray-50">
-                      <td className="p-2 font-mono text-xs">{(ticket as any).ticket_id}</td>
-                      <td className="p-2">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          priority === 'Critical' ? 'bg-red-100 text-red-800' :
-                          priority === 'High' ? 'bg-orange-100 text-orange-800' :
-                          priority === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {priority}
-                        </span>
-                      </td>
-                      <td className="p-2">{category}</td>
-                      <td className="p-2">
-                        <span className="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">
-                          {status}
-                        </span>
-                      </td>
-                      <td className="p-2">{age}</td>
-                      <td className="p-2">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          slaStatus === 'met' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }`}>
-                          {slaStatus === 'met' ? 'On Track' : 'At Risk'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+  
 
       {/* All Tasks with Filters */}
       <Card>

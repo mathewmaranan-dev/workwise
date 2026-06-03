@@ -40,6 +40,18 @@ const normalizeRole = (role: any): UserRole => {
   if (['admin', 'manager', 'hr', 'agent'].includes(normalized)) {
     return normalized as UserRole;
   }
+  if (normalized.includes('manager')) {
+    return 'manager';
+  }
+  if (normalized.includes('hr')) {
+    return 'hr';
+  }
+  if (normalized.includes('agent')) {
+    return 'agent';
+  }
+  if (normalized.includes('admin')) {
+    return 'admin';
+  }
   return 'agent';
 };
 

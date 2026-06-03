@@ -1,11 +1,27 @@
-# ML Service requirements
+# Work-Wise ML Service Requirements
+# Web Framework
 Flask==3.0.0
 Flask-CORS==4.0.0
+
+# Database
 psycopg2-binary==2.9.9
+
+# Configuration
 python-dotenv==1.0.0
-scikit-learn==1.3.2
+
+# Data Processing & Analysis
 pandas==2.1.3
 numpy==1.26.2
+
+# Machine Learning
+scikit-learn==1.3.2
 XGBoost==2.0.3
 statsmodels==0.14.0
 tensorflow==2.15.0
+joblib==1.3.2
+
+# Optimization
+scipy==1.11.4
+
+# Utilities
+python-dateutil==2.8.2

@@ -8,6 +8,18 @@ const normalizeRole = (role) => {
     if (['admin', 'manager', 'hr', 'agent'].includes(normalized)) {
         return normalized;
     }
+    if (normalized.includes('manager')) {
+        return 'manager';
+    }
+    if (normalized.includes('hr')) {
+        return 'hr';
+    }
+    if (normalized.includes('agent')) {
+        return 'agent';
+    }
+    if (normalized.includes('admin')) {
+        return 'admin';
+    }
     return 'agent';
 };
 const parseApiUser = (raw) => {

@@ -2,13 +2,17 @@ import logging
 import os
 from datetime import datetime, timedelta
 
+import numpy as np
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+from services.data_preprocessing import DataPreprocessor
+from services.database_integration import DatabaseConnector
 from services.diagnostics import PerformanceDiagnostics
 from services.fcr_prediction import FCRPredictor
 from services.forecasting import TicketForecast
+from services.model_training import ModelTrainer
 from services.workload_optimization import WorkloadOptimizer
 
 load_dotenv()
@@ -23,6 +27,9 @@ forecast_service = TicketForecast()
 workload_optimizer = WorkloadOptimizer()
 diagnostics_service = PerformanceDiagnostics()
 fcr_predictor = FCRPredictor()
+data_preprocessor = DataPreprocessor()
+db_connector = DatabaseConnector()
+model_trainer = ModelTrainer()
 
 CATEGORY_ID_MAP = {
     'software': 2,
@@ -35,24 +42,7 @@ CATEGORY_ID_MAP = {
 }
 
 
-def _build_ticket_dataset(group_id, count=30):
-    tickets = []
-    for index in range(count):
-        resolution_time = 90 + (group_id * 6) + (index * 4) % 120
-        status = 'resolved' if index % 4 else 'open'
-        tickets.append({
-            'ticket_id': f'TICK-{group_id}-{index:03d}',
-            'status': status,
-            'sla_met': index % 5 != 0,
-            'fcr': index % 3 != 0,
-            'created_at': (datetime.utcnow() - timedelta(days=index)).isoformat(),
-            'duration': resolution_time,
-            'priority': (index % 5) + 1,
-            'reopen_count': 1 if index % 9 == 0 else 0,
-            'reassignment_count': 1 if index % 12 == 0 else 0,
-        })
-    return tickets
-
+# ============ HEALTH & STATUS ============
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -239,6 +229,274 @@ def predict_fcr_risk():
     except Exception as exc:
         logger.error(f"FCR prediction error: {exc}")
         return jsonify({'error': str(exc)}), 500
+
+
+# ============ NEW ENDPOINTS ============
+
+# FCR Batch Predict
+@app.route('/api/ml/fcr/batch-predict', methods=['POST'])
+def batch_predict_fcr():
+    """Batch predict FCR risk for multiple tickets"""
+    try:
+        data = request.get_json()
+        tickets = data.get('tickets', [])
+        
+        predictions = []
+        for ticket in tickets:
+            category = ticket.get('category', 'software')
+            category_key = str(category).strip().lower()
+            category_id = CATEGORY_ID_MAP.get(category_key, 1)
+            
+            ticket_features = {
+                'assignment_group_id': int(ticket.get('group_id', 1)),
+                'category_id': category_id,
+                'priority_id': int(ticket.get('priority_id', 3)),
+                'reopen_count': int(ticket.get('reopen_count', 0)),
+                'reassignment_count': int(ticket.get('reassignment_count', 0)),
+                'duration': float(ticket.get('duration', 120)),
+                'ticket_complexity': float(ticket.get('ticket_complexity', 6)),
+                'agent_fcr_history': float(ticket.get('agent_fcr_history', 0.72)),
+                'category_non_fcr_rate': float(ticket.get('category_non_fcr_rate', 0.2)),
+            }
+            
+            prediction = fcr_predictor.predict_fcr_risk(ticket_features)
+            predictions.append({
+                'ticket_id': ticket.get('ticket_id', f"TICK-{len(predictions)+1}"),
+                'prediction': prediction
+            })
+        
+        return jsonify({'predictions': predictions}), 200
+    except Exception as exc:
+        logger.error(f"Batch FCR prediction error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# Workload Analyze
+@app.route('/api/ml/workload/analyze', methods=['POST'])
+def analyze_workload():
+    """Analyze current workload distribution"""
+    try:
+        data = request.get_json()
+        team_members = data.get('team_members', [])
+        
+        analysis = workload_optimizer.analyze_current_load(team_members)
+        
+        return jsonify({
+            'analysis': analysis,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as exc:
+        logger.error(f"Workload analysis error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# Workload Staffing
+@app.route('/api/ml/workload/staffing', methods=['POST'])
+def predict_staffing():
+    """Predict staffing needs"""
+    try:
+        data = request.get_json()
+        forecast_volume = data.get('forecast_volume', [])
+        current_team_size = int(data.get('current_team_size', 5))
+        avg_capacity = float(data.get('avg_capacity', 20))
+        
+        if not forecast_volume:
+            return jsonify({'error': 'forecast_volume required'}), 400
+        
+        staffing = workload_optimizer.predict_staffing_needs(
+            forecast_volume, current_team_size, avg_capacity
+        )
+        
+        return jsonify({
+            'staffing_prediction': staffing,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as exc:
+        logger.error(f"Staffing prediction error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# Diagnostics KPIs
+@app.route('/api/ml/diagnostics/kpis', methods=['POST'])
+def get_kpis():
+    """Calculate performance KPIs"""
+    try:
+        data = request.get_json()
+        tickets = data.get('tickets', [])
+        
+        if not tickets:
+            return jsonify({'error': 'tickets required'}), 400
+        
+        kpis = diagnostics_service.calculate_kpis(tickets)
+        
+        return jsonify({
+            'kpis': kpis,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as exc:
+        logger.error(f"KPI calculation error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# Diagnostics Imbalance
+@app.route('/api/ml/diagnostics/imbalance', methods=['POST'])
+def detect_imbalance():
+    """Detect workload imbalances"""
+    try:
+        data = request.get_json()
+        employee_workloads = data.get('employee_workloads', [])
+        
+        if not employee_workloads:
+            return jsonify({'error': 'employee_workloads required'}), 400
+        
+        imbalance = diagnostics_service.detect_workload_imbalance(employee_workloads)
+        
+        return jsonify({
+            'imbalance_analysis': imbalance,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as exc:
+        logger.error(f"Imbalance detection error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# Diagnostics Bottlenecks
+@app.route('/api/ml/diagnostics/bottlenecks', methods=['POST'])
+def identify_bottlenecks():
+    """Identify performance bottlenecks"""
+    try:
+        data = request.get_json()
+        team_performance = data.get('team_performance', [])
+        
+        if not team_performance:
+            return jsonify({'error': 'team_performance required'}), 400
+        
+        bottlenecks = diagnostics_service.identify_bottlenecks(team_performance)
+        
+        return jsonify({
+            'bottlenecks': bottlenecks,
+            'count': len(bottlenecks),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as exc:
+        logger.error(f"Bottleneck identification error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# Diagnostics FCR Drivers
+@app.route('/api/ml/diagnostics/fcr-drivers', methods=['POST'])
+def analyze_fcr_drivers():
+    """Analyze Non-FCR drivers"""
+    try:
+        data = request.get_json()
+        tickets = data.get('tickets', [])
+        
+        if not tickets:
+            return jsonify({'error': 'tickets required'}), 400
+        
+        drivers = diagnostics_service.detect_non_fcr_drivers(tickets)
+        
+        return jsonify({
+            'fcr_drivers': drivers,
+            'count': len(drivers),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as exc:
+        logger.error(f"FCR driver analysis error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# Diagnostics Anomalies (updated endpoint)
+@app.route('/api/ml/diagnostics/anomalies', methods=['POST'])
+def detect_performance_anomalies():
+    """Detect performance anomalies"""
+    try:
+        data = request.get_json()
+        historical_data = data.get('historical_data', [])
+        
+        if not historical_data:
+            return jsonify({'error': 'historical_data required'}), 400
+        
+        anomalies = diagnostics_service.detect_performance_anomalies(historical_data)
+        
+        return jsonify({
+            'anomalies': anomalies,
+            'count': len(anomalies),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as exc:
+        logger.error(f"Anomaly detection error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# Model Training Summary
+@app.route('/api/ml/training/summary', methods=['GET'])
+def training_summary():
+    """Get trained model information"""
+    try:
+        summary = {
+            'fcr_model': {
+                'status': 'trained' if os.path.exists('models/fcr_model.joblib') else 'untrained',
+                'model_type': 'RandomForest Classifier',
+                'feature_importance': model_trainer.get_feature_importance('fcr') or {}
+            },
+            'workload_model': {
+                'status': 'trained' if os.path.exists('models/workload_model.joblib') else 'untrained',
+                'model_type': 'GradientBoosting Regressor',
+                'feature_importance': model_trainer.get_feature_importance('workload') or {}
+            },
+            'last_updated': datetime.utcnow().isoformat()
+        }
+        
+        return jsonify(summary), 200
+    except Exception as exc:
+        logger.error(f"Training summary error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# ML Service Status
+@app.route('/api/ml/status', methods=['GET'])
+def ml_status():
+    """Get ML service status"""
+    try:
+        status = {
+            'service': 'Work-Wise ML Service',
+            'status': 'operational',
+            'models_loaded': {
+                'fcr_model': fcr_predictor.model is not None,
+                'workload_model': hasattr(workload_optimizer, 'model') and workload_optimizer.model is not None
+            },
+            'services': {
+                'diagnostics': True,
+                'forecasting': True,
+                'workload_optimization': True,
+                'fcr_prediction': True
+            },
+            'database': {
+                'status': 'configured',
+                'url': 'postgresql://***'
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        return jsonify(status), 200
+    except Exception as exc:
+        logger.error(f"Status check error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
+# Legacy anomaly endpoint removed; use POST /api/ml/diagnostics/anomalies
+
+
+# Error Handlers
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Endpoint not found', 'status': 404}), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({'error': 'Internal server error', 'status': 500}), 500
 
 
 if __name__ == '__main__':

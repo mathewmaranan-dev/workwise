@@ -45,6 +45,7 @@ export default function ManagerDashboard() {
   const displayGroup = getAssignmentGroupById(displayGroupId);
   const groupTickets = selectedGroupTickets;
   const groupNonFCRTickets = selectedGroupNonFCRTickets;
+  const groupNonFCRTicketRecords = useMemo(() => groupTickets.filter(t => !t.fcr), [groupTickets]);
   const isFallbackGroup = false;
   
   // Calculate KPIs for manager's group only
@@ -70,6 +71,10 @@ export default function ManagerDashboard() {
   const [riskScoreMap, setRiskScoreMap] = useState<Record<string, NonFCRRiskScore>>({});
   const [riskLoading, setRiskLoading] = useState(false);
   const [riskError, setRiskError] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<Ticket[]>([]);
+  const [recLoading, setRecLoading] = useState(false);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'overview' | 'recommendations'>('overview');
   const [mlInsights, setMlInsights] = useState({
     forecastMean: null as number | null,
     forecastUpper: null as number | null,
@@ -79,6 +84,31 @@ export default function ManagerDashboard() {
     loading: false,
     error: null as string | null,
   });
+
+  // ML-driven visualizations: risk distribution and driver frequency
+  const riskDistributionData = useMemo(() => {
+    const buckets: Record<string, number> = { Low: 0, Medium: 0, High: 0, Critical: 0 };
+    Object.values(riskScoreMap).forEach((r) => {
+      const score = r?.riskScore ?? 0;
+      if (score >= 70) buckets.Critical += 1;
+      else if (score >= 50) buckets.High += 1;
+      else if (score >= 30) buckets.Medium += 1;
+      else buckets.Low += 1;
+    });
+    return Object.entries(buckets).map(([name, value]) => ({ name, value }));
+  }, [riskScoreMap]);
+
+  const driverFrequencyData = useMemo(() => {
+    const freq: Record<string, number> = {};
+    Object.values(riskScoreMap).forEach((r) => {
+      const factors = Array.isArray(r?.factors) ? r.factors : [];
+      factors.forEach((f) => { freq[f] = (freq[f] || 0) + 1; });
+    });
+    return Object.entries(freq)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, value]) => ({ name, value }));
+  }, [riskScoreMap]);
 
   const taskAllocationData = [
     { name: 'New', value: newTasks, color: '#3B82F6' },
@@ -212,7 +242,7 @@ export default function ManagerDashboard() {
     let isMounted = true;
 
     const loadRiskScores = async () => {
-      if (groupNonFCRTickets.length === 0) {
+      if (groupNonFCRTicketRecords.length === 0) {
         setRiskScoreMap({});
         setRiskError(null);
         setRiskLoading(false);
@@ -223,7 +253,7 @@ export default function ManagerDashboard() {
       setRiskError(null);
 
       try {
-        const scores = await predictNonFCRRisk(groupNonFCRTickets, currentTickets);
+        const scores = await predictNonFCRRisk(groupNonFCRTicketRecords, currentTickets);
         if (!isMounted) return;
         setRiskScoreMap(Object.fromEntries(scores.map(score => [score.ticket_id, score])));
       } catch (error: any) {
@@ -242,7 +272,66 @@ export default function ManagerDashboard() {
     return () => {
       isMounted = false;
     };
-  }, [groupNonFCRTickets, currentTickets]);
+  }, [groupNonFCRTicketRecords, currentTickets]);
+
+  // Fetch workload recommendations from ML service for this group
+  useEffect(() => {
+    let isMounted = true;
+    const fetchRecommendations = async () => {
+      setRecLoading(true);
+      setRecError(null);
+      try {
+        const payload = {
+          assignment_group_id: selectedGroupId,
+          incoming_tickets: Math.round(mlInsights.forecastMean ?? groupTickets.length)
+        };
+
+        const resp = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/workload/balance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) throw new Error('Backend did not return recommendations');
+        const data = await resp.json();
+
+        let tasks: Ticket[] = [];
+        // Preferred shape: data.recommended_tasks: [ { ticket_id, priority_id, category_id, status_id, created_date, made_sla } ]
+        if (Array.isArray(data?.recommended_tasks)) {
+          tasks = data.recommended_tasks as Ticket[];
+        } else if (Array.isArray(data?.recommendations)) {
+          // Flatten per-agent recommendations if present
+          data.recommendations.forEach((r: any) => {
+            if (Array.isArray(r.tickets)) tasks.push(...r.tickets);
+          });
+        }
+
+        // Fallback: local prioritized ordering when backend doesn't return tasks
+        if (tasks.length === 0) {
+          tasks = [...groupTickets]
+            .sort((a, b) => (a.priority_id - b.priority_id) || (new Date(b.created_date).getTime() - new Date(a.created_date).getTime()))
+            .slice(0, 50);
+        }
+
+        if (isMounted) setRecommendations(tasks);
+      } catch (error) {
+        console.warn('Failed to load ML recommendations', error);
+        if (isMounted) {
+          setRecError('ML recommendations unavailable — showing priority-sorted fallback');
+          setRecommendations(
+            [...groupTickets]
+              .sort((a, b) => (a.priority_id - b.priority_id) || (new Date(b.created_date).getTime() - new Date(a.created_date).getTime()))
+              .slice(0, 50)
+          );
+        }
+      } finally {
+        if (isMounted) setRecLoading(false);
+      }
+    };
+
+    fetchRecommendations();
+    return () => { isMounted = false; };
+  }, [apiBase, selectedGroupId, mlInsights.forecastMean, groupTickets]);
 
   useEffect(() => {
     let isMounted = true;
@@ -272,7 +361,7 @@ export default function ManagerDashboard() {
         const forecastData = await forecastResponse.json();
         const anomalyData = await anomalyResponse.json();
 
-        const anomalyEntries = Array.isArray(anomalyData?.anomalies_detected) ? anomalyData.anomalies_detected : [];
+        const anomalyEntries = Array.isArray(anomalyData?.anomalies_detected) ? anomalyData.anomalies_detected as Array<{ value?: number }> : [];
         const peakAnomaly = anomalyEntries.reduce((max, entry) => Math.max(max, Number(entry?.value ?? 0)), 0);
 
         if (!isMounted) return;
@@ -333,9 +422,43 @@ export default function ManagerDashboard() {
         <p className="text-gray-600 mt-1">Logged in as: {user?.name || 'Manager'} ({user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Manager'})</p>
         <p className="text-gray-600 mt-1">Viewing tickets for: {displayGroup?.group_name || `Group ${displayGroupId}`}</p>
         {isFallbackGroup && (
-          <div className="mt-2 rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
-            No non-FCR data exists for the selected team. Showing sample data for {displayGroup?.group_name || `Group ${displayGroupId}`} so ML behavior can be validated.
-          </div>
+          <>
+            <div className="mt-2 rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+              No non-FCR data exists for the selected team. Showing sample data for {displayGroup?.group_name || `Group ${displayGroupId}`} so ML behavior can be validated.
+            </div>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-slate-200 p-3 bg-white">
+                <p className="text-xs font-semibold text-slate-500">FCR Risk Distribution</p>
+                <div className="mt-2 h-40">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={riskDistributionData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#EF4444" name="Tickets" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-3 bg-white">
+                <p className="text-xs font-semibold text-slate-500">Top Non-FCR Drivers</p>
+                <div className="mt-2 h-40 flex items-center justify-center">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={driverFrequencyData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label={(entry) => `${entry.name}` }>
+                        {driverFrequencyData.map((entry, idx) => (
+                          <Cell key={`cell-${idx}`} fill={["#4F46E5","#10B981","#F59E0B","#EF4444","#8B5CF6","#06B6D4"][idx % 6]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          </>
         )}
         <div className="mt-3 flex flex-wrap gap-3 items-center">
           {assignmentGroups.map(group => (
@@ -348,9 +471,27 @@ export default function ManagerDashboard() {
             </button>
           ))}
         </div>
+        <div className="mt-4">
+          <div className="inline-flex rounded-md bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setSelectedTab('overview')}
+              className={`px-3 py-1 text-sm font-medium rounded ${selectedTab === 'overview' ? 'bg-white text-slate-900 shadow' : 'text-slate-700'}`}>
+              Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedTab('recommendations')}
+              className={`ml-1 px-3 py-1 text-sm font-medium rounded ${selectedTab === 'recommendations' ? 'bg-white text-slate-900 shadow' : 'text-slate-700'}`}>
+              Recommended Allocation
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* KPI Cards for Manager's Group */}
+      {selectedTab === 'overview' && (
+        <>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -736,6 +877,8 @@ export default function ManagerDashboard() {
         </CardContent>
       </Card>
 
+      
+
       {/* Agent FCR Performance */}
       <Card>
         <CardHeader>
@@ -868,6 +1011,70 @@ export default function ManagerDashboard() {
           </div>
         </CardContent>
       </Card>
+      </>
+    )}
+    {selectedTab === 'recommendations' ? (
+      <Card>
+        <CardHeader>
+          <CardTitle>Recommended Task Allocation - Start Here</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">Tasks ordered by priority and age. We recommend starting with P1 critical issues.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left p-3 font-medium">Ticket ID</th>
+                  <th className="text-left p-3 font-medium">Priority</th>
+                  <th className="text-left p-3 font-medium">Category</th>
+                  <th className="text-left p-3 font-medium">Status</th>
+                  <th className="text-left p-3 font-medium">Age (days)</th>
+                  <th className="text-left p-3 font-medium">SLA Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recLoading ? (
+                  <tr>
+                    <td colSpan={6} className="p-4 text-sm text-gray-500">Loading recommendations…</td>
+                  </tr>
+                ) : recommendations.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-4 text-sm text-gray-500">No recommendations available for this team.</td>
+                  </tr>
+                ) : (
+                  recommendations.map((ticket) => {
+                    const age = Math.floor((Date.now() - new Date(ticket.created_date).getTime()) / (1000 * 60 * 60 * 24));
+                    const categoryName = getCategoryById(ticket.category_id)?.category_name || 'Uncategorized';
+                    const statusText = ticket.status_id === 1 ? 'New' : ticket.status_id === 2 ? 'In Progress' : ticket.status_id === 3 ? 'Resolved' : ticket.status_id === 4 ? 'Closed' : ticket.status_id === 5 ? 'On Hold' : 'Other';
+                    const slaText = ticket.made_sla ? 'Met' : 'At Risk';
+                    return (
+                      <tr key={ticket.ticket_id} className="border-b hover:bg-gray-50">
+                        <td className="p-3 font-mono text-xs font-medium">{ticket.ticket_id}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            ticket.priority_id === 1 ? 'bg-red-100 text-red-800' :
+                            ticket.priority_id === 2 ? 'bg-orange-100 text-orange-800' :
+                            ticket.priority_id === 3 ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            P{ticket.priority_id}
+                          </span>
+                        </td>
+                        <td className="p-3">{categoryName}</td>
+                        <td className="p-3 text-xs">{statusText}</td>
+                        <td className="p-3">{age}d</td>
+                        <td className="p-3">{slaText}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          {recError && <p className="mt-2 text-xs text-amber-700">{recError}</p>}
+        </CardContent>
+      </Card>
+    ) : null}
     </div>
   );
 }
