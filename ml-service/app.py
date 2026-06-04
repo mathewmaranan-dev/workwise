@@ -97,11 +97,17 @@ def balance_workload():
         if group_id is None or not target_date:
             return jsonify({'error': 'Missing required fields'}), 400
 
-        team_members = [
-            {'user_id': int(group_id * 100 + offset), 'current_tickets': int((group_id + offset) * 2 + 5)}
-            for offset in range(5)
-        ]
         incoming_tickets = int(data.get('incoming_tickets', 8))
+        requested_team_members = data.get('team_members', [])
+
+        if isinstance(requested_team_members, list) and len(requested_team_members) > 0:
+            team_members = requested_team_members
+        else:
+            team_members = [
+                {'user_id': int(group_id * 100 + offset), 'current_tickets': int((group_id + offset) * 2 + 5)}
+                for offset in range(5)
+            ]
+
         allocation = workload_optimizer.recommend_distribution(team_members, incoming_tickets)
 
         return jsonify({
@@ -109,8 +115,15 @@ def balance_workload():
             'date': target_date,
             'recommendations': allocation['recommendations'],
             'is_balanced': allocation['is_balanced'],
+            'optimization_status': allocation.get('optimization_status', 'unknown'),
             'target_load': round(float(allocation['target_load']), 2),
-            'current_variance': round(float(allocation['current_variance']), 3),
+            'current_variance': round(float(allocation.get('current_variance', 0)), 3),
+            'fairness_score': round(float(allocation.get('fairness_score', 0)), 3),
+            'current_analysis': allocation.get('current_analysis', {}),
+            'optimized_analysis': allocation.get('optimized_analysis', {}),
+            'total_reassignments': allocation.get('total_reassignments', 0),
+            'implementation_difficulty': allocation.get('implementation_difficulty', 'unknown'),
+            'business_impact': allocation.get('business_impact', {}),
         }), 200
 
     except Exception as exc:

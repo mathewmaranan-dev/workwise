@@ -17,6 +17,22 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { Button } from '../../components/ui/button';
 
+interface TeamMemberMetrics {
+  user_id: number;
+  employee_name: string;
+  current_tickets: number;
+  sla_compliance: number;
+  fcr_rate: number;
+  capacity: number;
+  experience_level: number;
+}
+
+interface EmployeeWorkloadPayload {
+  employee_id: number;
+  employee_name: string;
+  current_workload: number;
+}
+
 const env = (import.meta as any).env as Record<string, string | undefined>;
 
 export default function ManagerDashboard() {
@@ -103,6 +119,12 @@ export default function ManagerDashboard() {
   const [recommendations, setRecommendations] = useState<Ticket[]>([]);
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
+  const [workloadAnalysis, setWorkloadAnalysis] = useState<any>(null);
+  const [imbalanceAnalysis, setImbalanceAnalysis] = useState<any>(null);
+  const [workloadBalance, setWorkloadBalance] = useState<any>(null);
+  const [workloadMlError, setWorkloadMlError] = useState<string | null>(null);
+  const [workloadBalanceLoading, setWorkloadBalanceLoading] = useState(false);
+  const [imbalanceLoading, setImbalanceLoading] = useState(false);
   const [selectedTab, setSelectedTab] = useState<'overview' | 'recommendations'>('overview');
   const [mlInsights, setMlInsights] = useState({
     forecastMean: null as number | null,
@@ -151,6 +173,46 @@ export default function ManagerDashboard() {
       .map(ticket => ticket.assigned_to_id)
       .filter((value): value is number => typeof value === 'number'));
     return assignedAgentIds.size > 0 ? assignedAgentIds.size : 1;
+  }, [groupTickets]);
+
+  const teamMemberMetrics = useMemo(() => {
+    const agentMap: Record<number, {
+      user_id: number;
+      employee_name: string;
+      current_tickets: number;
+      sla_compliance: number;
+      fcr_rate: number;
+      capacity: number;
+      experience_level: number;
+    }> = {};
+
+    groupTickets.forEach(ticket => {
+      const userId = ticket.assigned_to_id;
+      if (typeof userId !== 'number') return;
+      if (!agentMap[userId]) {
+        const user = getUserById(userId);
+        agentMap[userId] = {
+          user_id: userId,
+          employee_name: user ? `${user.first_name} ${user.last_name}` : `Agent ${userId}`,
+          current_tickets: 0,
+          sla_compliance: 0,
+          fcr_rate: 0,
+          capacity: 10,
+          experience_level: 1,
+        };
+      }
+
+      const agent = agentMap[userId];
+      agent.current_tickets += 1;
+      if (ticket.made_sla) agent.sla_compliance += 1;
+      if (ticket.fcr) agent.fcr_rate += 1;
+    });
+
+    return Object.values(agentMap).map((agent) => ({
+      ...agent,
+      sla_compliance: agent.current_tickets > 0 ? Number((agent.sla_compliance / agent.current_tickets * 100).toFixed(1)) : 0,
+      fcr_rate: agent.current_tickets > 0 ? Number((agent.fcr_rate / agent.current_tickets * 100).toFixed(1)) : 0,
+    }));
   }, [groupTickets]);
 
   const averageRiskScore = useMemo(() => {
@@ -312,7 +374,9 @@ export default function ManagerDashboard() {
       try {
         const payload = {
           assignment_group_id: selectedGroupId,
-          incoming_tickets: Math.round(mlInsights.forecastMean ?? groupTickets.length)
+          incoming_tickets: Math.round(mlInsights.forecastMean ?? groupTickets.length),
+          target_date: new Date().toISOString(),
+          team_members: teamMemberMetrics
         };
 
         const resp = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/workload/balance`, {
@@ -323,6 +387,7 @@ export default function ManagerDashboard() {
 
         if (!resp.ok) throw new Error('Backend did not return recommendations');
         const data = await resp.json();
+        if (isMounted) setWorkloadBalance(data);
 
         let tasks: Ticket[] = [];
         // Preferred shape: data.recommended_tasks: [ { ticket_id, priority_id, category_id, status_id, created_date, made_sla } ]
@@ -347,6 +412,7 @@ export default function ManagerDashboard() {
         console.warn('Failed to load ML recommendations', error);
         if (isMounted) {
           setRecError('ML recommendations unavailable — showing priority-sorted fallback');
+          setWorkloadBalance(null);
           setRecommendations(
             [...groupTickets]
               .sort((a, b) => (a.priority_id - b.priority_id) || (new Date(b.created_date).getTime() - new Date(a.created_date).getTime()))
@@ -421,6 +487,69 @@ export default function ManagerDashboard() {
       isMounted = false;
     };
   }, [apiBase, selectedGroupId]);
+
+  useEffect(() => {
+    if (teamMemberMetrics.length === 0) return;
+    let isMounted = true;
+
+    const loadWorkloadAnalysis = async () => {
+      setImbalanceLoading(true);
+      setWorkloadMlError(null);
+
+      try {
+        const resp = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/workload/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ team_members: teamMemberMetrics })
+        });
+
+        if (!resp.ok) throw new Error('Failed to load workload analysis');
+        const data = await resp.json();
+        if (!isMounted) return;
+        setWorkloadAnalysis(data);
+      } catch (error: any) {
+        if (!isMounted) return;
+        console.warn('Failed to load ML workload analysis', error);
+        setWorkloadMlError('Workload diagnostics unavailable');
+        setWorkloadAnalysis(null);
+      } finally {
+        if (isMounted) setImbalanceLoading(false);
+      }
+    };
+
+    const loadImbalanceAnalysis = async () => {
+      setImbalanceLoading(true);
+      try {
+        const resp = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/diagnostics/imbalance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employee_workloads: teamMemberMetrics.map((agent) => ({
+              employee_id: agent.user_id,
+              employee_name: agent.employee_name,
+              current_workload: agent.current_tickets,
+            }))
+          })
+        });
+
+        if (!resp.ok) throw new Error('Failed to load imbalance analysis');
+        const data = await resp.json();
+        if (!isMounted) return;
+        setImbalanceAnalysis(data);
+      } catch (error: any) {
+        if (!isMounted) return;
+        console.warn('Failed to load imbalance analysis', error);
+        setImbalanceAnalysis(null);
+      } finally {
+        if (isMounted) setImbalanceLoading(false);
+      }
+    };
+
+    loadWorkloadAnalysis();
+    loadImbalanceAnalysis();
+
+    return () => { isMounted = false; };
+  }, [apiBase, selectedGroupId, teamMemberMetrics]);
 
   const computeAgentFcrHistory = (agentId?: number): number => {
     const agentTickets = currentTickets.filter(t => t.assigned_to_id === agentId);
@@ -749,6 +878,84 @@ export default function ManagerDashboard() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>ML workload diagnostics</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">Machine learning detects workload imbalance and prescribes redistribution while honoring threshold ratios.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mean load</p>
+              <p className="mt-2 text-3xl font-bold text-slate-900">{workloadAnalysis?.analysis?.mean ?? 'N/A'}</p>
+              <p className="mt-1 text-xs text-slate-600">Average tickets per employee</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Imbalance ratio</p>
+              <p className="mt-2 text-3xl font-bold text-slate-900">{imbalanceAnalysis?.imbalance_analysis?.imbalance_ratio?.toFixed(2) ?? 'N/A'}</p>
+              <p className="mt-1 text-xs text-slate-600">Max / min load deviation</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Fairness score</p>
+              <p className="mt-2 text-3xl font-bold text-slate-900">{workloadBalance?.fairness_score?.toFixed(2) ?? 'N/A'}</p>
+              <p className="mt-1 text-xs text-slate-600">Higher is more balanced</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Balanced?</p>
+              <p className={`mt-2 text-3xl font-bold ${workloadBalance?.is_balanced ? 'text-emerald-600' : 'text-rose-600'}`}>{workloadBalance?.is_balanced ? 'Yes' : 'Review'}</p>
+              <p className="mt-1 text-xs text-slate-600">ML redistribution readiness</p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold text-gray-800">Threshold ratios</h2>
+              <p className="mt-3 text-sm text-gray-600">Acceptable workload variance is ±{(imbalanceAnalysis?.imbalance_analysis?.fairness_threshold ?? 0.1) * 100}% around mean load.</p>
+              <p className="mt-2 text-sm text-gray-600">Current mean: <span className="font-semibold text-gray-900">{imbalanceAnalysis?.imbalance_analysis?.mean_workload ?? 'N/A'}</span></p>
+              <p className="mt-1 text-sm text-gray-600">Overloaded: <span className="font-semibold text-gray-900">{imbalanceAnalysis?.imbalance_analysis?.overloaded_employees?.length ?? 0}</span></p>
+              <p className="mt-1 text-sm text-gray-600">Underloaded: <span className="font-semibold text-gray-900">{imbalanceAnalysis?.imbalance_analysis?.underloaded_employees?.length ?? 0}</span></p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold text-gray-800">Redistribution recommendation</h2>
+              <p className="mt-3 text-sm text-gray-600">{imbalanceAnalysis?.imbalance_analysis?.recommendation ?? 'No imbalance data available.'}</p>
+              <p className="mt-2 text-xs text-slate-500">{workloadMlError ?? workloadBalance?.optimization_status ? `Status: ${workloadBalance?.optimization_status}` : ''}</p>
+            </div>
+          </div>
+
+          {workloadBalance?.recommendations?.length > 0 && (
+            <div className="mt-6 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    <th className="text-left p-3 font-medium">Agent</th>
+                    <th className="text-left p-3 font-medium">Current</th>
+                    <th className="text-left p-3 font-medium">Recommended</th>
+                    <th className="text-left p-3 font-medium">Adjustment</th>
+                    <th className="text-left p-3 font-medium">Utilization</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workloadBalance.recommendations.map((rec: any) => (
+                    <tr key={rec.user_id} className="border-b hover:bg-gray-50">
+                      <td className="p-3 font-medium">{rec.employee_name || `Agent ${rec.user_id}`}</td>
+                      <td className="p-3">{rec.current_load}</td>
+                      <td className="p-3">{Number(rec.recommended_load).toFixed(1)}</td>
+                      <td className={`p-3 font-semibold ${rec.adjustment > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{rec.adjustment >= 0 ? `+${Number(rec.adjustment).toFixed(1)}` : Number(rec.adjustment).toFixed(1)}</td>
+                      <td className="p-3">{rec.utilization_rate ? `${(rec.utilization_rate * 100).toFixed(0)}%` : 'N/A'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!workloadBalance?.recommendations?.length && (
+            <p className="mt-4 text-sm text-gray-500">No redistribution recommendations available yet.</p>
+          )}
         </CardContent>
       </Card>
 
