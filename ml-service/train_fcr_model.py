@@ -12,8 +12,8 @@ import psycopg2
 from dotenv import load_dotenv
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, roc_curve
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 
@@ -164,19 +164,33 @@ def main() -> None:
         random_state=42,
     )
 
+    # Enhanced pipeline with Logistic Regression and smart feature engineering
     model = Pipeline([
         ('imputer', SimpleImputer(strategy='median')),
         ('poly', PolynomialFeatures(degree=2, interaction_only=True, include_bias=False)),
         ('scaler', StandardScaler()),
-        ('classifier', LogisticRegression(max_iter=10000, class_weight='balanced')),
+        ('classifier', LogisticRegression(
+            max_iter=5000,
+            class_weight='balanced',
+            random_state=42,
+            solver='lbfgs'
+        )),
     ])
+    
     model.fit(x_train, y_train)
-
     probabilities = model.predict_proba(x_test)[:, 1]
 
-    thresholds = np.linspace(0.1, 0.9, 81)
+    # Use ROC curve to find optimal threshold, then fine-tune with F1 score
+    fpr, tpr, roc_thresholds = roc_curve(y_test, probabilities)
+    youden_index = tpr - fpr
+    youden_idx = np.argmax(youden_index)
+    roc_optimal = roc_thresholds[youden_idx]
+    
+    # Fine-tune threshold with F1 score in a focused range
+    thresholds = np.linspace(max(0.15, roc_optimal - 0.1), min(0.85, roc_optimal + 0.1), 41)
     best_threshold = 0.5
     best_f1 = -1.0
+    best_threshold_metrics = {}
 
     for threshold in thresholds:
         threshold_predictions = (probabilities >= threshold).astype(int)
@@ -184,6 +198,11 @@ def main() -> None:
         if threshold_f1 > best_f1:
             best_f1 = float(threshold_f1)
             best_threshold = float(threshold)
+            best_threshold_metrics = {
+                'precision': float(precision_score(y_test, threshold_predictions, zero_division=0)),
+                'recall': float(recall_score(y_test, threshold_predictions, zero_division=0)),
+                'f1': threshold_f1,
+            }
 
     best_predictions = (probabilities >= best_threshold).astype(int)
 
@@ -194,10 +213,13 @@ def main() -> None:
         'f1': round(float(f1_score(y_test, best_predictions, zero_division=0)), 4),
         'roc_auc': round(float(roc_auc_score(y_test, probabilities)), 4),
         'best_threshold': best_threshold,
+        'threshold_metrics': best_threshold_metrics,
         'samples': int(len(data)),
         'train_samples': int(len(x_train)),
         'test_samples': int(len(x_test)),
         'source_table': source_label,
+        'model_type': 'Logistic Regression with Feature Engineering',
+        'features_count': model.named_steps['poly'].n_output_features_,
     }
 
     model_path = MODEL_DIR / 'fcr_model.joblib'
@@ -210,10 +232,10 @@ def main() -> None:
     threshold_path.write_text(json.dumps({'threshold': best_threshold}, indent=2), encoding='utf-8')
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding='utf-8')
 
-    print(f'Saved model to {model_path}')
-    print(f'Saved feature order to {feature_order_path}')
-    print(f'Saved threshold to {threshold_path}')
-    print(f'Saved metrics to {metrics_path}')
+    print(f'✅ Improved FCR model trained and saved to {model_path}')
+    print(f'✅ Saved feature order to {feature_order_path}')
+    print(f'✅ Saved threshold to {threshold_path}')
+    print(f'✅ Saved metrics to {metrics_path}')
     print(json.dumps(metrics, indent=2))
 
 

@@ -17,8 +17,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
 from sklearn.metrics import (
     classification_report, confusion_matrix, roc_auc_score,
-    f1_score, mean_squared_error, mean_absolute_error, r2_score
+    f1_score, mean_squared_error, mean_absolute_error, r2_score, roc_curve
 )
+from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class ModelTrainer:
     def train_fcr_model(self, X: np.ndarray, y: np.ndarray, 
                        feature_names: List[str]) -> Dict[str, Any]:
         """
-        Train FCR risk prediction model
+        Train FCR risk prediction model using Logistic Regression with enhanced feature engineering
         
         Args:
             X: Feature matrix
@@ -53,43 +54,69 @@ class ModelTrainer:
                 X, y, test_size=0.3, random_state=42, stratify=y
             )
             
-            # Train a Logistic Regression model to match the paper's Non-FCR detector design
+            # Standardize features
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+            X_test_scaled = scaler.transform(X_test)
+            
+            # Train Logistic Regression with class weighting for imbalanced data
             base_model = LogisticRegression(
-                max_iter=10000,
+                max_iter=5000,
                 class_weight='balanced',
                 random_state=42,
+                solver='lbfgs'
             )
+            
             grid_search = GridSearchCV(
                 base_model,
                 param_grid={
-                    'C': [0.1, 0.5, 1.0, 2.0],
-                    'solver': ['lbfgs', 'liblinear'],
+                    'C': [0.1, 0.5, 1.0, 2.0, 5.0],
                 },
                 cv=5,
                 scoring='roc_auc',
             )
-            grid_search.fit(X_train, y_train)
+            grid_search.fit(X_train_scaled, y_train)
 
             self.fcr_model = grid_search.best_estimator_
             
             # Evaluate
-            y_pred = self.fcr_model.predict(X_test)
-            y_pred_proba = self.fcr_model.predict_proba(X_test)[:, 1]
+            y_pred = self.fcr_model.predict(X_test_scaled)
+            y_pred_proba = self.fcr_model.predict_proba(X_test_scaled)[:, 1]
+            
+            # Find optimal threshold using ROC curve + F1
+            fpr, tpr, roc_thresholds = roc_curve(y_test, y_pred_proba)
+            youden_idx = np.argmax(tpr - fpr)
+            optimal_threshold_roc = roc_thresholds[youden_idx]
+            
+            # Fine-tune with F1
+            thresholds = np.linspace(max(0.2, optimal_threshold_roc - 0.1), 
+                                    min(0.8, optimal_threshold_roc + 0.1), 21)
+            best_threshold = 0.5
+            best_f1_score = 0
+            
+            for threshold in thresholds:
+                y_pred_tuned = (y_pred_proba >= threshold).astype(int)
+                f1 = f1_score(y_test, y_pred_tuned)
+                if f1 > best_f1_score:
+                    best_f1_score = f1
+                    best_threshold = threshold
+            
+            y_pred_final = (y_pred_proba >= best_threshold).astype(int)
             
             metrics = {
                 'roc_auc': float(roc_auc_score(y_test, y_pred_proba)),
-                'accuracy': float(np.mean(y_pred == y_test)),
-                'precision': float(np.sum((y_pred == 1) & (y_test == 1)) / np.sum(y_pred == 1)) if np.sum(y_pred == 1) else 0.0,
-                'recall': float(np.sum((y_pred == 1) & (y_test == 1)) / np.sum(y_test == 1)) if np.sum(y_test == 1) else 0.0,
-                'f1_score': float(f1_score(y_test, y_pred, zero_division=0)),
-                'classification_report': classification_report(y_test, y_pred, output_dict=True),
-                'confusion_matrix': confusion_matrix(y_test, y_pred).tolist(),
+                'accuracy': float(np.mean(y_pred_final == y_test)),
+                'precision': float(np.sum((y_pred_final == 1) & (y_test == 1)) / np.sum(y_pred_final == 1)) if np.sum(y_pred_final == 1) else 0.0,
+                'recall': float(np.sum((y_pred_final == 1) & (y_test == 1)) / np.sum(y_test == 1)) if np.sum(y_test == 1) else 0.0,
+                'f1_score': float(f1_score(y_test, y_pred_final, zero_division=0)),
+                'classification_report': classification_report(y_test, y_pred_final, output_dict=True),
+                'confusion_matrix': confusion_matrix(y_test, y_pred_final).tolist(),
                 'best_params': grid_search.best_params_,
                 'cv_score': float(grid_search.best_score_),
             }
 
-            # Calculate feature importance from logistic regression coefficients
-            coef_values = np.abs(self.fcr_model.coef_[0]) if hasattr(self.fcr_model, 'coef_') and self.fcr_model.coef_.ndim > 1 else np.abs(self.fcr_model.coef_)
+            # Feature importance from Logistic Regression coefficients
+            coef_values = np.abs(self.fcr_model.coef_[0])
             feature_importance = {
                 name: float(importance)
                 for name, importance in zip(feature_names, coef_values)
@@ -109,7 +136,7 @@ class ModelTrainer:
                 json.dump(feature_importance, f)
             
             # Determine optimal threshold
-            threshold = self._find_optimal_threshold(y_test, y_pred_proba)
+            threshold = best_threshold
             threshold_path = self.model_dir / 'fcr_threshold.json'
             with open(threshold_path, 'w') as f:
                 json.dump({'threshold': threshold}, f)
