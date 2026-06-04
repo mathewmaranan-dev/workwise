@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Users, TrendingUp, Award, AlertCircle, TrendingDown } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -14,7 +14,36 @@ import { useData } from '../../context/DataContext';
 
 export default function HRDashboard() {
   const { data: uploadedData } = useData();
-  const currentTickets = (uploadedData && uploadedData.length > 0) ? uploadedData : seedDataTickets;
+  const [backendTickets, setBackendTickets] = useState<any[]>([]);
+  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
+
+  useEffect(() => {
+    const token = localStorage.getItem('workwise_token');
+    if (!token) return;
+
+    fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?t=${Date.now()}`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error('Failed to load tickets');
+        return response.json();
+      })
+      .then((tickets) => setBackendTickets(Array.isArray(tickets) ? tickets : []))
+      .catch((error) => {
+        console.warn('Failed to load backend tickets for HR dashboard', error);
+        setBackendTickets([]);
+      });
+  }, [apiBase]);
+
+  const currentTickets = useMemo(() => {
+    if (backendTickets.length > 0) return backendTickets;
+    return uploadedData && uploadedData.length > 0 ? uploadedData : seedDataTickets;
+  }, [backendTickets, uploadedData]);
   const hasData = currentTickets.length > 0;
 
   const kpis = calculateKPIs(currentTickets);

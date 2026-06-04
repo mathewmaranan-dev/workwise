@@ -23,10 +23,39 @@ export default function ManagerDashboard() {
   const { user } = useAuth();
   const { data: uploadedData } = useData();
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'new' | 'closed'>('all');
+  const [backendTickets, setBackendTickets] = useState<any[]>([]);
+  const [loadingTickets, setLoadingTickets] = useState(false);
   const apiBase = env.VITE_API_BASE_URL || env.VITE_API_URL || 'http://localhost:5000';
 
-  // Use uploaded data if available; otherwise use seeded data
-  const currentTickets = useMemo(() => (uploadedData && uploadedData.length > 0 ? uploadedData : seedDataTickets), [uploadedData]);
+  useEffect(() => {
+    const token = localStorage.getItem('workwise_token');
+    if (!token) return;
+
+    setLoadingTickets(true);
+    fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?t=${Date.now()}`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error('Failed to load tickets');
+        return response.json();
+      })
+      .then((tickets) => setBackendTickets(Array.isArray(tickets) ? tickets : []))
+      .catch((error) => {
+        console.warn('Failed to load backend tickets for manager dashboard', error);
+        setBackendTickets([]);
+      })
+      .finally(() => setLoadingTickets(false));
+  }, [apiBase]);
+
+  const currentTickets = useMemo(() => {
+    if (backendTickets.length > 0) return backendTickets;
+    return uploadedData && uploadedData.length > 0 ? uploadedData : seedDataTickets;
+  }, [backendTickets, uploadedData]);
   const hasData = currentTickets.length > 0;
   
   const initialGroupId = user?.assignment_group_id ?? (user?.role === 'manager' ? 1 : 2);
