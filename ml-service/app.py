@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import subprocess
@@ -472,10 +473,19 @@ def retrain_model():
 def training_summary():
     """Get trained model information"""
     try:
+        fcr_model_type = 'FCR Model'
+        metrics_path = Path('models') / 'fcr_model_metrics.json'
+        if metrics_path.exists():
+            try:
+                metrics = json.loads(metrics_path.read_text(encoding='utf-8'))
+                fcr_model_type = metrics.get('model_type', fcr_model_type)
+            except Exception:
+                pass
+
         summary = {
             'fcr_model': {
                 'status': 'trained' if os.path.exists('models/fcr_model.joblib') else 'untrained',
-                'model_type': 'Logistic Regression Classifier',
+                'model_type': fcr_model_type,
                 'feature_importance': model_trainer.get_feature_importance('fcr') or {}
             },
             'workload_model': {

@@ -1,0 +1,16 @@
+{
+  "reopen_count": 0.28665557806380093,
+  "duration": 0.1865683328360319,
+  "reassignment_count": 0.13212019484490156,
+  "ticket_complexity": 0.08166244346648455,
+  "assigned_to_id": 0.08084590168436989,
+  "priority_id": 0.0701456181704998,
+  "agent_fcr_history": 0.041062436532229185,
+  "category_non_fcr_rate": 0.03292204672470689,
+  "agent_risk_factor": 0.019350629299879074,
+  "assignment_group_id": 0.017982660327106714,
+  "impact_id": 0.01692262862343341,
+  "category_id": 0.012302772840484977,
+  "reassignment_per_complexity": 0.011704182252287865,
+  "urgency_id": 0.00975453993305564
+}

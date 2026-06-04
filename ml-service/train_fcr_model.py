@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from collections import defaultdict
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -10,12 +12,14 @@ import numpy as np
 import pandas as pd
 import psycopg2
 from dotenv import load_dotenv
+from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, roc_curve
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, PolynomialFeatures, StandardScaler
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, roc_curve
+from xgboost import XGBClassifier
 
 
 ENV_PATH = Path(__file__).resolve().parent / '.env'
@@ -113,6 +117,45 @@ def generate_synthetic_training_data(samples: int = 2500, seed: int = 42) -> pd.
     return data
 
 
+def create_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
+    engineered = df.copy()
+    engineered['duration_per_complexity'] = engineered['duration'] / (engineered['ticket_complexity'] + 1.0)
+    engineered['reopen_per_duration'] = engineered['reopen_count'] / (engineered['duration'] + 1.0)
+    engineered['reassignment_per_complexity'] = engineered['reassignment_count'] / (engineered['ticket_complexity'] + 1.0)
+    engineered['agent_risk_factor'] = 1.0 - engineered['agent_fcr_history']
+    return engineered.fillna(0.0)
+
+
+def build_preprocessor(numeric_features: list, categorical_features: list) -> ColumnTransformer:
+    numeric_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
+        ('poly', PolynomialFeatures(degree=2, interaction_only=True, include_bias=False)),
+        ('scaler', StandardScaler()),
+    ])
+    categorical_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='constant', fill_value=-1)),
+        ('onehot', OneHotEncoder(handle_unknown='ignore')), 
+    ])
+
+    return ColumnTransformer([
+        ('num', numeric_pipeline, numeric_features),
+        ('cat', categorical_pipeline, categorical_features),
+    ], remainder='drop')
+
+
+def aggregate_feature_importance(preprocessor: ColumnTransformer, importances: np.ndarray, feature_names: list) -> dict:
+    transformed_names = preprocessor.get_feature_names_out(feature_names)
+    aggregated = defaultdict(float)
+
+    for name, importance in zip(transformed_names, importances):
+        for feature in feature_names:
+            if feature in name:
+                aggregated[feature] += float(abs(importance))
+                break
+
+    return dict(sorted(aggregated.items(), key=lambda item: item[1], reverse=True))
+
+
 def main() -> None:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -153,7 +196,11 @@ def main() -> None:
     }
     feature_columns = [column for column in data.columns if column not in excluded_columns]
 
-    x = data[feature_columns].apply(pd.to_numeric, errors='coerce').fillna(-1)
+    data = data[feature_columns + [target_column]].apply(pd.to_numeric, errors='coerce').fillna(-1)
+    data = create_engineered_features(data)
+
+    feature_columns = [column for column in data.columns if column not in {target_column}]
+    x = data[feature_columns]
     y = data[target_column].astype(int)
 
     x_train, x_test, y_train, y_test = train_test_split(
@@ -164,31 +211,100 @@ def main() -> None:
         random_state=42,
     )
 
-    # Enhanced pipeline with Logistic Regression and smart feature engineering
-    model = Pipeline([
-        ('imputer', SimpleImputer(strategy='median')),
-        ('poly', PolynomialFeatures(degree=2, interaction_only=True, include_bias=False)),
-        ('scaler', StandardScaler()),
+    categorical_features = [
+        'assignment_group_id',
+        'category_id',
+        'priority_id',
+        'impact_id',
+        'urgency_id',
+    ]
+    numeric_features = [feature for feature in feature_columns if feature not in categorical_features]
+
+    scale_pos_weight = 1.0
+    positive_weight = int(np.sum(y_train == 1))
+    negative_weight = int(np.sum(y_train == 0))
+    if positive_weight > 0:
+        scale_pos_weight = float(max(1, negative_weight / positive_weight))
+
+    preprocessor = build_preprocessor(numeric_features, categorical_features)
+
+    xgb_pipeline = Pipeline([
+        ('preprocessor', preprocessor),
+        ('classifier', XGBClassifier(
+            objective='binary:logistic',
+            eval_metric='auc',
+            use_label_encoder=False,
+            random_state=42,
+            n_jobs=-1,
+            scale_pos_weight=scale_pos_weight,
+        )),
+    ])
+
+    logistic_pipeline = Pipeline([
+        ('preprocessor', preprocessor),
         ('classifier', LogisticRegression(
             max_iter=5000,
             class_weight='balanced',
             random_state=42,
-            solver='lbfgs'
+            solver='lbfgs',
         )),
     ])
-    
-    model.fit(x_train, y_train)
-    probabilities = model.predict_proba(x_test)[:, 1]
 
-    # Use ROC curve to find optimal threshold, then fine-tune with F1 score
+    candidate_models = [
+        (
+            'XGBoost Classifier',
+            xgb_pipeline,
+            {
+                'classifier__n_estimators': [100, 150],
+                'classifier__max_depth': [3, 5],
+                'classifier__learning_rate': [0.05, 0.1],
+                'classifier__subsample': [0.8, 1.0],
+                'classifier__colsample_bytree': [0.8, 1.0],
+            },
+        ),
+        (
+            'Logistic Regression',
+            logistic_pipeline,
+            {
+                'classifier__C': [0.1, 0.5, 1.0, 2.0],
+                'classifier__penalty': ['l2'],
+            },
+        ),
+    ]
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    best_model = None
+    best_params = {}
+    best_model_type = 'XGBoost Classifier'
+    best_cv_score = -np.inf
+
+    for model_name, pipeline, param_grid in candidate_models:
+        search = GridSearchCV(
+            estimator=pipeline,
+            param_grid=param_grid,
+            scoring='roc_auc',
+            cv=cv,
+            refit=True,
+            n_jobs=-1,
+            verbose=0,
+        )
+        search.fit(x_train, y_train)
+
+        if search.best_score_ > best_cv_score:
+            best_cv_score = float(search.best_score_)
+            best_model = search.best_estimator_
+            best_params = search.best_params_
+            best_model_type = model_name
+
+    probabilities = best_model.predict_proba(x_test)[:, 1]
+
     fpr, tpr, roc_thresholds = roc_curve(y_test, probabilities)
     youden_index = tpr - fpr
     youden_idx = np.argmax(youden_index)
     roc_optimal = roc_thresholds[youden_idx]
-    
-    # Fine-tune threshold with F1 score in a focused range
+
     thresholds = np.linspace(max(0.15, roc_optimal - 0.1), min(0.85, roc_optimal + 0.1), 41)
-    best_threshold = 0.5
+    best_threshold = float(roc_optimal)
     best_f1 = -1.0
     best_threshold_metrics = {}
 
@@ -201,10 +317,21 @@ def main() -> None:
             best_threshold_metrics = {
                 'precision': float(precision_score(y_test, threshold_predictions, zero_division=0)),
                 'recall': float(recall_score(y_test, threshold_predictions, zero_division=0)),
-                'f1': threshold_f1,
+                'f1': float(threshold_f1),
             }
 
     best_predictions = (probabilities >= best_threshold).astype(int)
+    classifier = best_model.named_steps['classifier']
+    feature_importances = {}
+    if hasattr(classifier, 'feature_importances_'):
+        feature_importances = aggregate_feature_importance(
+            best_model.named_steps['preprocessor'],
+            classifier.feature_importances_,
+            feature_columns,
+        )
+    elif hasattr(classifier, 'coef_'):
+        raw_importances = np.abs(classifier.coef_[0])
+        feature_importances = dict(zip(feature_columns, raw_importances.tolist()))
 
     metrics = {
         'accuracy': round(float(accuracy_score(y_test, best_predictions)), 4),
@@ -218,22 +345,27 @@ def main() -> None:
         'train_samples': int(len(x_train)),
         'test_samples': int(len(x_test)),
         'source_table': source_label,
-        'model_type': 'Logistic Regression with Feature Engineering',
-        'features_count': model.named_steps['poly'].n_output_features_,
+        'model_type': best_model_type,
+        'best_params': best_params,
+        'cv_score': round(float(best_cv_score), 4),
+        'features_count': int(best_model.named_steps['preprocessor'].transform(x_train.iloc[:1]).shape[1]),
     }
 
     model_path = MODEL_DIR / 'fcr_model.joblib'
     feature_order_path = MODEL_DIR / 'fcr_feature_order.json'
+    feature_importance_path = MODEL_DIR / 'fcr_feature_importance.json'
     threshold_path = MODEL_DIR / 'fcr_threshold.json'
     metrics_path = MODEL_DIR / 'fcr_model_metrics.json'
 
-    joblib.dump(model, model_path)
+    joblib.dump(best_model, model_path)
     feature_order_path.write_text(json.dumps(feature_columns), encoding='utf-8')
+    feature_importance_path.write_text(json.dumps(feature_importances, indent=2), encoding='utf-8')
     threshold_path.write_text(json.dumps({'threshold': best_threshold}, indent=2), encoding='utf-8')
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding='utf-8')
 
     print(f'✅ Improved FCR model trained and saved to {model_path}')
     print(f'✅ Saved feature order to {feature_order_path}')
+    print(f'✅ Saved feature importance to {feature_importance_path}')
     print(f'✅ Saved threshold to {threshold_path}')
     print(f'✅ Saved metrics to {metrics_path}')
     print(json.dumps(metrics, indent=2))

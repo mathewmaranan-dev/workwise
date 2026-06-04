@@ -11,6 +11,7 @@ from itertools import product
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.stattools import adfuller
 
 # Suppress convergence warnings for synthetic data
@@ -94,6 +95,23 @@ class TicketForecast:
         
         return best_order
 
+    def _fit_ets(self, series):
+        try:
+            if len(series) < 14:
+                return None
+
+            model = ExponentialSmoothing(
+                series,
+                trend='add',
+                seasonal='add',
+                seasonal_periods=7,
+                initialization_method='estimated'
+            )
+            fitted = model.fit(optimized=True, use_brute=True)
+            return fitted
+        except Exception:
+            return None
+
     def forecast(self, assignment_group_id, days_ahead=7):
         try:
             data = self.get_historical_data(assignment_group_id)
@@ -101,29 +119,43 @@ class TicketForecast:
             
             # Detect trend
             self.trend = self._detect_trend(series)
+
+            # Try a seasonal ETS model first for robust weekly patterns
+            ets_model = self._fit_ets(series)
+            if ets_model is not None:
+                forecast_values = ets_model.forecast(steps=days_ahead)
+                residuals = np.asarray(ets_model.resid)
+                sigma = float(np.std(residuals[~np.isnan(residuals)])) if residuals.size else 0.0
+
+                upper_bound = np.maximum(forecast_values + 1.96 * sigma, 0).astype(float).tolist()
+                lower_bound = np.maximum(forecast_values - 1.96 * sigma, 0).astype(float).tolist()
+
+                return {
+                    'forecast': np.maximum(forecast_values, 0).astype(float).tolist(),
+                    'lower_bound': lower_bound,
+                    'upper_bound': upper_bound,
+                    'model': 'ETS(additive, weekly)',
+                    'rsquared': float(ets_model.rsquared if hasattr(ets_model, 'rsquared') else 0),
+                    'trend': self.trend,
+                    'aic': float(ets_model.aic) if hasattr(ets_model, 'aic') else 0,
+                }
             
-            # Find optimal ARIMA parameters
+            # Fall back to ARIMA if ETS is not stable
             self.best_order = self._find_optimal_arima_order(series)
-            
-            # Train ARIMA model
             model = ARIMA(series, order=self.best_order)
             fitted_model = model.fit()
 
             forecast = fitted_model.get_forecast(steps=days_ahead)
             forecast_ci = forecast.conf_int()
 
-            # Calculate model fit quality
             rsquared = fitted_model.rsquared if hasattr(fitted_model, 'rsquared') else 0
             
-            # Adjust confidence intervals based on trend
             upper_bound = np.maximum(forecast_ci.iloc[:, 1].values, 0).astype(float).tolist()
             lower_bound = np.maximum(forecast_ci.iloc[:, 0].values, 0).astype(float).tolist()
             
             if self.trend == 'increasing':
-                # Expand upper bound for upward trends
                 upper_bound = [u * 1.1 for u in upper_bound]
             elif self.trend == 'decreasing':
-                # Contract lower bound for downward trends
                 lower_bound = [max(l * 0.9, 10) for l in lower_bound]
 
             return {
