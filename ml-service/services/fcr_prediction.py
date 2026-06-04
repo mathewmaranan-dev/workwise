@@ -12,6 +12,7 @@ from typing import Dict, List, Any
 
 import joblib
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -102,24 +103,21 @@ class FCRPredictor:
     def _predict_with_model(self, ticket_features: Dict[str, Any]) -> tuple:
         """Make prediction using trained model"""
         try:
-            # Build feature vector in correct order
-            vector = []
-            for feature_name in self.feature_order:
-                if feature_name in ticket_features:
-                    value = ticket_features[feature_name]
-                else:
-                    value = 0
-                
-                # Convert to float
-                try:
-                    value = float(value)
-                except (ValueError, TypeError):
-                    value = 0
-                
-                vector.append(value)
-            
-            # Get probability
-            probability = float(self.model.predict_proba(np.array([vector]))[:, 1][0])
+            # Build a feature frame with the exact model feature order and names.
+            feature_frame = pd.DataFrame(
+                [
+                    [
+                        float(ticket_features.get(feature_name, 0.0))
+                        if not isinstance(ticket_features.get(feature_name, 0.0), str)
+                        else 0.0
+                        for feature_name in self.feature_order
+                    ]
+                ],
+                columns=self.feature_order,
+            )
+
+            # Get probability using the trained model with the real feature names.
+            probability = float(self.model.predict_proba(feature_frame)[:, 1][0])
             risk_score = float(np.clip(probability, 0, 1))
             
             return risk_score, 'trained_model'

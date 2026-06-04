@@ -226,6 +226,7 @@ export const predictNonFCRRisk = async (tickets: Ticket[], allTickets: Ticket[] 
         ticket_category: (getCategoryById(ticket.category_id ?? 1)?.category_name || 'software').toLowerCase(),
         priority: ticket.priority_id ?? 3,
         assigned_group: ticket.assignment_group_id ?? 1,
+        assigned_to_id: ticket.assigned_to_id ?? 1,
         impact_id: ticket.impact_id ?? 3,
         urgency_id: ticket.urgency_id ?? 2,
         reopen_count: ticket.reopen_count ?? 0,

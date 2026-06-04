@@ -240,15 +240,18 @@ class PerformanceDiagnostics:
                 return {'drivers': []}
             
             df = pd.DataFrame(tickets)
-            
-            # Filter non-FCR tickets
-            non_fcr_tickets = df[df.get('fcr', False) == False] if 'fcr' in df.columns else pd.DataFrame()
-            
+            if 'fcr' in df.columns:
+                df['fcr'] = df['fcr'].astype(bool)
+            else:
+                df['fcr'] = False
+
+            non_fcr_tickets = df[~df['fcr']]
             if len(non_fcr_tickets) == 0:
                 return {'fcr_rate': 100.0, 'drivers': []}
-            
-            fcr_rate = (len(df[df.get('fcr', False) == True]) / len(df) * 100) if len(df) > 0 else 0
-            
+
+            overall_fcr_rate = float(df['fcr'].mean() * 100) if len(df) > 0 else 0.0
+            overall_non_fcr_rate = 100.0 - overall_fcr_rate
+
             drivers = []
             
             # Category analysis
@@ -256,14 +259,14 @@ class PerformanceDiagnostics:
                 category_fcr = df.groupby('category').apply(
                     lambda x: (x['fcr'].sum() / len(x) * 100) if len(x) > 0 else 0
                 )
-                low_fcr_categories = category_fcr[category_fcr < fcr_rate - 10]
+                low_fcr_categories = category_fcr[category_fcr < overall_fcr_rate - 10]
                 for category, rate in low_fcr_categories.items():
                     drivers.append({
                         'type': 'category',
                         'value': category,
-                        'non_fcr_rate': 100 - rate,
-                        'impact': 'high' if rate < fcr_rate - 20 else 'medium',
-                        'recommendation': f'Provide training for {category} category issues'
+                        'non_fcr_rate': round(float(100 - rate), 2),
+                        'impact': 'high' if rate < overall_fcr_rate - 20 else 'medium',
+                        'recommendation': f'Provide training for {category} category issues and review playbooks.'
                     })
             
             # Priority analysis
@@ -271,34 +274,53 @@ class PerformanceDiagnostics:
                 priority_fcr = df.groupby('priority').apply(
                     lambda x: (x['fcr'].sum() / len(x) * 100) if len(x) > 0 else 0
                 )
-                low_fcr_priorities = priority_fcr[priority_fcr < fcr_rate - 10]
+                low_fcr_priorities = priority_fcr[priority_fcr < overall_fcr_rate - 10]
                 for priority, rate in low_fcr_priorities.items():
                     drivers.append({
                         'type': 'priority',
                         'value': f'Priority {priority}',
-                        'non_fcr_rate': 100 - rate,
-                        'impact': 'high' if rate < fcr_rate - 20 else 'medium',
+                        'non_fcr_rate': round(float(100 - rate), 2),
+                        'impact': 'high' if rate < overall_fcr_rate - 20 else 'medium',
                         'recommendation': f'Create escalation path for Priority {priority} tickets'
                     })
             
             # Agent analysis
-            if 'agent_name' in df.columns:
-                agent_fcr = df.groupby('agent_name').apply(
+            agent_col = 'agent_name'
+            if agent_col not in df.columns and 'assigned_to_id' in df.columns:
+                agent_col = 'assigned_to_id'
+
+            if agent_col in df.columns:
+                agent_fcr = df.groupby(agent_col).apply(
                     lambda x: (x['fcr'].sum() / len(x) * 100) if len(x) > 0 else 0
                 )
-                low_fcr_agents = agent_fcr[agent_fcr < fcr_rate - 15]
+                low_fcr_agents = agent_fcr[agent_fcr < overall_fcr_rate - 10]
                 for agent, rate in low_fcr_agents.items():
                     drivers.append({
                         'type': 'agent',
-                        'value': agent,
-                        'non_fcr_rate': 100 - rate,
-                        'impact': 'medium',
-                        'recommendation': f'Provide targeted training or reassign tickets for {agent}'
+                        'value': str(agent),
+                        'non_fcr_rate': round(float(100 - rate), 2),
+                        'impact': 'high' if rate < overall_fcr_rate - 20 else 'medium',
+                        'recommendation': f'Provide targeted coaching or reassignment support for {agent}.'
                     })
-            
+
+            # Category × employee interaction analysis
+            if 'category' in df.columns and agent_col in df.columns:
+                pair_fcr = df.groupby(['category', agent_col]).apply(
+                    lambda x: (x['fcr'].sum() / len(x) * 100) if len(x) > 0 else 0
+                )
+                weak_pairs = pair_fcr[pair_fcr < overall_fcr_rate - 12]
+                for (category, agent), rate in weak_pairs.items():
+                    drivers.append({
+                        'type': 'category_employee_pair',
+                        'value': f'{category} / {agent}',
+                        'non_fcr_rate': round(float(100 - rate), 2),
+                        'impact': 'high' if rate < overall_fcr_rate - 20 else 'medium',
+                        'recommendation': f'Train {agent} on {category} tickets or reassign these cases to a stronger specialist.'
+                    })
+
             return {
-                'overall_fcr_rate': float(fcr_rate),
-                'non_fcr_rate': float(100 - fcr_rate),
+                'overall_fcr_rate': float(overall_fcr_rate),
+                'non_fcr_rate': float(overall_non_fcr_rate),
                 'total_tickets': len(df),
                 'non_fcr_tickets': len(non_fcr_tickets),
                 'drivers': drivers,

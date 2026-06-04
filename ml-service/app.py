@@ -1,6 +1,9 @@
 import logging
 import os
+import subprocess
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 from dotenv import load_dotenv
@@ -193,6 +196,7 @@ def predict_fcr_risk():
         category = data.get('ticket_category')
         priority = data.get('priority')
         group_id = data.get('assigned_group')
+        assigned_to_id = data.get('assigned_to_id', data.get('assigned_to', 1))
 
         if category is None or priority is None or group_id is None:
             return jsonify({'error': 'Missing required fields'}), 400
@@ -202,6 +206,7 @@ def predict_fcr_risk():
 
         ticket_features = {
             'assignment_group_id': int(group_id),
+            'assigned_to_id': int(assigned_to_id),
             'category_id': category_id,
             'priority_id': int(priority),
             'impact_id': int(data.get('impact_id', 3)),
@@ -429,6 +434,39 @@ def detect_performance_anomalies():
         return jsonify({'error': str(exc)}), 500
 
 
+# Retrain Non-FCR model with the current training pipeline
+@app.route('/api/ml/training/retrain', methods=['POST'])
+def retrain_model():
+    """Run the current training pipeline and refresh model metrics."""
+    try:
+        project_root = Path(__file__).resolve().parent
+        result = subprocess.run(
+            [sys.executable, 'train_fcr_model.py'],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=1200,
+        )
+
+        metrics_path = project_root / 'models' / 'fcr_model_metrics.json'
+        metrics = {}
+        if metrics_path.exists():
+            import json
+            metrics = json.loads(metrics_path.read_text(encoding='utf-8'))
+
+        return jsonify({
+            'status': 'ok' if result.returncode == 0 else 'error',
+            'returncode': result.returncode,
+            'stdout': result.stdout,
+            'stderr': result.stderr,
+            'metrics': metrics,
+            'timestamp': datetime.utcnow().isoformat(),
+        }), 200 if result.returncode == 0 else 500
+    except Exception as exc:
+        logger.error(f"Retraining error: {exc}")
+        return jsonify({'error': str(exc)}), 500
+
+
 # Model Training Summary
 @app.route('/api/ml/training/summary', methods=['GET'])
 def training_summary():
@@ -437,7 +475,7 @@ def training_summary():
         summary = {
             'fcr_model': {
                 'status': 'trained' if os.path.exists('models/fcr_model.joblib') else 'untrained',
-                'model_type': 'RandomForest Classifier',
+                'model_type': 'Logistic Regression Classifier',
                 'feature_importance': model_trainer.get_feature_importance('fcr') or {}
             },
             'workload_model': {

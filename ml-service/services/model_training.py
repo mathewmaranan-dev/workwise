@@ -12,11 +12,12 @@ from typing import Tuple, Dict, Any, List
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingRegressor
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
 from sklearn.metrics import (
-    classification_report, confusion_matrix, roc_auc_score, 
-    mean_squared_error, mean_absolute_error, r2_score
+    classification_report, confusion_matrix, roc_auc_score,
+    f1_score, mean_squared_error, mean_absolute_error, r2_score
 )
 
 logger = logging.getLogger(__name__)
@@ -49,21 +50,26 @@ class ModelTrainer:
         try:
             # Split data
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42, stratify=y
+                X, y, test_size=0.3, random_state=42, stratify=y
             )
             
-            # Train with hyperparameter tuning
-            param_grid = {
-                'n_estimators': [50, 100, 200],
-                'max_depth': [5, 10, 15],
-                'min_samples_split': [2, 5, 10],
-                'class_weight': ['balanced', None]
-            }
-            
-            base_model = RandomForestClassifier(random_state=42, n_jobs=-1)
-            grid_search = GridSearchCV(base_model, param_grid, cv=5, scoring='roc_auc')
+            # Train a Logistic Regression model to match the paper's Non-FCR detector design
+            base_model = LogisticRegression(
+                max_iter=10000,
+                class_weight='balanced',
+                random_state=42,
+            )
+            grid_search = GridSearchCV(
+                base_model,
+                param_grid={
+                    'C': [0.1, 0.5, 1.0, 2.0],
+                    'solver': ['lbfgs', 'liblinear'],
+                },
+                cv=5,
+                scoring='roc_auc',
+            )
             grid_search.fit(X_train, y_train)
-            
+
             self.fcr_model = grid_search.best_estimator_
             
             # Evaluate
@@ -72,16 +78,21 @@ class ModelTrainer:
             
             metrics = {
                 'roc_auc': float(roc_auc_score(y_test, y_pred_proba)),
+                'accuracy': float(np.mean(y_pred == y_test)),
+                'precision': float(np.sum((y_pred == 1) & (y_test == 1)) / np.sum(y_pred == 1)) if np.sum(y_pred == 1) else 0.0,
+                'recall': float(np.sum((y_pred == 1) & (y_test == 1)) / np.sum(y_test == 1)) if np.sum(y_test == 1) else 0.0,
+                'f1_score': float(f1_score(y_test, y_pred, zero_division=0)),
                 'classification_report': classification_report(y_test, y_pred, output_dict=True),
                 'confusion_matrix': confusion_matrix(y_test, y_pred).tolist(),
                 'best_params': grid_search.best_params_,
                 'cv_score': float(grid_search.best_score_),
             }
-            
-            # Calculate feature importance
+
+            # Calculate feature importance from logistic regression coefficients
+            coef_values = np.abs(self.fcr_model.coef_[0]) if hasattr(self.fcr_model, 'coef_') and self.fcr_model.coef_.ndim > 1 else np.abs(self.fcr_model.coef_)
             feature_importance = {
                 name: float(importance)
-                for name, importance in zip(feature_names, self.fcr_model.feature_importances_)
+                for name, importance in zip(feature_names, coef_values)
             }
             
             # Save model
@@ -107,7 +118,7 @@ class ModelTrainer:
             
             return {
                 'model_name': 'FCR Risk Predictor',
-                'model_type': 'RandomForest',
+                'model_type': 'Logistic Regression',
                 'metrics': metrics,
                 'feature_importance': feature_importance,
                 'optimal_threshold': threshold,
