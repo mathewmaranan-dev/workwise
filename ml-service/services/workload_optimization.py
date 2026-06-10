@@ -137,13 +137,17 @@ class WorkloadOptimizer:
             analysis = self.analyze_current_load(optimized_members)
             is_balanced = bool(analysis.get('imbalance_ratio', 2) <= self.max_workload_ratio)
             
+            current_analysis = self.analyze_current_load(team_members)
+            predicted_improvements = self._estimate_kpi_improvements(current_analysis, analysis)
+
             return {
                 'recommendations': recommendations,
                 'is_balanced': is_balanced,
                 'optimization_status': 'optimal' if is_balanced else 'improved',
                 'target_load': float(target_load),
-                'current_analysis': self.analyze_current_load(team_members),
+                'current_analysis': current_analysis,
                 'optimized_analysis': analysis,
+                'predicted_improvements': predicted_improvements,
                 'total_reassignments': total_reassignments,
                 'fairness_score': float(analysis.get('fairness_score', 0)),
                 'implementation_difficulty': self._assess_implementation_difficulty(recommendations),
@@ -329,6 +333,36 @@ class WorkloadOptimizer:
         except Exception as e:
             logger.error(f"Error assessing business impact: {e}")
             return {}
+
+    def _estimate_kpi_improvements(self, current_analysis: Dict[str, float], optimized_analysis: Dict[str, float]) -> Dict[str, Any]:
+        """Estimate KPI improvement from workload redistribution"""
+        try:
+            fairness_delta = float(optimized_analysis.get('fairness_score', 0)) - float(current_analysis.get('fairness_score', 0))
+            variance_delta = float(current_analysis.get('coefficient_of_variation', 0)) - float(optimized_analysis.get('coefficient_of_variation', 0))
+
+            sla_improvement = max(0.0, min(10.0, fairness_delta * 20 + variance_delta * 15))
+            resolution_improvement = max(0.0, min(15.0, fairness_delta * 28 + variance_delta * 20))
+            fcr_improvement = max(0.0, min(8.0, fairness_delta * 10 + variance_delta * 5))
+
+            summary = (
+                f"Balancing workload for this team could improve SLA compliance by approximately {sla_improvement:.1f} points, "
+                f"reduce average resolution time by about {resolution_improvement:.1f}% and boost FCR by roughly {fcr_improvement:.1f} points."
+            )
+
+            return {
+                'sla_compliance_gain_pct': round(sla_improvement, 1),
+                'avg_resolution_time_reduction_pct': round(resolution_improvement, 1),
+                'fcr_rate_gain_pct': round(fcr_improvement, 1),
+                'summary': summary
+            }
+        except Exception as e:
+            logger.error(f"Error estimating KPI improvements: {e}")
+            return {
+                'sla_compliance_gain_pct': 0.0,
+                'avg_resolution_time_reduction_pct': 0.0,
+                'fcr_rate_gain_pct': 0.0,
+                'summary': 'Estimated KPI improvement unavailable.'
+            }
     
     @staticmethod
     def _get_staffing_timeline(staffing_change: float) -> str:

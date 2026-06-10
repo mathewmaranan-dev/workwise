@@ -121,6 +121,7 @@ def balance_workload():
             'fairness_score': round(float(allocation.get('fairness_score', 0)), 3),
             'current_analysis': allocation.get('current_analysis', {}),
             'optimized_analysis': allocation.get('optimized_analysis', {}),
+            'predicted_improvements': allocation.get('predicted_improvements', {}),
             'total_reassignments': allocation.get('total_reassignments', 0),
             'implementation_difficulty': allocation.get('implementation_difficulty', 'unknown'),
             'business_impact': allocation.get('business_impact', {}),

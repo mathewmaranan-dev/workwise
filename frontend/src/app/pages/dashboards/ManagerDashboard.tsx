@@ -253,6 +253,28 @@ export default function ManagerDashboard() {
   const staffingDecision = demandCapacityRatio > 1.1 ? 'Hire' : demandCapacityRatio >= 0.9 ? 'Redistribute' : 'Maintain';
   const staffingReason = `${workloadPerAgent > agentCapacityTarget ? 'Workload overload is driving SLA risk.' : 'Workload remains within target capacity.'} ${averageRiskScore >= 70 ? 'High repeat-ticket risk is lowering FCR performance.' : 'FCR risk is moderate and monitorable.'} ${demandCapacityRatio > 1.1 ? 'Capacity mismatch warrants staffing action.' : 'Current capacity is broadly aligned with demand.'}`;
 
+  const predictedKpiImprovements = useMemo(() => {
+    if (workloadBalance?.predicted_improvements) {
+      return workloadBalance.predicted_improvements;
+    }
+
+    const currentFairness = workloadBalance?.current_analysis?.fairness_score ?? workloadAnalysis?.analysis?.fairness_score ?? 0;
+    const optimizedFairness = workloadBalance?.optimized_analysis?.fairness_score ?? Math.min(1, currentFairness + 0.08);
+    const currentCv = workloadBalance?.current_analysis?.coefficient_of_variation ?? workloadAnalysis?.analysis?.coefficient_of_variation ?? 0.2;
+    const improvedCv = Math.max(0, currentCv - 0.05);
+
+    const slaGain = Math.max(0, Math.min(10, (optimizedFairness - currentFairness) * 20 + (currentCv - improvedCv) * 10));
+    const resolutionGain = Math.max(0, Math.min(15, (optimizedFairness - currentFairness) * 18 + (currentCv - improvedCv) * 12));
+    const fcrGain = Math.max(0, Math.min(8, (optimizedFairness - currentFairness) * 9 + (currentCv - improvedCv) * 4));
+
+    return {
+      sla_compliance_gain_pct: Number(slaGain.toFixed(1)),
+      avg_resolution_time_reduction_pct: Number(resolutionGain.toFixed(1)),
+      fcr_rate_gain_pct: Number(fcrGain.toFixed(1)),
+      summary: `Workload balancing may improve SLA compliance by about ${slaGain.toFixed(1)} points, reduce average resolution time by ${resolutionGain.toFixed(1)}%, and boost FCR by ${fcrGain.toFixed(1)} points.`
+    };
+  }, [workloadBalance, workloadAnalysis]);
+
   const staffingScenarioData = [0, 1, 2, 3].map((extraAgents) => {
     const scenarioStaff = currentStaffCount + extraAgents;
     const projectedLoadPerAgent = forecastDemand / Math.max(scenarioStaff, 1);
@@ -705,7 +727,7 @@ export default function ManagerDashboard() {
           </p>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Forecasted volume</p>
               <p className="mt-2 text-3xl font-bold text-slate-900">{mlInsights.forecastMean !== null ? `${mlInsights.forecastMean.toFixed(1)}` : 'N/A'}</p>
@@ -731,6 +753,13 @@ export default function ManagerDashboard() {
               <p className="mt-2 text-xs text-slate-500">
                 {groupNonFCRTickets.length} monitored tickets in this view
               </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Predicted KPI impact</p>
+              <p className="mt-2 text-3xl font-bold text-slate-900">+{predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%</p>
+              <p className="mt-1 text-xs text-slate-600">Estimated SLA gain from workload balancing</p>
+              <p className="mt-2 text-xs text-slate-500 truncate">{predictedKpiImprovements.summary}</p>
             </div>
           </div>
         </CardContent>
@@ -911,6 +940,27 @@ export default function ManagerDashboard() {
           </div>
 
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold text-gray-800">Estimated KPI impact</h2>
+              <>
+                <div className="grid grid-cols-3 gap-3 mt-4">
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">SLA improvement</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">+{predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%</p>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Resolution time</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">-{predictedKpiImprovements.avg_resolution_time_reduction_pct ?? 0}%</p>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">FCR lift</p>
+                    <p className="mt-2 text-2xl font-bold text-slate-900">+{predictedKpiImprovements.fcr_rate_gain_pct ?? 0}%</p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm text-gray-600">{predictedKpiImprovements.summary}</p>
+              </>
+            </div>
+
             <div className="rounded-xl border border-slate-200 p-4">
               <h2 className="text-sm font-semibold text-gray-800">Threshold ratios</h2>
               <p className="mt-3 text-sm text-gray-600">Acceptable workload variance is ±{(imbalanceAnalysis?.imbalance_analysis?.fairness_threshold ?? 0.1) * 100}% around mean load.</p>
