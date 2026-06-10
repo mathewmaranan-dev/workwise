@@ -5,7 +5,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/ui/dialog';
-import { UserPlus, Edit, Trash2, Mail, Lock, User } from 'lucide-react';
+import { UserPlus, Mail, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth, User as AuthUser, UserRole } from '../context/AuthContext';
 import { assignmentGroups, getAssignmentGroupById } from '../data/seedData';
@@ -100,37 +100,6 @@ export default function UserManagementPage() {
     }
   };
 
-  // Generate unique email
-  const generateEmail = (firstName: string, lastName: string): string => {
-    if (!firstName || !lastName) return '';
-    
-    const sanitizedFirst = sanitizeForEmail(firstName);
-    const sanitizedLast = sanitizeForEmail(lastName);
-    
-    // Preserve capitalization of first letters
-    const firstCap = sanitizedFirst.charAt(0).toUpperCase() + sanitizedFirst.slice(1);
-    const lastCap = sanitizedLast.charAt(0).toUpperCase() + sanitizedLast.slice(1);
-    
-    const baseEmail = `${sanitizeForEmail(firstName).toLowerCase()}.${sanitizeForEmail(lastName).toLowerCase()}@workwise.it.com`;
-    
-    let finalEmail = baseEmail;
-    let counter = 1;
-    
-    while (users.some(u => u.email.toLowerCase() === finalEmail.toLowerCase())) {
-      counter += 1;
-      finalEmail = `${sanitizeForEmail(firstName).toLowerCase()}.${sanitizeForEmail(lastName).toLowerCase()}${String(counter).padStart(5, '0')}@workwise.it.com`;
-    }
-    
-    if (finalEmail !== baseEmail) {
-      setEmailSuggestion('Email taken. Suggested next available address applied.');
-    } else {
-      setEmailSuggestion('');
-    }
-    
-    return finalEmail;
-  };
-
-
   // Auto-fill full name and email when first and last names are available
   const handleFirstNameChange = (value: string) => {
     const trimmedValue = value.trim();
@@ -174,10 +143,6 @@ export default function UserManagementPage() {
 
   };
 
-  const handleEmailChange = (_value: string) => {
-    // Email is read-only and auto-generated from the backend.
-  };
-
   useEffect(() => {
     if (!formData.email && formData.firstName.trim() && formData.lastName.trim()) {
       fetchSuggestedEmail(formData.firstName.trim(), formData.lastName.trim());
@@ -204,12 +169,6 @@ export default function UserManagementPage() {
       return false;
     }
 
-    // Check email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(trimmedEmail)) {
-      return false;
-    }
-
     return true;
   };
 
@@ -224,13 +183,6 @@ export default function UserManagementPage() {
       return;
     }
 
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(trimmedEmail)) {
-      toast.error('Please enter a valid email address');
-      return;
-    }
-    
     // Check email uniqueness
     if (users.some(u => u.email.toLowerCase() === trimmedEmail.toLowerCase())) {
       toast.error('Email already exists');
@@ -271,10 +223,17 @@ export default function UserManagementPage() {
       email: formData.email,
       name: formData.name,
       role: formData.role,
-      createdAt: editingUser.createdAt
+      createdAt: editingUser.createdAt,
+      assignment_group_id: formData.assignment_group_id,
     };
 
-    updateUser({ id: updated.id, email: updated.email, name: updated.name, role: updated.role });
+    updateUser({
+      id: updated.id,
+      email: updated.email,
+      name: updated.name,
+      role: updated.role,
+      assignment_group_id: updated.assignment_group_id,
+    });
     toast.success(`User ${formData.name} updated successfully`);
     setEditingUser(null);
     resetForm();
@@ -398,8 +357,8 @@ export default function UserManagementPage() {
                     id="name"
                     placeholder="John Doe"
                     value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="pl-10"
+                    readOnly
+                    className="pl-10 bg-gray-100 cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -499,7 +458,6 @@ export default function UserManagementPage() {
                   <th className="text-left p-3 font-medium">Role</th>
                   <th className="text-left p-3 font-medium">Assignment Group</th>
                   <th className="text-left p-3 font-medium">Created</th>
-                  <th className="text-right p-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -513,114 +471,9 @@ export default function UserManagementPage() {
                       </span>
                     </td>
                     <td className="p-3 text-gray-600">
-                      {user.assignment_group || (user.assignment_group_id ? getAssignmentGroupById(user.assignment_group_id)?.group_name : '—')}
+                      {user.assignment_group || (user.assignment_group_id ? getAssignmentGroupById(user.assignment_group_id)?.group_name : '—') || '—'}
                     </td>
                     <td className="p-3 text-gray-600">{new Date(user.createdAt).toLocaleDateString()}</td>
-                    <td className="p-3">
-                      <div className="flex items-center justify-end gap-2">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openEditDialog(user)}
-                            >
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Edit User</DialogTitle>
-                              <DialogDescription>
-                                Update user information and role
-                              </DialogDescription>
-                            </DialogHeader>
-                            
-                            <div className="space-y-4 py-4">
-                              <div className="space-y-2">
-                                <Label htmlFor="edit-name">Full Name</Label>
-                                <Input
-                                  id="edit-name"
-                                  value={formData.name}
-                                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                />
-                              </div>
-                              
-                              <div className="space-y-2">
-                                <Label htmlFor="edit-email">Email</Label>
-                                <Input
-                                  id="edit-email"
-                                  type="email"
-                                  value={formData.email}
-                                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                />
-                              </div>
-                              
-                              <div className="space-y-2">
-                                <Label htmlFor="edit-role">Role</Label>
-                                <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value as UserRole })}>
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="admin">Admin</SelectItem>
-                                    <SelectItem value="manager">ITSM Manager</SelectItem>
-                                    <SelectItem value="hr">Senior Management / HR</SelectItem>
-                                    <SelectItem value="agent">IT Support Agent</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              {(formData.role === 'agent' || formData.role === 'manager') && (
-                                <div className="space-y-2">
-                                  <Label htmlFor="edit-assignmentGroup">Assignment Group {formData.role === 'manager' ? '' : '(optional)'}</Label>
-                                  <Select
-                                    value={formData.assignment_group_id != null ? formData.assignment_group_id.toString() : undefined}
-                                    onValueChange={(value) => setFormData({
-                                      ...formData,
-                                      assignment_group_id: value === '__none' ? undefined : parseInt(value)
-                                    })}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select a team..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="__none">None</SelectItem>
-                                      {assignmentGroups.map(group => (
-                                        <SelectItem key={group.assignment_group_id} value={group.assignment_group_id.toString()}>
-                                          {group.group_name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                  <p className="text-xs text-gray-500">
-                                    {formData.role === 'manager'
-                                      ? 'Assign this manager to a team so they only see agents for that group.'
-                                      : 'Assign user to a support team for task allocation.'}
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                            
-                            <DialogFooter>
-                              <Button variant="outline" onClick={() => setEditingUser(null)}>
-                                Cancel
-                              </Button>
-                              <Button onClick={handleUpdateUser}>Update User</Button>
-                            </DialogFooter>
-                          </DialogContent>
-                        </Dialog>
-                        
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteUser(user.id)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </td>
                   </tr>
                 ))}
               </tbody>

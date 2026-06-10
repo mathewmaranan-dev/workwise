@@ -24,9 +24,9 @@ export const urgencies = [
     { urgency_id: 3, urgency_level: 'Low' }
 ];
 export const assignmentGroups = [
-    { assignment_group_id: 1, group_name: 'Network Team' },
-    { assignment_group_id: 2, group_name: 'Server Team' },
-    { assignment_group_id: 3, group_name: 'Software Team' },
+    { assignment_group_id: 1, group_name: 'Software Team' },
+    { assignment_group_id: 2, group_name: 'Network Team' },
+    { assignment_group_id: 3, group_name: 'Security Team' },
     { assignment_group_id: 4, group_name: 'Hardware Team' },
     { assignment_group_id: 5, group_name: 'Service Desk' }
 ];
