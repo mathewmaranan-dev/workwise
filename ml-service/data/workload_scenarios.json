@@ -1,0 +1,2878 @@
+[
+  {
+    "scenario_id": 1,
+    "assignment_group_id": 2,
+    "incoming_tickets": 17,
+    "team_members": [
+      {
+        "user_id": "user_1_1",
+        "employee_name": "Agent 1-1",
+        "current_tickets": 10,
+        "sla_compliance": 78.0,
+        "fcr_rate": 67.4,
+        "experience_level": 1.1,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_1_2",
+        "employee_name": "Agent 1-2",
+        "current_tickets": 11,
+        "sla_compliance": 73.0,
+        "fcr_rate": 54.8,
+        "experience_level": 1.4,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_1_3",
+        "employee_name": "Agent 1-3",
+        "current_tickets": 7,
+        "sla_compliance": 65.2,
+        "fcr_rate": 66.8,
+        "experience_level": 1.0,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_1_4",
+        "employee_name": "Agent 1-4",
+        "current_tickets": 13,
+        "sla_compliance": 81.0,
+        "fcr_rate": 62.7,
+        "experience_level": 1.3,
+        "capacity": 19
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 2,
+    "assignment_group_id": 7,
+    "incoming_tickets": 13,
+    "team_members": [
+      {
+        "user_id": "user_2_1",
+        "employee_name": "Agent 2-1",
+        "current_tickets": 8,
+        "sla_compliance": 79.0,
+        "fcr_rate": 57.5,
+        "experience_level": 1.0,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_2_2",
+        "employee_name": "Agent 2-2",
+        "current_tickets": 15,
+        "sla_compliance": 81.8,
+        "fcr_rate": 56.5,
+        "experience_level": 1.1,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_2_3",
+        "employee_name": "Agent 2-3",
+        "current_tickets": 15,
+        "sla_compliance": 69.2,
+        "fcr_rate": 63.3,
+        "experience_level": 1.2,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_2_4",
+        "employee_name": "Agent 2-4",
+        "current_tickets": 13,
+        "sla_compliance": 75.4,
+        "fcr_rate": 79.4,
+        "experience_level": 1.0,
+        "capacity": 18
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 3,
+    "assignment_group_id": 4,
+    "incoming_tickets": 9,
+    "team_members": [
+      {
+        "user_id": "user_3_1",
+        "employee_name": "Agent 3-1",
+        "current_tickets": 12,
+        "sla_compliance": 76.9,
+        "fcr_rate": 69.3,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_3_2",
+        "employee_name": "Agent 3-2",
+        "current_tickets": 15,
+        "sla_compliance": 65.4,
+        "fcr_rate": 64.5,
+        "experience_level": 1.2,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_3_3",
+        "employee_name": "Agent 3-3",
+        "current_tickets": 13,
+        "sla_compliance": 76.3,
+        "fcr_rate": 51.3,
+        "experience_level": 1.2,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_3_4",
+        "employee_name": "Agent 3-4",
+        "current_tickets": 17,
+        "sla_compliance": 73.7,
+        "fcr_rate": 66.7,
+        "experience_level": 1.1,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_3_5",
+        "employee_name": "Agent 3-5",
+        "current_tickets": 10,
+        "sla_compliance": 77.4,
+        "fcr_rate": 58.7,
+        "experience_level": 1.3,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_3_6",
+        "employee_name": "Agent 3-6",
+        "current_tickets": 16,
+        "sla_compliance": 60.3,
+        "fcr_rate": 54.8,
+        "experience_level": 1.3,
+        "capacity": 20
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 4,
+    "assignment_group_id": 3,
+    "incoming_tickets": 14,
+    "team_members": [
+      {
+        "user_id": "user_4_1",
+        "employee_name": "Agent 4-1",
+        "current_tickets": 1,
+        "sla_compliance": 84.0,
+        "fcr_rate": 49.3,
+        "experience_level": 1.3,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_4_2",
+        "employee_name": "Agent 4-2",
+        "current_tickets": 8,
+        "sla_compliance": 69.3,
+        "fcr_rate": 59.6,
+        "experience_level": 1.2,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_4_3",
+        "employee_name": "Agent 4-3",
+        "current_tickets": 5,
+        "sla_compliance": 77.7,
+        "fcr_rate": 65.9,
+        "experience_level": 1.3,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_4_4",
+        "employee_name": "Agent 4-4",
+        "current_tickets": 3,
+        "sla_compliance": 78.9,
+        "fcr_rate": 56.1,
+        "experience_level": 1.2,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_4_5",
+        "employee_name": "Agent 4-5",
+        "current_tickets": 8,
+        "sla_compliance": 62.9,
+        "fcr_rate": 48.8,
+        "experience_level": 1.4,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_4_6",
+        "employee_name": "Agent 4-6",
+        "current_tickets": 9,
+        "sla_compliance": 77.5,
+        "fcr_rate": 53.7,
+        "experience_level": 1.1,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_4_7",
+        "employee_name": "Agent 4-7",
+        "current_tickets": 7,
+        "sla_compliance": 77.0,
+        "fcr_rate": 54.9,
+        "experience_level": 1.2,
+        "capacity": 23
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 5,
+    "assignment_group_id": 2,
+    "incoming_tickets": 10,
+    "team_members": [
+      {
+        "user_id": "user_5_1",
+        "employee_name": "Agent 5-1",
+        "current_tickets": 1,
+        "sla_compliance": 62.4,
+        "fcr_rate": 62.9,
+        "experience_level": 1.0,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_5_2",
+        "employee_name": "Agent 5-2",
+        "current_tickets": 1,
+        "sla_compliance": 72.1,
+        "fcr_rate": 62.8,
+        "experience_level": 1.2,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_5_3",
+        "employee_name": "Agent 5-3",
+        "current_tickets": 4,
+        "sla_compliance": 71.2,
+        "fcr_rate": 53.8,
+        "experience_level": 1.2,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_5_4",
+        "employee_name": "Agent 5-4",
+        "current_tickets": 6,
+        "sla_compliance": 58.5,
+        "fcr_rate": 43.5,
+        "experience_level": 1.1,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_5_5",
+        "employee_name": "Agent 5-5",
+        "current_tickets": 3,
+        "sla_compliance": 75.2,
+        "fcr_rate": 48.9,
+        "experience_level": 1.4,
+        "capacity": 19
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 6,
+    "assignment_group_id": 2,
+    "incoming_tickets": 21,
+    "team_members": [
+      {
+        "user_id": "user_6_1",
+        "employee_name": "Agent 6-1",
+        "current_tickets": 9,
+        "sla_compliance": 77.9,
+        "fcr_rate": 48.7,
+        "experience_level": 1.3,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_6_2",
+        "employee_name": "Agent 6-2",
+        "current_tickets": 2,
+        "sla_compliance": 69.3,
+        "fcr_rate": 66.4,
+        "experience_level": 1.0,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_6_3",
+        "employee_name": "Agent 6-3",
+        "current_tickets": 4,
+        "sla_compliance": 75.5,
+        "fcr_rate": 60.4,
+        "experience_level": 1.2,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_6_4",
+        "employee_name": "Agent 6-4",
+        "current_tickets": 6,
+        "sla_compliance": 72.6,
+        "fcr_rate": 52.7,
+        "experience_level": 1.4,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_6_5",
+        "employee_name": "Agent 6-5",
+        "current_tickets": 6,
+        "sla_compliance": 72.2,
+        "fcr_rate": 74.0,
+        "experience_level": 1.0,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_6_6",
+        "employee_name": "Agent 6-6",
+        "current_tickets": 8,
+        "sla_compliance": 73.4,
+        "fcr_rate": 60.2,
+        "experience_level": 1.0,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_6_7",
+        "employee_name": "Agent 6-7",
+        "current_tickets": 6,
+        "sla_compliance": 78.7,
+        "fcr_rate": 61.6,
+        "experience_level": 1.3,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_6_8",
+        "employee_name": "Agent 6-8",
+        "current_tickets": 3,
+        "sla_compliance": 66.9,
+        "fcr_rate": 48.7,
+        "experience_level": 1.2,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_6_9",
+        "employee_name": "Agent 6-9",
+        "current_tickets": 7,
+        "sla_compliance": 61.0,
+        "fcr_rate": 64.4,
+        "experience_level": 1.1,
+        "capacity": 14
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 7,
+    "assignment_group_id": 2,
+    "incoming_tickets": 11,
+    "team_members": [
+      {
+        "user_id": "user_7_1",
+        "employee_name": "Agent 7-1",
+        "current_tickets": 8,
+        "sla_compliance": 78.7,
+        "fcr_rate": 78.0,
+        "experience_level": 1.3,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_7_2",
+        "employee_name": "Agent 7-2",
+        "current_tickets": 8,
+        "sla_compliance": 75.3,
+        "fcr_rate": 48.1,
+        "experience_level": 1.2,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_7_3",
+        "employee_name": "Agent 7-3",
+        "current_tickets": 12,
+        "sla_compliance": 65.5,
+        "fcr_rate": 53.8,
+        "experience_level": 1.1,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_7_4",
+        "employee_name": "Agent 7-4",
+        "current_tickets": 8,
+        "sla_compliance": 70.9,
+        "fcr_rate": 68.7,
+        "experience_level": 1.0,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_7_5",
+        "employee_name": "Agent 7-5",
+        "current_tickets": 9,
+        "sla_compliance": 63.7,
+        "fcr_rate": 41.3,
+        "experience_level": 1.0,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_7_6",
+        "employee_name": "Agent 7-6",
+        "current_tickets": 10,
+        "sla_compliance": 71.6,
+        "fcr_rate": 75.7,
+        "experience_level": 1.4,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_7_7",
+        "employee_name": "Agent 7-7",
+        "current_tickets": 7,
+        "sla_compliance": 68.0,
+        "fcr_rate": 46.2,
+        "experience_level": 1.0,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_7_8",
+        "employee_name": "Agent 7-8",
+        "current_tickets": 4,
+        "sla_compliance": 66.2,
+        "fcr_rate": 79.3,
+        "experience_level": 1.1,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_7_9",
+        "employee_name": "Agent 7-9",
+        "current_tickets": 8,
+        "sla_compliance": 64.8,
+        "fcr_rate": 67.3,
+        "experience_level": 1.4,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_7_10",
+        "employee_name": "Agent 7-10",
+        "current_tickets": 6,
+        "sla_compliance": 70.7,
+        "fcr_rate": 57.6,
+        "experience_level": 1.4,
+        "capacity": 25
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 8,
+    "assignment_group_id": 6,
+    "incoming_tickets": 13,
+    "team_members": [
+      {
+        "user_id": "user_8_1",
+        "employee_name": "Agent 8-1",
+        "current_tickets": 2,
+        "sla_compliance": 61.8,
+        "fcr_rate": 59.7,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_8_2",
+        "employee_name": "Agent 8-2",
+        "current_tickets": 7,
+        "sla_compliance": 73.3,
+        "fcr_rate": 56.8,
+        "experience_level": 1.0,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_8_3",
+        "employee_name": "Agent 8-3",
+        "current_tickets": 4,
+        "sla_compliance": 73.8,
+        "fcr_rate": 53.9,
+        "experience_level": 1.1,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_8_4",
+        "employee_name": "Agent 8-4",
+        "current_tickets": 3,
+        "sla_compliance": 75.4,
+        "fcr_rate": 73.4,
+        "experience_level": 1.1,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_8_5",
+        "employee_name": "Agent 8-5",
+        "current_tickets": 0,
+        "sla_compliance": 61.1,
+        "fcr_rate": 74.5,
+        "experience_level": 1.4,
+        "capacity": 14
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 9,
+    "assignment_group_id": 3,
+    "incoming_tickets": 6,
+    "team_members": [
+      {
+        "user_id": "user_9_1",
+        "employee_name": "Agent 9-1",
+        "current_tickets": 8,
+        "sla_compliance": 83.7,
+        "fcr_rate": 46.9,
+        "experience_level": 1.1,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_9_2",
+        "employee_name": "Agent 9-2",
+        "current_tickets": 16,
+        "sla_compliance": 68.8,
+        "fcr_rate": 57.9,
+        "experience_level": 1.3,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_9_3",
+        "employee_name": "Agent 9-3",
+        "current_tickets": 8,
+        "sla_compliance": 74.7,
+        "fcr_rate": 72.1,
+        "experience_level": 1.1,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_9_4",
+        "employee_name": "Agent 9-4",
+        "current_tickets": 7,
+        "sla_compliance": 55.6,
+        "fcr_rate": 57.5,
+        "experience_level": 1.3,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_9_5",
+        "employee_name": "Agent 9-5",
+        "current_tickets": 13,
+        "sla_compliance": 62.2,
+        "fcr_rate": 49.2,
+        "experience_level": 1.4,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_9_6",
+        "employee_name": "Agent 9-6",
+        "current_tickets": 7,
+        "sla_compliance": 61.4,
+        "fcr_rate": 58.3,
+        "experience_level": 1.3,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_9_7",
+        "employee_name": "Agent 9-7",
+        "current_tickets": 8,
+        "sla_compliance": 75.9,
+        "fcr_rate": 53.2,
+        "experience_level": 1.4,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_9_8",
+        "employee_name": "Agent 9-8",
+        "current_tickets": 8,
+        "sla_compliance": 76.3,
+        "fcr_rate": 71.4,
+        "experience_level": 1.2,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_9_9",
+        "employee_name": "Agent 9-9",
+        "current_tickets": 9,
+        "sla_compliance": 66.4,
+        "fcr_rate": 55.8,
+        "experience_level": 1.2,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_9_10",
+        "employee_name": "Agent 9-10",
+        "current_tickets": 8,
+        "sla_compliance": 63.3,
+        "fcr_rate": 58.9,
+        "experience_level": 1.3,
+        "capacity": 22
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 10,
+    "assignment_group_id": 5,
+    "incoming_tickets": 21,
+    "team_members": [
+      {
+        "user_id": "user_10_1",
+        "employee_name": "Agent 10-1",
+        "current_tickets": 6,
+        "sla_compliance": 65.2,
+        "fcr_rate": 55.1,
+        "experience_level": 1.2,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_10_2",
+        "employee_name": "Agent 10-2",
+        "current_tickets": 7,
+        "sla_compliance": 74.5,
+        "fcr_rate": 70.1,
+        "experience_level": 1.3,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_10_3",
+        "employee_name": "Agent 10-3",
+        "current_tickets": 9,
+        "sla_compliance": 66.8,
+        "fcr_rate": 36.5,
+        "experience_level": 1.1,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_10_4",
+        "employee_name": "Agent 10-4",
+        "current_tickets": 8,
+        "sla_compliance": 67.8,
+        "fcr_rate": 49.2,
+        "experience_level": 1.3,
+        "capacity": 15
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 11,
+    "assignment_group_id": 6,
+    "incoming_tickets": 19,
+    "team_members": [
+      {
+        "user_id": "user_11_1",
+        "employee_name": "Agent 11-1",
+        "current_tickets": 6,
+        "sla_compliance": 89.0,
+        "fcr_rate": 45.1,
+        "experience_level": 1.4,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_11_2",
+        "employee_name": "Agent 11-2",
+        "current_tickets": 10,
+        "sla_compliance": 95.2,
+        "fcr_rate": 46.3,
+        "experience_level": 1.4,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_11_3",
+        "employee_name": "Agent 11-3",
+        "current_tickets": 7,
+        "sla_compliance": 74.7,
+        "fcr_rate": 75.3,
+        "experience_level": 1.1,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_11_4",
+        "employee_name": "Agent 11-4",
+        "current_tickets": 11,
+        "sla_compliance": 78.2,
+        "fcr_rate": 62.3,
+        "experience_level": 1.0,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_11_5",
+        "employee_name": "Agent 11-5",
+        "current_tickets": 4,
+        "sla_compliance": 70.9,
+        "fcr_rate": 44.3,
+        "experience_level": 1.2,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_11_6",
+        "employee_name": "Agent 11-6",
+        "current_tickets": 9,
+        "sla_compliance": 73.9,
+        "fcr_rate": 52.4,
+        "experience_level": 1.0,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_11_7",
+        "employee_name": "Agent 11-7",
+        "current_tickets": 7,
+        "sla_compliance": 80.1,
+        "fcr_rate": 59.6,
+        "experience_level": 1.4,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_11_8",
+        "employee_name": "Agent 11-8",
+        "current_tickets": 11,
+        "sla_compliance": 72.0,
+        "fcr_rate": 50.8,
+        "experience_level": 1.2,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_11_9",
+        "employee_name": "Agent 11-9",
+        "current_tickets": 2,
+        "sla_compliance": 71.2,
+        "fcr_rate": 78.9,
+        "experience_level": 1.3,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_11_10",
+        "employee_name": "Agent 11-10",
+        "current_tickets": 11,
+        "sla_compliance": 65.9,
+        "fcr_rate": 46.9,
+        "experience_level": 1.2,
+        "capacity": 15
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 12,
+    "assignment_group_id": 3,
+    "incoming_tickets": 4,
+    "team_members": [
+      {
+        "user_id": "user_12_1",
+        "employee_name": "Agent 12-1",
+        "current_tickets": 13,
+        "sla_compliance": 58.0,
+        "fcr_rate": 67.3,
+        "experience_level": 1.4,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_12_2",
+        "employee_name": "Agent 12-2",
+        "current_tickets": 6,
+        "sla_compliance": 68.2,
+        "fcr_rate": 60.6,
+        "experience_level": 1.4,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_12_3",
+        "employee_name": "Agent 12-3",
+        "current_tickets": 10,
+        "sla_compliance": 69.7,
+        "fcr_rate": 57.0,
+        "experience_level": 1.4,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_12_4",
+        "employee_name": "Agent 12-4",
+        "current_tickets": 7,
+        "sla_compliance": 83.8,
+        "fcr_rate": 35.0,
+        "experience_level": 1.2,
+        "capacity": 23
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 13,
+    "assignment_group_id": 1,
+    "incoming_tickets": 15,
+    "team_members": [
+      {
+        "user_id": "user_13_1",
+        "employee_name": "Agent 13-1",
+        "current_tickets": 4,
+        "sla_compliance": 69.0,
+        "fcr_rate": 40.4,
+        "experience_level": 1.0,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_13_2",
+        "employee_name": "Agent 13-2",
+        "current_tickets": 8,
+        "sla_compliance": 59.7,
+        "fcr_rate": 66.6,
+        "experience_level": 1.1,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_13_3",
+        "employee_name": "Agent 13-3",
+        "current_tickets": 5,
+        "sla_compliance": 71.5,
+        "fcr_rate": 47.5,
+        "experience_level": 1.1,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_13_4",
+        "employee_name": "Agent 13-4",
+        "current_tickets": 9,
+        "sla_compliance": 76.7,
+        "fcr_rate": 75.3,
+        "experience_level": 1.4,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_13_5",
+        "employee_name": "Agent 13-5",
+        "current_tickets": 5,
+        "sla_compliance": 75.5,
+        "fcr_rate": 75.4,
+        "experience_level": 1.2,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_13_6",
+        "employee_name": "Agent 13-6",
+        "current_tickets": 4,
+        "sla_compliance": 69.6,
+        "fcr_rate": 58.7,
+        "experience_level": 1.4,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_13_7",
+        "employee_name": "Agent 13-7",
+        "current_tickets": 4,
+        "sla_compliance": 79.9,
+        "fcr_rate": 46.2,
+        "experience_level": 1.2,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_13_8",
+        "employee_name": "Agent 13-8",
+        "current_tickets": 7,
+        "sla_compliance": 72.6,
+        "fcr_rate": 69.7,
+        "experience_level": 1.4,
+        "capacity": 21
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 14,
+    "assignment_group_id": 5,
+    "incoming_tickets": 17,
+    "team_members": [
+      {
+        "user_id": "user_14_1",
+        "employee_name": "Agent 14-1",
+        "current_tickets": 5,
+        "sla_compliance": 59.4,
+        "fcr_rate": 57.3,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_14_2",
+        "employee_name": "Agent 14-2",
+        "current_tickets": 6,
+        "sla_compliance": 84.1,
+        "fcr_rate": 64.4,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_14_3",
+        "employee_name": "Agent 14-3",
+        "current_tickets": 12,
+        "sla_compliance": 63.9,
+        "fcr_rate": 58.3,
+        "experience_level": 1.3,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_14_4",
+        "employee_name": "Agent 14-4",
+        "current_tickets": 5,
+        "sla_compliance": 74.5,
+        "fcr_rate": 69.6,
+        "experience_level": 1.0,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_14_5",
+        "employee_name": "Agent 14-5",
+        "current_tickets": 10,
+        "sla_compliance": 55.0,
+        "fcr_rate": 61.0,
+        "experience_level": 1.3,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_14_6",
+        "employee_name": "Agent 14-6",
+        "current_tickets": 14,
+        "sla_compliance": 84.9,
+        "fcr_rate": 37.4,
+        "experience_level": 1.3,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_14_7",
+        "employee_name": "Agent 14-7",
+        "current_tickets": 14,
+        "sla_compliance": 76.7,
+        "fcr_rate": 42.2,
+        "experience_level": 1.3,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_14_8",
+        "employee_name": "Agent 14-8",
+        "current_tickets": 9,
+        "sla_compliance": 78.8,
+        "fcr_rate": 52.3,
+        "experience_level": 1.3,
+        "capacity": 16
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 15,
+    "assignment_group_id": 4,
+    "incoming_tickets": 10,
+    "team_members": [
+      {
+        "user_id": "user_15_1",
+        "employee_name": "Agent 15-1",
+        "current_tickets": 15,
+        "sla_compliance": 73.9,
+        "fcr_rate": 60.7,
+        "experience_level": 1.3,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_15_2",
+        "employee_name": "Agent 15-2",
+        "current_tickets": 12,
+        "sla_compliance": 70.8,
+        "fcr_rate": 61.8,
+        "experience_level": 1.1,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_15_3",
+        "employee_name": "Agent 15-3",
+        "current_tickets": 16,
+        "sla_compliance": 63.5,
+        "fcr_rate": 56.7,
+        "experience_level": 1.0,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_15_4",
+        "employee_name": "Agent 15-4",
+        "current_tickets": 8,
+        "sla_compliance": 65.4,
+        "fcr_rate": 60.0,
+        "experience_level": 1.2,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_15_5",
+        "employee_name": "Agent 15-5",
+        "current_tickets": 11,
+        "sla_compliance": 72.1,
+        "fcr_rate": 71.3,
+        "experience_level": 1.0,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_15_6",
+        "employee_name": "Agent 15-6",
+        "current_tickets": 15,
+        "sla_compliance": 76.4,
+        "fcr_rate": 81.3,
+        "experience_level": 1.4,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_15_7",
+        "employee_name": "Agent 15-7",
+        "current_tickets": 13,
+        "sla_compliance": 56.0,
+        "fcr_rate": 74.0,
+        "experience_level": 1.0,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_15_8",
+        "employee_name": "Agent 15-8",
+        "current_tickets": 12,
+        "sla_compliance": 82.5,
+        "fcr_rate": 42.0,
+        "experience_level": 1.0,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_15_9",
+        "employee_name": "Agent 15-9",
+        "current_tickets": 9,
+        "sla_compliance": 59.2,
+        "fcr_rate": 50.1,
+        "experience_level": 1.0,
+        "capacity": 17
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 16,
+    "assignment_group_id": 1,
+    "incoming_tickets": 17,
+    "team_members": [
+      {
+        "user_id": "user_16_1",
+        "employee_name": "Agent 16-1",
+        "current_tickets": 12,
+        "sla_compliance": 55.0,
+        "fcr_rate": 58.5,
+        "experience_level": 1.0,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_16_2",
+        "employee_name": "Agent 16-2",
+        "current_tickets": 9,
+        "sla_compliance": 75.7,
+        "fcr_rate": 65.0,
+        "experience_level": 1.3,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_16_3",
+        "employee_name": "Agent 16-3",
+        "current_tickets": 7,
+        "sla_compliance": 73.1,
+        "fcr_rate": 65.6,
+        "experience_level": 1.3,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_16_4",
+        "employee_name": "Agent 16-4",
+        "current_tickets": 15,
+        "sla_compliance": 76.2,
+        "fcr_rate": 51.0,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_16_5",
+        "employee_name": "Agent 16-5",
+        "current_tickets": 15,
+        "sla_compliance": 78.6,
+        "fcr_rate": 54.1,
+        "experience_level": 1.3,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_16_6",
+        "employee_name": "Agent 16-6",
+        "current_tickets": 13,
+        "sla_compliance": 69.9,
+        "fcr_rate": 56.8,
+        "experience_level": 1.0,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_16_7",
+        "employee_name": "Agent 16-7",
+        "current_tickets": 15,
+        "sla_compliance": 61.6,
+        "fcr_rate": 43.2,
+        "experience_level": 1.3,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_16_8",
+        "employee_name": "Agent 16-8",
+        "current_tickets": 15,
+        "sla_compliance": 66.6,
+        "fcr_rate": 65.5,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_16_9",
+        "employee_name": "Agent 16-9",
+        "current_tickets": 8,
+        "sla_compliance": 80.7,
+        "fcr_rate": 71.3,
+        "experience_level": 1.3,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_16_10",
+        "employee_name": "Agent 16-10",
+        "current_tickets": 7,
+        "sla_compliance": 65.8,
+        "fcr_rate": 71.5,
+        "experience_level": 1.2,
+        "capacity": 21
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 17,
+    "assignment_group_id": 1,
+    "incoming_tickets": 12,
+    "team_members": [
+      {
+        "user_id": "user_17_1",
+        "employee_name": "Agent 17-1",
+        "current_tickets": 9,
+        "sla_compliance": 64.9,
+        "fcr_rate": 54.4,
+        "experience_level": 1.3,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_17_2",
+        "employee_name": "Agent 17-2",
+        "current_tickets": 8,
+        "sla_compliance": 85.8,
+        "fcr_rate": 44.2,
+        "experience_level": 1.2,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_17_3",
+        "employee_name": "Agent 17-3",
+        "current_tickets": 1,
+        "sla_compliance": 75.8,
+        "fcr_rate": 56.7,
+        "experience_level": 1.3,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_17_4",
+        "employee_name": "Agent 17-4",
+        "current_tickets": 8,
+        "sla_compliance": 79.4,
+        "fcr_rate": 51.9,
+        "experience_level": 1.3,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_17_5",
+        "employee_name": "Agent 17-5",
+        "current_tickets": 4,
+        "sla_compliance": 66.8,
+        "fcr_rate": 62.3,
+        "experience_level": 1.4,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_17_6",
+        "employee_name": "Agent 17-6",
+        "current_tickets": 7,
+        "sla_compliance": 74.6,
+        "fcr_rate": 61.6,
+        "experience_level": 1.1,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_17_7",
+        "employee_name": "Agent 17-7",
+        "current_tickets": 6,
+        "sla_compliance": 60.2,
+        "fcr_rate": 68.7,
+        "experience_level": 1.1,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_17_8",
+        "employee_name": "Agent 17-8",
+        "current_tickets": 7,
+        "sla_compliance": 80.9,
+        "fcr_rate": 61.8,
+        "experience_level": 1.2,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_17_9",
+        "employee_name": "Agent 17-9",
+        "current_tickets": 7,
+        "sla_compliance": 87.6,
+        "fcr_rate": 78.8,
+        "experience_level": 1.2,
+        "capacity": 25
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 18,
+    "assignment_group_id": 1,
+    "incoming_tickets": 9,
+    "team_members": [
+      {
+        "user_id": "user_18_1",
+        "employee_name": "Agent 18-1",
+        "current_tickets": 3,
+        "sla_compliance": 65.2,
+        "fcr_rate": 61.3,
+        "experience_level": 1.2,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_18_2",
+        "employee_name": "Agent 18-2",
+        "current_tickets": 9,
+        "sla_compliance": 65.3,
+        "fcr_rate": 42.1,
+        "experience_level": 1.2,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_18_3",
+        "employee_name": "Agent 18-3",
+        "current_tickets": 5,
+        "sla_compliance": 63.1,
+        "fcr_rate": 53.4,
+        "experience_level": 1.1,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_18_4",
+        "employee_name": "Agent 18-4",
+        "current_tickets": 4,
+        "sla_compliance": 80.8,
+        "fcr_rate": 48.4,
+        "experience_level": 1.2,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_18_5",
+        "employee_name": "Agent 18-5",
+        "current_tickets": 5,
+        "sla_compliance": 68.7,
+        "fcr_rate": 55.2,
+        "experience_level": 1.2,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_18_6",
+        "employee_name": "Agent 18-6",
+        "current_tickets": 6,
+        "sla_compliance": 69.3,
+        "fcr_rate": 68.6,
+        "experience_level": 1.1,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_18_7",
+        "employee_name": "Agent 18-7",
+        "current_tickets": 4,
+        "sla_compliance": 72.1,
+        "fcr_rate": 84.0,
+        "experience_level": 1.4,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_18_8",
+        "employee_name": "Agent 18-8",
+        "current_tickets": 8,
+        "sla_compliance": 72.7,
+        "fcr_rate": 63.8,
+        "experience_level": 1.3,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_18_9",
+        "employee_name": "Agent 18-9",
+        "current_tickets": 5,
+        "sla_compliance": 70.6,
+        "fcr_rate": 50.2,
+        "experience_level": 1.1,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_18_10",
+        "employee_name": "Agent 18-10",
+        "current_tickets": 5,
+        "sla_compliance": 77.3,
+        "fcr_rate": 68.9,
+        "experience_level": 1.4,
+        "capacity": 23
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 19,
+    "assignment_group_id": 6,
+    "incoming_tickets": 9,
+    "team_members": [
+      {
+        "user_id": "user_19_1",
+        "employee_name": "Agent 19-1",
+        "current_tickets": 8,
+        "sla_compliance": 69.5,
+        "fcr_rate": 67.4,
+        "experience_level": 1.0,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_19_2",
+        "employee_name": "Agent 19-2",
+        "current_tickets": 14,
+        "sla_compliance": 56.1,
+        "fcr_rate": 43.0,
+        "experience_level": 1.0,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_19_3",
+        "employee_name": "Agent 19-3",
+        "current_tickets": 8,
+        "sla_compliance": 79.2,
+        "fcr_rate": 50.8,
+        "experience_level": 1.3,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_19_4",
+        "employee_name": "Agent 19-4",
+        "current_tickets": 10,
+        "sla_compliance": 67.7,
+        "fcr_rate": 82.2,
+        "experience_level": 1.1,
+        "capacity": 19
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 20,
+    "assignment_group_id": 2,
+    "incoming_tickets": 9,
+    "team_members": [
+      {
+        "user_id": "user_20_1",
+        "employee_name": "Agent 20-1",
+        "current_tickets": 13,
+        "sla_compliance": 59.5,
+        "fcr_rate": 55.0,
+        "experience_level": 1.4,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_20_2",
+        "employee_name": "Agent 20-2",
+        "current_tickets": 10,
+        "sla_compliance": 78.3,
+        "fcr_rate": 61.4,
+        "experience_level": 1.0,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_20_3",
+        "employee_name": "Agent 20-3",
+        "current_tickets": 8,
+        "sla_compliance": 66.5,
+        "fcr_rate": 67.0,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_20_4",
+        "employee_name": "Agent 20-4",
+        "current_tickets": 16,
+        "sla_compliance": 64.9,
+        "fcr_rate": 71.4,
+        "experience_level": 1.2,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_20_5",
+        "employee_name": "Agent 20-5",
+        "current_tickets": 8,
+        "sla_compliance": 83.2,
+        "fcr_rate": 53.6,
+        "experience_level": 1.1,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_20_6",
+        "employee_name": "Agent 20-6",
+        "current_tickets": 15,
+        "sla_compliance": 74.1,
+        "fcr_rate": 73.6,
+        "experience_level": 1.3,
+        "capacity": 25
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 21,
+    "assignment_group_id": 6,
+    "incoming_tickets": 7,
+    "team_members": [
+      {
+        "user_id": "user_21_1",
+        "employee_name": "Agent 21-1",
+        "current_tickets": 11,
+        "sla_compliance": 75.6,
+        "fcr_rate": 42.3,
+        "experience_level": 1.0,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_21_2",
+        "employee_name": "Agent 21-2",
+        "current_tickets": 3,
+        "sla_compliance": 81.2,
+        "fcr_rate": 35.0,
+        "experience_level": 1.2,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_21_3",
+        "employee_name": "Agent 21-3",
+        "current_tickets": 2,
+        "sla_compliance": 58.5,
+        "fcr_rate": 49.7,
+        "experience_level": 1.4,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_21_4",
+        "employee_name": "Agent 21-4",
+        "current_tickets": 7,
+        "sla_compliance": 70.0,
+        "fcr_rate": 56.4,
+        "experience_level": 1.3,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_21_5",
+        "employee_name": "Agent 21-5",
+        "current_tickets": 2,
+        "sla_compliance": 63.9,
+        "fcr_rate": 65.1,
+        "experience_level": 1.4,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_21_6",
+        "employee_name": "Agent 21-6",
+        "current_tickets": 11,
+        "sla_compliance": 76.5,
+        "fcr_rate": 61.0,
+        "experience_level": 1.4,
+        "capacity": 22
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 22,
+    "assignment_group_id": 5,
+    "incoming_tickets": 13,
+    "team_members": [
+      {
+        "user_id": "user_22_1",
+        "employee_name": "Agent 22-1",
+        "current_tickets": 13,
+        "sla_compliance": 66.0,
+        "fcr_rate": 47.7,
+        "experience_level": 1.1,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_22_2",
+        "employee_name": "Agent 22-2",
+        "current_tickets": 9,
+        "sla_compliance": 67.9,
+        "fcr_rate": 49.1,
+        "experience_level": 1.2,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_22_3",
+        "employee_name": "Agent 22-3",
+        "current_tickets": 7,
+        "sla_compliance": 74.7,
+        "fcr_rate": 58.5,
+        "experience_level": 1.1,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_22_4",
+        "employee_name": "Agent 22-4",
+        "current_tickets": 4,
+        "sla_compliance": 77.9,
+        "fcr_rate": 56.4,
+        "experience_level": 1.1,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_22_5",
+        "employee_name": "Agent 22-5",
+        "current_tickets": 13,
+        "sla_compliance": 76.4,
+        "fcr_rate": 59.9,
+        "experience_level": 1.0,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_22_6",
+        "employee_name": "Agent 22-6",
+        "current_tickets": 9,
+        "sla_compliance": 74.1,
+        "fcr_rate": 49.0,
+        "experience_level": 1.0,
+        "capacity": 20
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 23,
+    "assignment_group_id": 1,
+    "incoming_tickets": 21,
+    "team_members": [
+      {
+        "user_id": "user_23_1",
+        "employee_name": "Agent 23-1",
+        "current_tickets": 14,
+        "sla_compliance": 82.0,
+        "fcr_rate": 55.5,
+        "experience_level": 1.3,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_23_2",
+        "employee_name": "Agent 23-2",
+        "current_tickets": 13,
+        "sla_compliance": 62.7,
+        "fcr_rate": 55.1,
+        "experience_level": 1.3,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_23_3",
+        "employee_name": "Agent 23-3",
+        "current_tickets": 16,
+        "sla_compliance": 77.7,
+        "fcr_rate": 78.0,
+        "experience_level": 1.4,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_23_4",
+        "employee_name": "Agent 23-4",
+        "current_tickets": 14,
+        "sla_compliance": 73.9,
+        "fcr_rate": 74.1,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_23_5",
+        "employee_name": "Agent 23-5",
+        "current_tickets": 17,
+        "sla_compliance": 74.0,
+        "fcr_rate": 76.2,
+        "experience_level": 1.4,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_23_6",
+        "employee_name": "Agent 23-6",
+        "current_tickets": 14,
+        "sla_compliance": 58.8,
+        "fcr_rate": 45.2,
+        "experience_level": 1.1,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_23_7",
+        "employee_name": "Agent 23-7",
+        "current_tickets": 15,
+        "sla_compliance": 67.8,
+        "fcr_rate": 66.1,
+        "experience_level": 1.4,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_23_8",
+        "employee_name": "Agent 23-8",
+        "current_tickets": 11,
+        "sla_compliance": 76.1,
+        "fcr_rate": 52.2,
+        "experience_level": 1.4,
+        "capacity": 21
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 24,
+    "assignment_group_id": 7,
+    "incoming_tickets": 13,
+    "team_members": [
+      {
+        "user_id": "user_24_1",
+        "employee_name": "Agent 24-1",
+        "current_tickets": 13,
+        "sla_compliance": 76.3,
+        "fcr_rate": 65.6,
+        "experience_level": 1.1,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_24_2",
+        "employee_name": "Agent 24-2",
+        "current_tickets": 5,
+        "sla_compliance": 76.3,
+        "fcr_rate": 47.7,
+        "experience_level": 1.1,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_24_3",
+        "employee_name": "Agent 24-3",
+        "current_tickets": 11,
+        "sla_compliance": 60.6,
+        "fcr_rate": 62.5,
+        "experience_level": 1.0,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_24_4",
+        "employee_name": "Agent 24-4",
+        "current_tickets": 12,
+        "sla_compliance": 77.7,
+        "fcr_rate": 60.4,
+        "experience_level": 1.3,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_24_5",
+        "employee_name": "Agent 24-5",
+        "current_tickets": 7,
+        "sla_compliance": 83.6,
+        "fcr_rate": 53.6,
+        "experience_level": 1.2,
+        "capacity": 14
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 25,
+    "assignment_group_id": 3,
+    "incoming_tickets": 8,
+    "team_members": [
+      {
+        "user_id": "user_25_1",
+        "employee_name": "Agent 25-1",
+        "current_tickets": 11,
+        "sla_compliance": 67.7,
+        "fcr_rate": 53.9,
+        "experience_level": 1.0,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_25_2",
+        "employee_name": "Agent 25-2",
+        "current_tickets": 12,
+        "sla_compliance": 63.7,
+        "fcr_rate": 35.0,
+        "experience_level": 1.2,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_25_3",
+        "employee_name": "Agent 25-3",
+        "current_tickets": 13,
+        "sla_compliance": 68.8,
+        "fcr_rate": 38.6,
+        "experience_level": 1.4,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_25_4",
+        "employee_name": "Agent 25-4",
+        "current_tickets": 9,
+        "sla_compliance": 69.7,
+        "fcr_rate": 56.1,
+        "experience_level": 1.4,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_25_5",
+        "employee_name": "Agent 25-5",
+        "current_tickets": 12,
+        "sla_compliance": 76.2,
+        "fcr_rate": 43.1,
+        "experience_level": 1.0,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_25_6",
+        "employee_name": "Agent 25-6",
+        "current_tickets": 14,
+        "sla_compliance": 88.4,
+        "fcr_rate": 59.7,
+        "experience_level": 1.3,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_25_7",
+        "employee_name": "Agent 25-7",
+        "current_tickets": 11,
+        "sla_compliance": 76.9,
+        "fcr_rate": 40.7,
+        "experience_level": 1.0,
+        "capacity": 14
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 26,
+    "assignment_group_id": 2,
+    "incoming_tickets": 20,
+    "team_members": [
+      {
+        "user_id": "user_26_1",
+        "employee_name": "Agent 26-1",
+        "current_tickets": 6,
+        "sla_compliance": 70.6,
+        "fcr_rate": 74.7,
+        "experience_level": 1.0,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_26_2",
+        "employee_name": "Agent 26-2",
+        "current_tickets": 5,
+        "sla_compliance": 74.6,
+        "fcr_rate": 49.3,
+        "experience_level": 1.1,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_26_3",
+        "employee_name": "Agent 26-3",
+        "current_tickets": 8,
+        "sla_compliance": 81.7,
+        "fcr_rate": 54.8,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_26_4",
+        "employee_name": "Agent 26-4",
+        "current_tickets": 11,
+        "sla_compliance": 64.8,
+        "fcr_rate": 54.6,
+        "experience_level": 1.3,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_26_5",
+        "employee_name": "Agent 26-5",
+        "current_tickets": 10,
+        "sla_compliance": 58.4,
+        "fcr_rate": 41.8,
+        "experience_level": 1.4,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_26_6",
+        "employee_name": "Agent 26-6",
+        "current_tickets": 5,
+        "sla_compliance": 55.0,
+        "fcr_rate": 65.8,
+        "experience_level": 1.2,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_26_7",
+        "employee_name": "Agent 26-7",
+        "current_tickets": 8,
+        "sla_compliance": 66.3,
+        "fcr_rate": 44.8,
+        "experience_level": 1.1,
+        "capacity": 17
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 27,
+    "assignment_group_id": 7,
+    "incoming_tickets": 10,
+    "team_members": [
+      {
+        "user_id": "user_27_1",
+        "employee_name": "Agent 27-1",
+        "current_tickets": 8,
+        "sla_compliance": 75.4,
+        "fcr_rate": 61.9,
+        "experience_level": 1.1,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_27_2",
+        "employee_name": "Agent 27-2",
+        "current_tickets": 15,
+        "sla_compliance": 78.5,
+        "fcr_rate": 64.3,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_27_3",
+        "employee_name": "Agent 27-3",
+        "current_tickets": 13,
+        "sla_compliance": 68.5,
+        "fcr_rate": 53.2,
+        "experience_level": 1.3,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_27_4",
+        "employee_name": "Agent 27-4",
+        "current_tickets": 13,
+        "sla_compliance": 84.0,
+        "fcr_rate": 53.4,
+        "experience_level": 1.1,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_27_5",
+        "employee_name": "Agent 27-5",
+        "current_tickets": 15,
+        "sla_compliance": 70.0,
+        "fcr_rate": 67.5,
+        "experience_level": 1.2,
+        "capacity": 25
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 28,
+    "assignment_group_id": 2,
+    "incoming_tickets": 5,
+    "team_members": [
+      {
+        "user_id": "user_28_1",
+        "employee_name": "Agent 28-1",
+        "current_tickets": 2,
+        "sla_compliance": 55.0,
+        "fcr_rate": 48.4,
+        "experience_level": 1.4,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_28_2",
+        "employee_name": "Agent 28-2",
+        "current_tickets": 4,
+        "sla_compliance": 80.9,
+        "fcr_rate": 55.5,
+        "experience_level": 1.2,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_28_3",
+        "employee_name": "Agent 28-3",
+        "current_tickets": 3,
+        "sla_compliance": 71.5,
+        "fcr_rate": 68.5,
+        "experience_level": 1.4,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_28_4",
+        "employee_name": "Agent 28-4",
+        "current_tickets": 6,
+        "sla_compliance": 76.5,
+        "fcr_rate": 55.8,
+        "experience_level": 1.1,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_28_5",
+        "employee_name": "Agent 28-5",
+        "current_tickets": 6,
+        "sla_compliance": 71.9,
+        "fcr_rate": 65.0,
+        "experience_level": 1.2,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_28_6",
+        "employee_name": "Agent 28-6",
+        "current_tickets": 3,
+        "sla_compliance": 70.3,
+        "fcr_rate": 45.8,
+        "experience_level": 1.0,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_28_7",
+        "employee_name": "Agent 28-7",
+        "current_tickets": 5,
+        "sla_compliance": 77.5,
+        "fcr_rate": 54.5,
+        "experience_level": 1.2,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_28_8",
+        "employee_name": "Agent 28-8",
+        "current_tickets": 7,
+        "sla_compliance": 81.0,
+        "fcr_rate": 35.2,
+        "experience_level": 1.1,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_28_9",
+        "employee_name": "Agent 28-9",
+        "current_tickets": 6,
+        "sla_compliance": 64.6,
+        "fcr_rate": 72.6,
+        "experience_level": 1.3,
+        "capacity": 17
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 29,
+    "assignment_group_id": 7,
+    "incoming_tickets": 12,
+    "team_members": [
+      {
+        "user_id": "user_29_1",
+        "employee_name": "Agent 29-1",
+        "current_tickets": 4,
+        "sla_compliance": 75.6,
+        "fcr_rate": 58.6,
+        "experience_level": 1.2,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_29_2",
+        "employee_name": "Agent 29-2",
+        "current_tickets": 0,
+        "sla_compliance": 70.5,
+        "fcr_rate": 60.8,
+        "experience_level": 1.0,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_29_3",
+        "employee_name": "Agent 29-3",
+        "current_tickets": 9,
+        "sla_compliance": 78.5,
+        "fcr_rate": 41.8,
+        "experience_level": 1.0,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_29_4",
+        "employee_name": "Agent 29-4",
+        "current_tickets": 6,
+        "sla_compliance": 80.0,
+        "fcr_rate": 69.9,
+        "experience_level": 1.1,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_29_5",
+        "employee_name": "Agent 29-5",
+        "current_tickets": 6,
+        "sla_compliance": 72.8,
+        "fcr_rate": 67.3,
+        "experience_level": 1.4,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_29_6",
+        "employee_name": "Agent 29-6",
+        "current_tickets": 6,
+        "sla_compliance": 76.1,
+        "fcr_rate": 54.3,
+        "experience_level": 1.4,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_29_7",
+        "employee_name": "Agent 29-7",
+        "current_tickets": 2,
+        "sla_compliance": 69.6,
+        "fcr_rate": 47.8,
+        "experience_level": 1.1,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_29_8",
+        "employee_name": "Agent 29-8",
+        "current_tickets": 6,
+        "sla_compliance": 86.3,
+        "fcr_rate": 69.4,
+        "experience_level": 1.3,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_29_9",
+        "employee_name": "Agent 29-9",
+        "current_tickets": 1,
+        "sla_compliance": 77.1,
+        "fcr_rate": 62.4,
+        "experience_level": 1.1,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_29_10",
+        "employee_name": "Agent 29-10",
+        "current_tickets": 2,
+        "sla_compliance": 77.1,
+        "fcr_rate": 65.4,
+        "experience_level": 1.4,
+        "capacity": 14
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 30,
+    "assignment_group_id": 2,
+    "incoming_tickets": 17,
+    "team_members": [
+      {
+        "user_id": "user_30_1",
+        "employee_name": "Agent 30-1",
+        "current_tickets": 6,
+        "sla_compliance": 67.6,
+        "fcr_rate": 45.2,
+        "experience_level": 1.0,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_30_2",
+        "employee_name": "Agent 30-2",
+        "current_tickets": 10,
+        "sla_compliance": 85.8,
+        "fcr_rate": 71.6,
+        "experience_level": 1.0,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_30_3",
+        "employee_name": "Agent 30-3",
+        "current_tickets": 4,
+        "sla_compliance": 72.1,
+        "fcr_rate": 60.0,
+        "experience_level": 1.2,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_30_4",
+        "employee_name": "Agent 30-4",
+        "current_tickets": 9,
+        "sla_compliance": 75.2,
+        "fcr_rate": 58.6,
+        "experience_level": 1.0,
+        "capacity": 25
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 31,
+    "assignment_group_id": 1,
+    "incoming_tickets": 20,
+    "team_members": [
+      {
+        "user_id": "user_31_1",
+        "employee_name": "Agent 31-1",
+        "current_tickets": 5,
+        "sla_compliance": 79.2,
+        "fcr_rate": 58.1,
+        "experience_level": 1.4,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_31_2",
+        "employee_name": "Agent 31-2",
+        "current_tickets": 8,
+        "sla_compliance": 72.4,
+        "fcr_rate": 56.0,
+        "experience_level": 1.0,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_31_3",
+        "employee_name": "Agent 31-3",
+        "current_tickets": 1,
+        "sla_compliance": 66.0,
+        "fcr_rate": 45.5,
+        "experience_level": 1.1,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_31_4",
+        "employee_name": "Agent 31-4",
+        "current_tickets": 2,
+        "sla_compliance": 75.1,
+        "fcr_rate": 40.1,
+        "experience_level": 1.0,
+        "capacity": 14
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 32,
+    "assignment_group_id": 7,
+    "incoming_tickets": 6,
+    "team_members": [
+      {
+        "user_id": "user_32_1",
+        "employee_name": "Agent 32-1",
+        "current_tickets": 10,
+        "sla_compliance": 72.3,
+        "fcr_rate": 49.5,
+        "experience_level": 1.4,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_32_2",
+        "employee_name": "Agent 32-2",
+        "current_tickets": 7,
+        "sla_compliance": 74.8,
+        "fcr_rate": 61.8,
+        "experience_level": 1.2,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_32_3",
+        "employee_name": "Agent 32-3",
+        "current_tickets": 9,
+        "sla_compliance": 70.9,
+        "fcr_rate": 45.6,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_32_4",
+        "employee_name": "Agent 32-4",
+        "current_tickets": 6,
+        "sla_compliance": 73.7,
+        "fcr_rate": 56.0,
+        "experience_level": 1.0,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_32_5",
+        "employee_name": "Agent 32-5",
+        "current_tickets": 5,
+        "sla_compliance": 68.0,
+        "fcr_rate": 51.7,
+        "experience_level": 1.2,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_32_6",
+        "employee_name": "Agent 32-6",
+        "current_tickets": 10,
+        "sla_compliance": 68.8,
+        "fcr_rate": 60.4,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_32_7",
+        "employee_name": "Agent 32-7",
+        "current_tickets": 5,
+        "sla_compliance": 68.2,
+        "fcr_rate": 72.4,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_32_8",
+        "employee_name": "Agent 32-8",
+        "current_tickets": 10,
+        "sla_compliance": 74.5,
+        "fcr_rate": 46.4,
+        "experience_level": 1.1,
+        "capacity": 19
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 33,
+    "assignment_group_id": 5,
+    "incoming_tickets": 15,
+    "team_members": [
+      {
+        "user_id": "user_33_1",
+        "employee_name": "Agent 33-1",
+        "current_tickets": 14,
+        "sla_compliance": 71.1,
+        "fcr_rate": 70.1,
+        "experience_level": 1.1,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_33_2",
+        "employee_name": "Agent 33-2",
+        "current_tickets": 15,
+        "sla_compliance": 75.2,
+        "fcr_rate": 73.6,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_33_3",
+        "employee_name": "Agent 33-3",
+        "current_tickets": 15,
+        "sla_compliance": 66.0,
+        "fcr_rate": 49.1,
+        "experience_level": 1.4,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_33_4",
+        "employee_name": "Agent 33-4",
+        "current_tickets": 8,
+        "sla_compliance": 83.4,
+        "fcr_rate": 76.4,
+        "experience_level": 1.2,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_33_5",
+        "employee_name": "Agent 33-5",
+        "current_tickets": 10,
+        "sla_compliance": 72.3,
+        "fcr_rate": 75.5,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_33_6",
+        "employee_name": "Agent 33-6",
+        "current_tickets": 16,
+        "sla_compliance": 73.0,
+        "fcr_rate": 61.7,
+        "experience_level": 1.1,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_33_7",
+        "employee_name": "Agent 33-7",
+        "current_tickets": 13,
+        "sla_compliance": 66.3,
+        "fcr_rate": 67.7,
+        "experience_level": 1.2,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_33_8",
+        "employee_name": "Agent 33-8",
+        "current_tickets": 17,
+        "sla_compliance": 68.1,
+        "fcr_rate": 67.1,
+        "experience_level": 1.1,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_33_9",
+        "employee_name": "Agent 33-9",
+        "current_tickets": 11,
+        "sla_compliance": 72.1,
+        "fcr_rate": 61.4,
+        "experience_level": 1.1,
+        "capacity": 17
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 34,
+    "assignment_group_id": 5,
+    "incoming_tickets": 10,
+    "team_members": [
+      {
+        "user_id": "user_34_1",
+        "employee_name": "Agent 34-1",
+        "current_tickets": 9,
+        "sla_compliance": 64.1,
+        "fcr_rate": 43.6,
+        "experience_level": 1.2,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_34_2",
+        "employee_name": "Agent 34-2",
+        "current_tickets": 5,
+        "sla_compliance": 66.5,
+        "fcr_rate": 66.3,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_34_3",
+        "employee_name": "Agent 34-3",
+        "current_tickets": 1,
+        "sla_compliance": 68.7,
+        "fcr_rate": 52.2,
+        "experience_level": 1.2,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_34_4",
+        "employee_name": "Agent 34-4",
+        "current_tickets": 1,
+        "sla_compliance": 63.9,
+        "fcr_rate": 65.2,
+        "experience_level": 1.0,
+        "capacity": 16
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 35,
+    "assignment_group_id": 2,
+    "incoming_tickets": 12,
+    "team_members": [
+      {
+        "user_id": "user_35_1",
+        "employee_name": "Agent 35-1",
+        "current_tickets": 9,
+        "sla_compliance": 71.9,
+        "fcr_rate": 55.8,
+        "experience_level": 1.1,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_35_2",
+        "employee_name": "Agent 35-2",
+        "current_tickets": 11,
+        "sla_compliance": 73.8,
+        "fcr_rate": 67.5,
+        "experience_level": 1.4,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_35_3",
+        "employee_name": "Agent 35-3",
+        "current_tickets": 17,
+        "sla_compliance": 62.6,
+        "fcr_rate": 47.1,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_35_4",
+        "employee_name": "Agent 35-4",
+        "current_tickets": 17,
+        "sla_compliance": 68.5,
+        "fcr_rate": 35.0,
+        "experience_level": 1.1,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_35_5",
+        "employee_name": "Agent 35-5",
+        "current_tickets": 16,
+        "sla_compliance": 65.3,
+        "fcr_rate": 52.4,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_35_6",
+        "employee_name": "Agent 35-6",
+        "current_tickets": 8,
+        "sla_compliance": 69.5,
+        "fcr_rate": 68.5,
+        "experience_level": 1.1,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_35_7",
+        "employee_name": "Agent 35-7",
+        "current_tickets": 13,
+        "sla_compliance": 65.1,
+        "fcr_rate": 62.8,
+        "experience_level": 1.4,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_35_8",
+        "employee_name": "Agent 35-8",
+        "current_tickets": 16,
+        "sla_compliance": 72.8,
+        "fcr_rate": 56.5,
+        "experience_level": 1.2,
+        "capacity": 14
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 36,
+    "assignment_group_id": 4,
+    "incoming_tickets": 20,
+    "team_members": [
+      {
+        "user_id": "user_36_1",
+        "employee_name": "Agent 36-1",
+        "current_tickets": 5,
+        "sla_compliance": 70.2,
+        "fcr_rate": 45.2,
+        "experience_level": 1.1,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_36_2",
+        "employee_name": "Agent 36-2",
+        "current_tickets": 5,
+        "sla_compliance": 66.0,
+        "fcr_rate": 62.0,
+        "experience_level": 1.4,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_36_3",
+        "employee_name": "Agent 36-3",
+        "current_tickets": 8,
+        "sla_compliance": 67.0,
+        "fcr_rate": 67.9,
+        "experience_level": 1.0,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_36_4",
+        "employee_name": "Agent 36-4",
+        "current_tickets": 9,
+        "sla_compliance": 64.3,
+        "fcr_rate": 63.3,
+        "experience_level": 1.4,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_36_5",
+        "employee_name": "Agent 36-5",
+        "current_tickets": 6,
+        "sla_compliance": 57.0,
+        "fcr_rate": 54.8,
+        "experience_level": 1.0,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_36_6",
+        "employee_name": "Agent 36-6",
+        "current_tickets": 4,
+        "sla_compliance": 67.4,
+        "fcr_rate": 56.3,
+        "experience_level": 1.4,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_36_7",
+        "employee_name": "Agent 36-7",
+        "current_tickets": 8,
+        "sla_compliance": 70.6,
+        "fcr_rate": 62.1,
+        "experience_level": 1.4,
+        "capacity": 19
+      },
+      {
+        "user_id": "user_36_8",
+        "employee_name": "Agent 36-8",
+        "current_tickets": 7,
+        "sla_compliance": 72.0,
+        "fcr_rate": 62.5,
+        "experience_level": 1.0,
+        "capacity": 15
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 37,
+    "assignment_group_id": 2,
+    "incoming_tickets": 21,
+    "team_members": [
+      {
+        "user_id": "user_37_1",
+        "employee_name": "Agent 37-1",
+        "current_tickets": 2,
+        "sla_compliance": 76.7,
+        "fcr_rate": 46.5,
+        "experience_level": 1.0,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_37_2",
+        "employee_name": "Agent 37-2",
+        "current_tickets": 9,
+        "sla_compliance": 78.9,
+        "fcr_rate": 60.1,
+        "experience_level": 1.0,
+        "capacity": 14
+      },
+      {
+        "user_id": "user_37_3",
+        "employee_name": "Agent 37-3",
+        "current_tickets": 4,
+        "sla_compliance": 75.9,
+        "fcr_rate": 70.0,
+        "experience_level": 1.4,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_37_4",
+        "employee_name": "Agent 37-4",
+        "current_tickets": 6,
+        "sla_compliance": 74.7,
+        "fcr_rate": 35.0,
+        "experience_level": 1.2,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_37_5",
+        "employee_name": "Agent 37-5",
+        "current_tickets": 9,
+        "sla_compliance": 55.0,
+        "fcr_rate": 40.8,
+        "experience_level": 1.4,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_37_6",
+        "employee_name": "Agent 37-6",
+        "current_tickets": 9,
+        "sla_compliance": 62.7,
+        "fcr_rate": 50.9,
+        "experience_level": 1.4,
+        "capacity": 25
+      },
+      {
+        "user_id": "user_37_7",
+        "employee_name": "Agent 37-7",
+        "current_tickets": 4,
+        "sla_compliance": 68.1,
+        "fcr_rate": 80.4,
+        "experience_level": 1.0,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_37_8",
+        "employee_name": "Agent 37-8",
+        "current_tickets": 7,
+        "sla_compliance": 84.9,
+        "fcr_rate": 59.3,
+        "experience_level": 1.3,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_37_9",
+        "employee_name": "Agent 37-9",
+        "current_tickets": 5,
+        "sla_compliance": 71.1,
+        "fcr_rate": 57.6,
+        "experience_level": 1.2,
+        "capacity": 25
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 38,
+    "assignment_group_id": 1,
+    "incoming_tickets": 19,
+    "team_members": [
+      {
+        "user_id": "user_38_1",
+        "employee_name": "Agent 38-1",
+        "current_tickets": 3,
+        "sla_compliance": 72.3,
+        "fcr_rate": 55.2,
+        "experience_level": 1.2,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_38_2",
+        "employee_name": "Agent 38-2",
+        "current_tickets": 6,
+        "sla_compliance": 73.8,
+        "fcr_rate": 64.2,
+        "experience_level": 1.3,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_38_3",
+        "employee_name": "Agent 38-3",
+        "current_tickets": 4,
+        "sla_compliance": 80.8,
+        "fcr_rate": 53.9,
+        "experience_level": 1.3,
+        "capacity": 21
+      },
+      {
+        "user_id": "user_38_4",
+        "employee_name": "Agent 38-4",
+        "current_tickets": 5,
+        "sla_compliance": 75.6,
+        "fcr_rate": 62.6,
+        "experience_level": 1.2,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_38_5",
+        "employee_name": "Agent 38-5",
+        "current_tickets": 5,
+        "sla_compliance": 77.9,
+        "fcr_rate": 61.7,
+        "experience_level": 1.0,
+        "capacity": 21
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 39,
+    "assignment_group_id": 2,
+    "incoming_tickets": 12,
+    "team_members": [
+      {
+        "user_id": "user_39_1",
+        "employee_name": "Agent 39-1",
+        "current_tickets": 10,
+        "sla_compliance": 69.6,
+        "fcr_rate": 53.2,
+        "experience_level": 1.0,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_39_2",
+        "employee_name": "Agent 39-2",
+        "current_tickets": 5,
+        "sla_compliance": 86.4,
+        "fcr_rate": 71.1,
+        "experience_level": 1.4,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_39_3",
+        "employee_name": "Agent 39-3",
+        "current_tickets": 6,
+        "sla_compliance": 74.8,
+        "fcr_rate": 65.7,
+        "experience_level": 1.2,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_39_4",
+        "employee_name": "Agent 39-4",
+        "current_tickets": 9,
+        "sla_compliance": 78.6,
+        "fcr_rate": 57.4,
+        "experience_level": 1.4,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_39_5",
+        "employee_name": "Agent 39-5",
+        "current_tickets": 5,
+        "sla_compliance": 68.7,
+        "fcr_rate": 64.3,
+        "experience_level": 1.1,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_39_6",
+        "employee_name": "Agent 39-6",
+        "current_tickets": 10,
+        "sla_compliance": 77.4,
+        "fcr_rate": 54.3,
+        "experience_level": 1.0,
+        "capacity": 22
+      },
+      {
+        "user_id": "user_39_7",
+        "employee_name": "Agent 39-7",
+        "current_tickets": 8,
+        "sla_compliance": 75.0,
+        "fcr_rate": 45.7,
+        "experience_level": 1.4,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_39_8",
+        "employee_name": "Agent 39-8",
+        "current_tickets": 3,
+        "sla_compliance": 58.8,
+        "fcr_rate": 47.5,
+        "experience_level": 1.3,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_39_9",
+        "employee_name": "Agent 39-9",
+        "current_tickets": 8,
+        "sla_compliance": 72.4,
+        "fcr_rate": 55.3,
+        "experience_level": 1.3,
+        "capacity": 15
+      },
+      {
+        "user_id": "user_39_10",
+        "employee_name": "Agent 39-10",
+        "current_tickets": 4,
+        "sla_compliance": 74.7,
+        "fcr_rate": 61.2,
+        "experience_level": 1.1,
+        "capacity": 22
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  },
+  {
+    "scenario_id": 40,
+    "assignment_group_id": 5,
+    "incoming_tickets": 13,
+    "team_members": [
+      {
+        "user_id": "user_40_1",
+        "employee_name": "Agent 40-1",
+        "current_tickets": 12,
+        "sla_compliance": 69.1,
+        "fcr_rate": 36.2,
+        "experience_level": 1.3,
+        "capacity": 17
+      },
+      {
+        "user_id": "user_40_2",
+        "employee_name": "Agent 40-2",
+        "current_tickets": 8,
+        "sla_compliance": 80.4,
+        "fcr_rate": 69.9,
+        "experience_level": 1.3,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_40_3",
+        "employee_name": "Agent 40-3",
+        "current_tickets": 8,
+        "sla_compliance": 68.0,
+        "fcr_rate": 62.9,
+        "experience_level": 1.2,
+        "capacity": 18
+      },
+      {
+        "user_id": "user_40_4",
+        "employee_name": "Agent 40-4",
+        "current_tickets": 12,
+        "sla_compliance": 79.9,
+        "fcr_rate": 52.4,
+        "experience_level": 1.4,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_40_5",
+        "employee_name": "Agent 40-5",
+        "current_tickets": 14,
+        "sla_compliance": 77.4,
+        "fcr_rate": 48.5,
+        "experience_level": 1.4,
+        "capacity": 20
+      },
+      {
+        "user_id": "user_40_6",
+        "employee_name": "Agent 40-6",
+        "current_tickets": 12,
+        "sla_compliance": 72.8,
+        "fcr_rate": 50.4,
+        "experience_level": 1.2,
+        "capacity": 23
+      },
+      {
+        "user_id": "user_40_7",
+        "employee_name": "Agent 40-7",
+        "current_tickets": 7,
+        "sla_compliance": 67.7,
+        "fcr_rate": 63.4,
+        "experience_level": 1.1,
+        "capacity": 24
+      },
+      {
+        "user_id": "user_40_8",
+        "employee_name": "Agent 40-8",
+        "current_tickets": 14,
+        "sla_compliance": 62.1,
+        "fcr_rate": 56.0,
+        "experience_level": 1.4,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_40_9",
+        "employee_name": "Agent 40-9",
+        "current_tickets": 12,
+        "sla_compliance": 91.6,
+        "fcr_rate": 44.2,
+        "experience_level": 1.3,
+        "capacity": 16
+      },
+      {
+        "user_id": "user_40_10",
+        "employee_name": "Agent 40-10",
+        "current_tickets": 11,
+        "sla_compliance": 75.3,
+        "fcr_rate": 59.2,
+        "experience_level": 1.3,
+        "capacity": 19
+      }
+    ],
+    "created_at": "2026-06-11 19:18:32"
+  }
+]
