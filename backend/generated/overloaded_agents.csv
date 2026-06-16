@@ -1,0 +1,24 @@
+user_id,first_name,last_name,email,total_assigned,assigned_diff_closed_count,reopen_count_sum,reassignment_count_sum
+14,Werner,Kettlesting,werner.kettlesting00014@workwise.it.com,943,912,943,769
+9,Kevin,Ramos,kevin.ramos00009@workwise.it.com,893,865,913,735
+24,Jacob Riley,Fernandez,jacobriley.fernandez00024@workwise.it.com,840,803,883,707
+5,Laura,Diaz,laura.diaz00005@workwise.it.com,829,800,856,668
+20,Dino,O'Culligan,dino.o'culligan00020@workwise.it.com,767,747,743,656
+6,Ulises,Gomez,ulises.gomez00006@workwise.it.com,83,80,98,70
+8,Teresa,Herrera,teresa.herrera00008@workwise.it.com,76,75,69,59
+4,Default,Agent,agent@workwise.it.com,63,61,63,49
+11,Mark,Castillo,mark.castillo00011@workwise.it.com,57,55,57,43
+22,Mathew,Maranan,mathew.maranan00022@workwise.it.com,52,52,58,44
+23,Jorge Jesse,Cabinian,jorgejesse.cabinian00023@workwise.it.com,55,52,46,49
+12,Pennie,Eldredge,pennie.eldredge00012@workwise.it.com,50,49,52,40
+13,Lidia,Wrennall,lidia.wrennall00013@workwise.it.com,49,47,51,49
+7,Alice,Mendoza,alice.mendoza00007@workwise.it.com,44,43,45,35
+15,Erena,Benezet,erena.benezet00015@workwise.it.com,43,42,48,35
+10,Quentin,De Leon,quentin.de.leon00010@workwise.it.com,46,42,41,35
+17,Debee,Fatharly,debee.fatharly00017@workwise.it.com,39,36,47,29
+16,Jakob,Fleisch,jakob.fleisch00016@workwise.it.com,37,33,36,34
+18,Loren,Isakovitch,loren.isakovitch00018@workwise.it.com,33,31,50,30
+21,Toni,Colcomb,toni.colcomb00021@workwise.it.com,31,31,28,25
+19,Normand,Entwisle,normand.entwisle00019@workwise.it.com,26,25,22,25
+25,Matthew Nicolai,Competente,matthewnicolai.competente00025@workwise.it.com,0,0,0,0
+26,Juan,Dela Cruz,juan.delacruz00026@workwise.it.com,0,0,0,0

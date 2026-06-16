@@ -29,18 +29,37 @@ const employeeUsers = [
   { firstName: 'Kevin', lastName: 'Ramos', assignmentGroupId: 1 },
   { firstName: 'Quentin', lastName: 'De Leon', assignmentGroupId: 4 },
   { firstName: 'Mark', lastName: 'Castillo', assignmentGroupId: 1 },
-  { firstName: 'Pennie', lastName: 'Eldredge', assignmentGroupId: null },
-  { firstName: 'Lidia', lastName: 'Wrennall', assignmentGroupId: null },
-  { firstName: 'Werner', lastName: 'Kettlesting', assignmentGroupId: null },
-  { firstName: 'Erena', lastName: 'Benezet', assignmentGroupId: null },
-  { firstName: 'Jakob', lastName: 'Fleisch', assignmentGroupId: null },
-  { firstName: 'Debee', lastName: 'Fatharly', assignmentGroupId: null },
-  { firstName: 'Loren', lastName: 'Isakovitch', assignmentGroupId: null },
-  { firstName: 'Normand', lastName: 'Entwisle', assignmentGroupId: null },
-  { firstName: 'Dino', lastName: "O'Culligan", assignmentGroupId: null },
-  { firstName: 'Toni', lastName: 'Colcomb', assignmentGroupId: null },
-  { firstName: 'Mathew', lastName: 'Maranan', assignmentGroupId: 1 },
+  { firstName: 'Pennie', lastName: 'Eldredge', assignmentGroupId: 1 },
+  { firstName: 'Lidia', lastName: 'Wrennall', assignmentGroupId: 4 },
+  { firstName: 'Werner', lastName: 'Kettlesting', assignmentGroupId: 3 },
+  { firstName: 'Erena', lastName: 'Benezet', assignmentGroupId: 3 },
+  { firstName: 'Jakob', lastName: 'Fleisch', assignmentGroupId: 2 },
+  { firstName: 'Debee', lastName: 'Fatharly', assignmentGroupId: 2 },
+  { firstName: 'Loren', lastName: 'Isakovitch', assignmentGroupId: 4 },
+  { firstName: 'Normand', lastName: 'Entwisle', assignmentGroupId: 3 },
+  { firstName: 'Dino', lastName: "O'Culligan", assignmentGroupId: 4 },
+  { firstName: 'Toni', lastName: 'Colcomb', assignmentGroupId: 2 },
+  { firstName: 'Mathew', lastName: 'Maranan', assignmentGroupId: 5 },
+  { firstName: 'Jorge Jesse', lastName: 'Cabinian', assignmentGroupId: 5 },
+  { firstName: 'Jacob Riley', lastName: 'Fernandez', assignmentGroupId: 5 },
+  { firstName: 'Matthew Nicolai', lastName: 'Competente', assignmentGroupId: 5 },
 ];
+
+function sanitizeEmailName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s']/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function capitalizeName(value) {
+  return String(value || '')
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
 
 function generatePassword(firstName, lastName, email, userId, isDefault) {
   const defaultUsers = {
@@ -54,17 +73,8 @@ function generatePassword(firstName, lastName, email, userId, isDefault) {
     return defaultUsers[email];
   }
 
-  // For employees: FirstName.LastName{user_id}
   const idFormatted = String(userId).padStart(5, '0');
-  return `${firstName}.${lastName}${idFormatted}`;
-}
-
-function normalizeEmailName(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '.')
-    .replace(/[^a-z0-9.\-']/g, '');
+  return `${capitalizeName(firstName)}.${capitalizeName(lastName)}${idFormatted}`;
 }
 
 function generateEmail(firstName, lastName, userId, isDefault) {
@@ -73,7 +83,7 @@ function generateEmail(firstName, lastName, userId, isDefault) {
   }
 
   const idFormatted = String(userId).padStart(5, '0');
-  const localPart = `${normalizeEmailName(firstName)}.${normalizeEmailName(lastName)}${idFormatted}`;
+  const localPart = `${sanitizeEmailName(firstName)}.${sanitizeEmailName(lastName)}${idFormatted}`;
   return `${localPart}@workwise.it.com`;
 }
 

@@ -167,13 +167,15 @@ export const statuses: Status[] = [
   { status_id: 3, status_name: 'Resolved' },
   { status_id: 4, status_name: 'Closed' },
   { status_id: 5, status_name: 'On Hold' },
-  { status_id: 6, status_name: 'Open' }
+  { status_id: 6, status_name: 'Open' },
+  { status_id: 7, status_name: 'Pending' }
 ];
 
 export const subStatuses: SubStatus[] = [
-  { sub_status_id: 1, sub_status_name: 'Awaiting User', status_id: 2 },
-  { sub_status_id: 2, sub_status_name: 'In Review', status_id: 2 },
-  { sub_status_id: 3, sub_status_name: 'Pending', status_id: 1 }
+  { sub_status_id: 1, sub_status_name: 'Pending Customer Response', status_id: 7 },
+  { sub_status_id: 2, sub_status_name: 'Awaiting Tool', status_id: 7 },
+  { sub_status_id: 3, sub_status_name: 'Awaiting Vendor', status_id: 7 },
+  { sub_status_id: 4, sub_status_name: 'Awaiting Customer', status_id: 7 }
 ];
 
 export const categories: Category[] = [

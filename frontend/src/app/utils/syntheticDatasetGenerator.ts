@@ -1,4 +1,4 @@
-import { Category, SubCategory, Ticket, assignmentGroups, categories, channels, configurationItems, impacts, priorities, sources, slas, subCategories, subStatuses, urgencies } from '../data/seedData.js';
+import { Category, SubCategory, Ticket, assignmentGroups, categories, channels, configurationItems, impacts, priorities, sources, slas, subCategories, subStatuses, statuses, urgencies, users } from '../data/seedData.js';
 
 export interface WorkloadBalanceSample {
   agent_id: number;
@@ -85,6 +85,30 @@ const getSeason = (month: number): StaffingIntelligenceRecord['season'] => {
   return 'fall';
 };
 
+const ticketPriorityToSlaId: Record<number, number> = {
+  1: 1,
+  2: 2,
+  3: 3,
+  4: 4
+};
+
+const activeAgents = users.filter(user => user.role_id === 4);
+const activeAgentIds = activeAgents.map(user => user.user_id);
+const agentsByGroup = activeAgents.reduce((map: Record<number, number[]>, agent) => {
+  if (agent.assignment_group_id) {
+    map[agent.assignment_group_id] = map[agent.assignment_group_id] ?? [];
+    map[agent.assignment_group_id].push(agent.user_id);
+  }
+  return map;
+}, {});
+
+const chooseAgentByGroup = (groupId?: number): number => {
+  if (groupId && Array.isArray(agentsByGroup[groupId]) && agentsByGroup[groupId].length > 0) {
+    return randomChoice(agentsByGroup[groupId]);
+  }
+  return activeAgentIds.length > 0 ? randomChoice(activeAgentIds) : 4;
+};
+
 /**
  * Generates synthetic agent-level workload balance data for the workload balancer model.
  */
@@ -160,7 +184,7 @@ export const generateWorkloadBalanceDataset = (
  */
 export const generateNonFCRDataset = (
   ticketCount: number = 400,
-  agentIds: number[] = Array.from({ length: 12 }, (_, i) => i + 1),
+  agentIds: number[] = activeAgentIds,
   groupIds: number[] = assignmentGroups.map(group => group.assignment_group_id)
 ): NonFCRSample[] => {
   const samples: NonFCRSample[] = [];
@@ -282,11 +306,12 @@ export const generateTicketDataset = (
   now: Date = new Date()
 ): Ticket[] => {
   const tickets: Ticket[] = [];
-  const requesterIds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-  const agentIds = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-  const openStatuses = [1, 2, 5, 6];
-  const resolvedStatuses = [3, 4];
-  const statusWeights = [0.15, 0.25, 0.3, 0.08, 0.08, 0.14];
+  const requesterIds = users.filter(user => user.role_id !== 4).map(user => user.user_id).filter(id => id !== 1);
+
+  const chooseAssignmentGroup = () => weightedChoice(
+    assignmentGroupWeights.map(item => item.id),
+    assignmentGroupWeights.map(item => item.weight)
+  );
 
   const descriptionTemplates: Record<number, string[]> = {
     1: [
@@ -331,109 +356,233 @@ export const generateTicketDataset = (
     ]
   };
 
-  const statusPool = [1, 2, 3, 4, 5, 6];
-  const statusProbabilities = [0.15, 0.25, 0.3, 0.1, 0.1, 0.1];
-
-  const lightNotes = [
-    'Initial diagnostics performed.',
-    'User contacted, issue replicated.',
-    'Temporary workaround applied.'
-  ];
-  const heavyNotes = [
-    'Repeated troubleshooting required before resolving.',
-    'Escalated to specialist team and monitored ticket progression.',
-    'Multiple handoffs and configuration changes were necessary.'
-  ];
-
-  const ticketPriorityToSlaId: Record<number, number> = {
-    1: 1,
-    2: 2,
-    3: 3,
-    4: 4
+  const batchId = `BATCH-${now.toISOString().slice(0, 10).replace(/-/g, '')}`;
+  const statusIds = {
+    New: statuses.find(s => s.status_name === 'New')?.status_id ?? 1,
+    InProgress: statuses.find(s => s.status_name === 'In Progress')?.status_id ?? 2,
+    Resolved: statuses.find(s => s.status_name === 'Resolved')?.status_id ?? 3,
+    Closed: statuses.find(s => s.status_name === 'Closed')?.status_id ?? 4,
+    Pending: statuses.find(s => s.status_name === 'Pending')?.status_id ?? 7
   };
 
-  for (let i = 0; i < ticketCount; i += 1) {
-    const createdDaysAgo = randomInt(1, 90);
-    const createdDate = new Date(now.getTime() - createdDaysAgo * 24 * 60 * 60 * 1000);
+  const pendingReasonIds = subStatuses
+    .filter(sub => sub.status_id === statusIds.Pending)
+    .map(sub => sub.sub_status_id);
 
+  const assignmentGroupWeights = [
+    { id: 5, weight: 0.33 },
+    { id: 1, weight: 0.23 },
+    { id: 2, weight: 0.18 },
+    { id: 3, weight: 0.14 },
+    { id: 4, weight: 0.12 }
+  ];
+
+  const priorityBreachRates: Record<number, [number, number]> = {
+    4: [0.05, 0.08],
+    3: [0.10, 0.12],
+    2: [0.15, 0.20],
+    1: [0.20, 0.25]
+  };
+
+  const reopenReasons = [
+    'Issue resurfaced after a temporary closure',
+    'New evidence reopened the ticket',
+    'Vendor dependency triggered reopen',
+    'Customer provided additional information required for rework'
+  ];
+
+  const buildSeasonalWeight = (date: Date) => {
+    const weekday = date.getDay();
+    let weight = weekday >= 1 && weekday <= 4 ? 1.0 : weekday === 5 ? 0.85 : 0.65;
+    const month = date.getMonth();
+    const day = date.getDate();
+    if ([2, 5, 8, 11].includes(month) && day >= 20) weight += 0.18;
+    if (month === 11 && day >= 18) weight -= 0.15;
+    if (month === 6 && day <= 7) weight -= 0.12;
+    return clamp(weight, 0.25, 1.4);
+  };
+
+  const chooseCreatedDate = () => {
+    const offsets: { offset: number; date: Date; weight: number }[] = [];
+    for (let offset = 0; offset <= 89; offset += 1) {
+      const date = new Date(now.getTime() - offset * 24 * 60 * 60 * 1000);
+      const weight = buildSeasonalWeight(date) * clamp(1.05 - offset / 140, 0.3, 1.0);
+      offsets.push({ offset, date, weight });
+    }
+    const days = weightedChoice(offsets, offsets.map(item => item.weight));
+    const createdDate = new Date(days.date);
+    const hour = createdDate.getDay() >= 1 && createdDate.getDay() <= 4 ? randomInt(8, 17) : randomInt(9, 20);
+    createdDate.setHours(hour, randomInt(0, 59), 0, 0);
+    return {
+      createdDate,
+      daysAgo: days.offset,
+      seasonalIntensity: days.weight
+    };
+  };
+
+  const getAgeBucket = (daysAgo: number) => {
+    if (daysAgo <= 3) return 'recent';
+    if (daysAgo <= 14) return 'mid';
+    return 'older';
+  };
+
+  const chooseStatus = (bucket: 'recent' | 'mid' | 'older', intensity: number) => {
+    const statuses = [
+      statusIds.New,
+      statusIds.InProgress,
+      statusIds.Pending,
+      statusIds.Closed,
+      statusIds.Resolved
+    ];
+
+    let weights: number[];
+    if (bucket === 'recent') weights = [0.35, 0.30, 0.15, 0.045, 0.105];
+    else if (bucket === 'mid') weights = [0.09, 0.25, 0.15, 0.095, 0.415];
+    else weights = [0.025, 0.09, 0.09, 0.115, 0.68];
+
+    if (intensity > 1.15) weights = [weights[0] * 0.95, weights[1] * 1.08, weights[2] * 1.05, weights[3] * 1.04, weights[4] * 0.88];
+    if (intensity < 0.9) weights = [weights[0] * 0.96, weights[1] * 0.92, weights[2] * 1.03, weights[3] * 1.03, weights[4] * 1.06];
+
+    const normalized = weights.map(w => w / weights.reduce((sum, value) => sum + value, 0));
+    return weightedChoice(statuses, normalized);
+  };
+
+  const chooseAssignmentGroup = () => weightedChoice(
+    assignmentGroupWeights.map(item => item.id),
+    assignmentGroupWeights.map(item => item.weight)
+  );
+
+  const slaMissed = (
+    statusId: number,
+    priorityId: number,
+    reopenCount: number,
+    daysAgo: number,
+    dueDate: Date,
+    resolvedDate?: Date
+  ) => {
+    const [minBreach, maxBreach] = priorityBreachRates[priorityId] ?? [0.1, 0.15];
+    let chance = randomFloat(minBreach, maxBreach);
+    if (statusId === statusIds.Closed || statusId === statusIds.Pending) chance += 0.05;
+    if (reopenCount > 0) chance += 0.06;
+    if (daysAgo > 14) chance += 0.04;
+    chance = clamp(chance, 0.05, 0.45);
+    if (statusId === statusIds.Resolved) return resolvedDate ? resolvedDate > dueDate : Math.random() < chance;
+    return now > dueDate && Math.random() < chance;
+  };
+
+  const buildTicket = (
+    ticketId: string,
+    createdDate: Date,
+    statusId: number,
+    rootId?: string,
+    parentId?: string,
+    reopenReason?: string,
+    followUpReopenCount?: number,
+    overrideAssignmentGroup?: number
+  ): Ticket => {
     const category = randomChoice(categories);
     const categorySubcats = subCategories.filter(sub => sub.category_id === category.category_id);
     const subcategory = categorySubcats.length > 0 ? randomChoice(categorySubcats) : undefined;
     const priority = randomChoice(priorities);
     const impact = randomChoice(impacts);
     const urgency = randomChoice(urgencies);
-    const status = weightedChoice(statusPool, statusProbabilities);
     const slaId = ticketPriorityToSlaId[priority.priority_id] || 4;
     const slaDefinition = slas.find(s => s.sla_id === slaId) ?? slas[slas.length - 1];
     const slaDueDate = new Date(createdDate.getTime() + slaDefinition.sla_hours * 60 * 60 * 1000);
+    const assignmentGroupId = overrideAssignmentGroup ?? chooseAssignmentGroup();
+    const assignedTo = chooseAgentByGroup(assignmentGroupId);
+    const requestor = randomChoice(requesterIds.length > 0 ? requesterIds : activeAgentIds);
 
-    const reopenCount = Math.random() < 0.25 ? randomInt(1, 3) : 0;
-    const reassignmentCount = Math.random() < 0.18 ? randomInt(1, 2) : 0;
-    const hasServiceDesk = Math.random() < 0.22;
-    const assignedTo = randomChoice(agentIds);
-    const requestor = randomChoice(requesterIds);
-    const assignmentGroupId = hasServiceDesk ? 5 : randomChoice(assignmentGroups).assignment_group_id;
-    const configItem = randomChoice(configurationItems);
-    const channel = randomChoice(channels);
-    const source = randomChoice(sources);
+    const reopenCount = followUpReopenCount !== undefined
+      ? followUpReopenCount
+      : statusId === statusIds.Closed && Math.random() < 0.88
+        ? randomInt(1, 3)
+        : Math.random() < 0.16
+          ? randomInt(1, 2)
+          : 0;
 
-    const baseDuration = 60 + priority.priority_id * 45 + impact.impact_id * 15 + urgency.urgency_id * 10;
-    const durationNoise = randomInt(-20, 80);
-    const duration = clamp(baseDuration + durationNoise + reopenCount * 35 + reassignmentCount * 25, 30, 960);
-
-    const resolved = resolvedStatuses.includes(status);
-    const resolvedDate = resolved ? new Date(createdDate.getTime() + duration * 60 * 1000) : undefined;
-    const lastReopenedAt = reopenCount > 0 ? new Date(createdDate.getTime() + randomInt(12, 72) * 60 * 60 * 1000) : undefined;
-    const madeSLA = resolved
-      ? resolvedDate! <= slaDueDate
-      : now <= slaDueDate;
-
-    const fcrBase = hasServiceDesk ? 0.82 : 0.58;
-    const fcrModifier = -0.18 * reopenCount - 0.12 * reassignmentCount - 0.08 * (priority.priority_id === 1 ? 1 : 0);
-    const fcrScore = clamp(fcrBase + fcrModifier + randomFloat(-0.06, 0.06), 0.2, 0.95);
-    const fcr = fcrScore > 0.55 && reopenCount === 0;
-
-    const availableSubStatuses = subStatuses.filter(sub => [1, 2, 3].includes(sub.status_id));
-    const subStatusId = status === 1 || status === 2 || status === 5
-      ? randomChoice(availableSubStatuses).sub_status_id
+    const reassignmentCount = Math.random() < 0.16 ? randomInt(1, 3) : 0;
+    const workMinutes = clamp(45 + priority.priority_id * 28 + impact.impact_id * 12 + urgency.urgency_id * 10 + reopenCount * 28 + reassignmentCount * 18 + randomInt(-10, 40), 15, 720);
+    const resolvedDate = statusId === statusIds.Resolved
+      ? new Date(createdDate.getTime() + workMinutes * 60 * 1000)
+      : undefined;
+    const lastReopenedAt = reopenCount > 0
+      ? new Date(Math.min(now.getTime(), createdDate.getTime() + randomInt(8, 72) * 60 * 60 * 1000)).toISOString()
       : undefined;
 
-    const workNotes = `${randomChoice(reopenCount > 0 ? heavyNotes : lightNotes)} ${reassignmentCount > 0 ? 'Reassigned once for specialist review.' : ''}`;
+    const madeSLA = !slaMissed(statusId, priority.priority_id, reopenCount, Math.floor((now.getTime() - createdDate.getTime()) / (24 * 60 * 60 * 1000)), slaDueDate, resolvedDate);
+    const fcr = statusId === statusIds.Resolved && reopenCount === 0 && Math.random() < 0.7;
 
-    const ticket: Ticket = {
-      ticket_id: `TKT-${String(100000 + i).slice(-6)}`,
+    const subStatusId = statusId === statusIds.Pending && pendingReasonIds.length > 0
+      ? randomChoice(pendingReasonIds)
+      : undefined;
+
+    return {
+      ticket_id: ticketId,
       created_date: createdDate.toISOString(),
-      resolved_date: resolved ? resolvedDate!.toISOString() : undefined,
-      last_reopened_at: lastReopenedAt ? lastReopenedAt.toISOString() : undefined,
-      duration: resolved ? duration : undefined,
+      resolved_date: resolvedDate ? resolvedDate.toISOString() : undefined,
+      last_reopened_at: lastReopenedAt,
+      duration: statusId === statusIds.New ? undefined : workMinutes,
       reopen_count: reopenCount,
       reassignment_count: reassignmentCount,
       short_description: randomChoice(descriptionTemplates[category.category_id] || ['Ticket created for support request.']),
-      work_notes: workNotes,
+      work_notes: `${randomChoice(reopenCount > 0 ? [
+        'Reopened ticket requires follow-up work and detailed logging.',
+        'Customer returned with new details after the prior closure.',
+        'Workflow resumed after dependency clearance and specialist review.'
+      ] : [
+        'Initial diagnostics performed.',
+        'User contacted, issue replicated.',
+        'Temporary workaround applied.'
+      ])} ${reassignmentCount > 0 ? 'Reassigned once for specialist review.' : ''}`,
       made_sla: madeSLA,
       fcr,
       requester_id: requestor,
       assigned_to_id: assignedTo,
-      closed_by_id: resolved ? assignedTo : undefined,
+      closed_by_id: statusId === statusIds.Closed ? assignedTo : undefined,
+      resolved_by_id: statusId === statusIds.Resolved ? assignedTo : undefined,
       assignment_group_id: assignmentGroupId,
       priority_id: priority.priority_id,
       impact_id: impact.impact_id,
       urgency_id: urgency.urgency_id,
-      status_id: status,
+      status_id: statusId,
       sub_status_id: subStatusId,
       category_id: category.category_id,
       subcategory_id: subcategory?.subcategory_id,
-      channel_id: channel.channel_id,
-      source_id: source.source_id,
-      config_item_id: configItem.config_item_id,
+      channel_id: randomChoice(channels).channel_id,
+      source_id: randomChoice(sources).source_id,
+      config_item_id: randomChoice(configurationItems).config_item_id,
       sla_id: slaDefinition.sla_id,
-      sla_duedate: slaDueDate.toISOString()
+      sla_duedate: slaDueDate.toISOString(),
+      ticket_series_id: rootId ?? ticketId,
+      parent_ticket_id: parentId,
+      reopen_reason: reopenReason,
+      batch_id: batchId
     };
+  };
 
-    tickets.push(ticket);
+  const followUpCount = Math.max(1, Math.round(ticketCount * 0.14));
+  const rootCount = ticketCount - followUpCount;
+  const rootTickets: Ticket[] = [];
+
+  for (let i = 0; i < rootCount; i += 1) {
+    const created = chooseCreatedDate();
+    const statusId = chooseStatus(getAgeBucket(created.daysAgo) as 'recent' | 'mid' | 'older', created.seasonalIntensity);
+    const ticketId = `TKT-${String(100000 + i).slice(-6)}`;
+    rootTickets.push(buildTicket(ticketId, created.createdDate, statusId));
   }
 
-  return tickets;
+  for (let i = 0; i < followUpCount; i += 1) {
+    const root = randomChoice(rootTickets);
+    const rootCreated = new Date(root.created_date);
+    const followUpDate = new Date(Math.min(now.getTime(), rootCreated.getTime() + randomInt(1, 28) * 24 * 60 * 60 * 1000));
+    const ticketId = `REOPEN-${root.ticket_id}-${String(i + 1).padStart(2, '0')}`;
+    const statusId = weightedChoice([statusIds.InProgress, statusIds.Closed, statusIds.Resolved], [0.58, 0.32, 0.10]);
+    tickets.push(buildTicket(ticketId, followUpDate, statusId, root.ticket_series_id ?? root.ticket_id, root.ticket_id, randomChoice(reopenReasons), randomInt(1, 3), root.assignment_group_id));
+  }
+
+  tickets.push(...rootTickets);
+  return tickets.sort((a, b) => new Date(b.created_date).getTime() - new Date(a.created_date).getTime());
 };
 
 /**

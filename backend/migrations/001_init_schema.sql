@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   requester_id INT NOT NULL REFERENCES users(user_id),
   assigned_to_id INT REFERENCES users(user_id),
   closed_by_id INT REFERENCES users(user_id),
+  resolved_by_id INT REFERENCES users(user_id),
 
   -- Assignment and ticket classification
   assignment_group_id INT REFERENCES assignment_groups(assignment_group_id),
@@ -196,6 +197,22 @@ CREATE INDEX IF NOT EXISTS idx_subcategory_category_id ON subcategory(category_i
 CREATE INDEX IF NOT EXISTS idx_survey_ticket_id ON survey(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_ticket_forecast_ticket_id ON ticket_forecast(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_ticket_forecast_forecast_id ON ticket_forecast(forecast_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_closed_by_id ON tickets(closed_by_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_resolved_by_id ON tickets(resolved_by_id);
+
+-- Maintain `updated_at` timestamps automatically on `tickets` when rows are updated
+CREATE OR REPLACE FUNCTION set_updated_at_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = CURRENT_TIMESTAMP;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_tickets_updated_at ON tickets;
+CREATE TRIGGER trg_tickets_updated_at
+BEFORE UPDATE ON tickets
+FOR EACH ROW EXECUTE FUNCTION set_updated_at_timestamp();
 
 -- =====================================================
 -- SEED DATA - LOOKUP TABLES
@@ -235,12 +252,16 @@ INSERT INTO status (status_name) VALUES
   ('New'),
   ('In Progress'),
   ('Resolved'),
-  ('Pending')
+  ('Pending'),
+  ('Closed')
 ON CONFLICT (status_name) DO NOTHING;
 
--- Sub Status (from sample data: empty, Pending Customer Response)
+-- Sub Status (from sample data: Pending reasons)
 INSERT INTO sub_status (sub_status_name, status_id) VALUES 
-  ('Pending Customer Response', (SELECT status_id FROM status WHERE status_name = 'Pending'))
+  ('Pending Customer Response', (SELECT status_id FROM status WHERE status_name = 'Pending')),
+  ('Awaiting Tool', (SELECT status_id FROM status WHERE status_name = 'Pending')),
+  ('Awaiting Vendor', (SELECT status_id FROM status WHERE status_name = 'Pending')),
+  ('Awaiting Customer', (SELECT status_id FROM status WHERE status_name = 'Pending'))
 ON CONFLICT (sub_status_name, status_id) DO NOTHING;
 
 -- Category (from sample data: Password, Server, Network, Software, Hardware)
@@ -291,46 +312,47 @@ ON CONFLICT (item_name) DO NOTHING;
 
 -- SLA (default SLA definitions)
 INSERT INTO sla (sla_name, sla_hours) VALUES 
-  ('Standard SLA', 24),
-  ('Priority SLA', 4),
-  ('Emergency SLA', 1)
+  ('SLA Level 1', 24),
+  ('SLA Level 2', 96),
+  ('SLA Level 3', 192)
 ON CONFLICT (sla_name) DO NOTHING;
 
 -- Assignment Groups (from sample data)
 INSERT INTO assignment_groups (group_name) VALUES 
   ('Software Team'),
   ('Network Team'),
-  ('Service Desk'),
-  ('Hardware Team')
+  ('Security Team'),
+  ('Hardware Team'),
+  ('Service Desk')
 ON CONFLICT (group_name) DO NOTHING;
 
 -- =====================================================
 -- SEED DATA - USERS (from sample data)
 -- =====================================================
 
+-- Seed users aligned with reset_users_table.js conventions
 INSERT INTO users (first_name, last_name, email, password_hash, role_id, assignment_group_id) VALUES
-  ('Default', 'Admin', 'admin@workwise.app', '$2b$10$2VoxOI8W4TCNUzwpU7eKrOnIOWnxgPJVtXjeL4QAV3R5vXx15SlIm', (SELECT role_id FROM roles WHERE role_name = 'admin'), NULL),
-  ('Default', 'Manager', 'manager@workwise.app', '$2b$10$0aNsmFjqK2dnWvc/xSZcp.qGVTKGCEwT8p6CV7bjvQPdR.2Wxzr7O', (SELECT role_id FROM roles WHERE role_name = 'manager'), (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Software Team')),
-  ('Default', 'HR', 'hr@workwise.app', '$2b$10$Q6SMrnE.0x9cmMYwhDMmw.nrzI7GaUxGkSKH4PGVJeTawPaQZW4SC', (SELECT role_id FROM roles WHERE role_name = 'hr'), NULL),
-  ('Default', 'Agent', 'agent@workwise.app', '$2b$10$./LleYt0MHErGkhRaERoyeKb43CSBH05MjquLlrfkDM8WsB77hODK', (SELECT role_id FROM roles WHERE role_name = 'agent'), (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Service Desk')),
-  ('Laura', 'Diaz', 'laura.diaz@company.com', '$2b$10$dummy_hash_1', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Software Team')),
-  ('Ulises', 'Gomez', 'ulises.gomez@company.com', '$2b$10$dummy_hash_2', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Network Team')),
-  ('Alice', 'Mendoza', 'alice.mendoza@company.com', '$2b$10$dummy_hash_3', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Service Desk')),
-  ('Teresa', 'Herrera', 'teresa.herrera@company.com', '$2b$10$dummy_hash_4', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Network Team')),
-  ('Kevin', 'Ramos', 'kevin.ramos@company.com', '$2b$10$dummy_hash_5', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Software Team')),
-  ('Quentin', 'De Leon', 'quentin.deleon@company.com', '$2b$10$dummy_hash_6', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Hardware Team')),
-  ('Mark', 'Castillo', 'mark.castillo@company.com', '$2b$10$dummy_hash_7', 3, (SELECT assignment_group_id FROM assignment_groups WHERE group_name = 'Software Team')),
-  -- Requesters
-  ('Pennie', 'Eldredge', 'pennie.eldredge@company.com', '$2b$10$dummy_hash_8', 3, NULL),
-  ('Lidia', 'Wrennall', 'lidia.wrennall@company.com', '$2b$10$dummy_hash_9', 3, NULL),
-  ('Werner', 'Kettlesting', 'werner.kettlesting@company.com', '$2b$10$dummy_hash_10', 3, NULL),
-  ('Erena', 'Benezet', 'erena.benezet@company.com', '$2b$10$dummy_hash_11', 3, NULL),
-  ('Jakob', 'Fleisch', 'jakob.fleisch@company.com', '$2b$10$dummy_hash_12', 3, NULL),
-  ('Debee', 'Fatharly', 'debee.fatharly@company.com', '$2b$10$dummy_hash_13', 3, NULL),
-  ('Loren', 'Isakovitch', 'loren.isakovitch@company.com', '$2b$10$dummy_hash_14', 3, NULL),
-  ('Normand', 'Entwisle', 'normand.entwisle@company.com', '$2b$10$dummy_hash_15', 3, NULL),
-  ('Dino', 'O Culligan', 'dino.oculigan@company.com', '$2b$10$dummy_hash_16', 3, NULL),
-  ('Toni', 'Colcomb', 'toni.colcomb@company.com', '$2b$10$dummy_hash_17', 3, NULL),
-  -- Admin user
-  ('Admin', 'User', 'admin@company.com', '$2b$10$dummy_hash_admin', 1, NULL)
+  ('Default', 'Admin', 'admin@workwise.it.com', '$2b$10$2VoxOI8W4TCNUzwpU7eKrOnIOWnxgPJVtXjeL4QAV3R5vXx15SlIm', (SELECT role_id FROM roles WHERE role_name = 'admin'), NULL),
+  ('Default', 'Manager', 'manager@workwise.it.com', '$2b$10$0aNsmFjqK2dnWvc/xSZcp.qGVTKGCEwT8p6CV7bjvQPdR.2Wxzr7O', (SELECT role_id FROM roles WHERE role_name = 'manager'), 1),
+  ('Default', 'HR', 'hr@workwise.it.com', '$2b$10$Q6SMrnE.0x9cmMYwhDMmw.nrzI7GaUxGkSKH4PGVJeTawPaQZW4SC', (SELECT role_id FROM roles WHERE role_name = 'hr'), NULL),
+  ('Default', 'Agent', 'agent@workwise.it.com', '$2b$10$./LleYt0MHErGkhRaERoyeKb43CSBH05MjquLlrfkDM8WsB77hODK', (SELECT role_id FROM roles WHERE role_name = 'agent'), 3),
+  ('Laura', 'Diaz', 'laura.diaz00005@workwise.it.com', '$2b$10$dummy_hash_1', 3, 1),
+  ('Ulises', 'Gomez', 'ulises.gomez00006@workwise.it.com', '$2b$10$dummy_hash_2', 3, 2),
+  ('Alice', 'Mendoza', 'alice.mendoza00007@workwise.it.com', '$2b$10$dummy_hash_3', 3, 3),
+  ('Teresa', 'Herrera', 'teresa.herrera00008@workwise.it.com', '$2b$10$dummy_hash_4', 3, 2),
+  ('Kevin', 'Ramos', 'kevin.ramos00009@workwise.it.com', '$2b$10$dummy_hash_5', 3, 1),
+  ('Quentin', 'De Leon', 'quentin.de.leon00010@workwise.it.com', '$2b$10$dummy_hash_6', 3, 4),
+  ('Mark', 'Castillo', 'mark.castillo00011@workwise.it.com', '$2b$10$dummy_hash_7', 3, 1),
+  -- Requesters and other employees
+  ('Pennie', 'Eldredge', 'pennie.eldredge00012@workwise.it.com', '$2b$10$dummy_hash_8', 3, 1),
+  ('Lidia', 'Wrennall', 'lidia.wrennall00013@workwise.it.com', '$2b$10$dummy_hash_9', 3, 4),
+  ('Werner', 'Kettlesting', 'werner.kettlesting00014@workwise.it.com', '$2b$10$dummy_hash_10', 3, 3),
+  ('Erena', 'Benezet', 'erena.benezet00015@workwise.it.com', '$2b$10$dummy_hash_11', 3, 3),
+  ('Jakob', 'Fleisch', 'jakob.fleisch00016@workwise.it.com', '$2b$10$dummy_hash_12', 3, 2),
+  ('Debee', 'Fatharly', 'debee.fatharly00017@workwise.it.com', '$2b$10$dummy_hash_13', 3, 2),
+  ('Loren', 'Isakovitch', 'loren.isakovitch00018@workwise.it.com', '$2b$10$dummy_hash_14', 3, 4),
+  ('Normand', 'Entwisle', 'normand.entwisle00019@workwise.it.com', '$2b$10$dummy_hash_15', 3, 3),
+  ('Dino', 'O''Culligan', 'dino.o''culligan00020@workwise.it.com', '$2b$10$dummy_hash_16', 3, 4),
+  ('Toni', 'Colcomb', 'toni.colcomb00021@workwise.it.com', '$2b$10$dummy_hash_17', 3, 2),
+  ('Mathew', 'Maranan', 'mathew.maranan00022@workwise.it.com', '$2b$10$dummy_hash_18', 3, 5)
 ON CONFLICT (email) DO NOTHING;

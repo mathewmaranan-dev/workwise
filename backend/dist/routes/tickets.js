@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { query } from '../config/database.js';
 import { verifyToken } from '../middleware/auth.js';
 const router = Router();
-const CLOSED_STATUS_IDS = [3, 4];
+const CLOSED_STATUS_IDS = [5]; // Only 'Closed' should be treated as temporary parked work
 async function resolveStatusId(statusId, statusName) {
     if (typeof statusId === 'number' && Number.isFinite(statusId)) {
         return statusId;
@@ -91,7 +91,7 @@ router.post('/', verifyToken, async (req, res) => {
             assigned_to,
             assignment_group_id,
             priority_id,
-            6,
+            1, // New
             1,
         ]);
         res.status(201).json(result.rows[0]);
@@ -110,7 +110,7 @@ router.post('/import', verifyToken, async (req, res) => {
         }
         const rows = [];
         const placeholders = [];
-        const columnCount = 27;
+        const columnCount = 28;
         let rowIndex = 0;
         for (let i = 0; i < tickets.length; i += 1) {
             const ticket = tickets[i] ?? {};
@@ -132,6 +132,7 @@ router.post('/import', verifyToken, async (req, res) => {
             const requesterId = normalizeOptionalNumber(ticket.requester_id) ?? 1;
             const assignedToId = normalizeOptionalNumber(ticket.assigned_to_id);
             const closedById = normalizeOptionalNumber(ticket.closed_by_id);
+            const resolvedById = normalizeOptionalNumber(ticket.resolved_by_id);
             const assignmentGroupId = normalizeOptionalNumber(ticket.assignment_group_id);
             const priorityId = normalizeOptionalNumber(ticket.priority_id) ?? 3;
             const impactId = normalizeOptionalNumber(ticket.impact_id) ?? 3;
@@ -146,8 +147,8 @@ router.post('/import', verifyToken, async (req, res) => {
             const slaId = normalizeOptionalNumber(ticket.sla_id) ?? 3;
             const slaDueDate = ticket.sla_duedate ? new Date(ticket.sla_duedate).toISOString() : null;
             const baseIndex = rowIndex * columnCount;
-            placeholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, $${baseIndex + 17}, $${baseIndex + 18}, $${baseIndex + 19}, $${baseIndex + 20}, $${baseIndex + 21}, $${baseIndex + 22}, $${baseIndex + 23}, $${baseIndex + 24}, $${baseIndex + 25}, $${baseIndex + 26}, $${baseIndex + 27})`);
-            rows.push(ticketId, createdDate, resolvedDate, lastReopenedAt, duration, reopenCount, reassignmentCount, shortDescription, workNotes, madeSla, fcr, requesterId, assignedToId, closedById, assignmentGroupId, priorityId, impactId, urgencyId, statusIdValue, subStatusId, categoryId, subcategoryId, channelId, sourceId, configItemId, slaId, slaDueDate);
+            placeholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, $${baseIndex + 17}, $${baseIndex + 18}, $${baseIndex + 19}, $${baseIndex + 20}, $${baseIndex + 21}, $${baseIndex + 22}, $${baseIndex + 23}, $${baseIndex + 24}, $${baseIndex + 25}, $${baseIndex + 26}, $${baseIndex + 27}, $${baseIndex + 28})`);
+            rows.push(ticketId, createdDate, resolvedDate, lastReopenedAt, duration, reopenCount, reassignmentCount, shortDescription, workNotes, madeSla, fcr, requesterId, assignedToId, closedById, resolvedById, assignmentGroupId, priorityId, impactId, urgencyId, statusIdValue, subStatusId, categoryId, subcategoryId, channelId, sourceId, configItemId, slaId, slaDueDate);
             rowIndex += 1;
         }
         if (rows.length === 0) {
@@ -168,6 +169,7 @@ router.post('/import', verifyToken, async (req, res) => {
       requester_id,
       assigned_to_id,
       closed_by_id,
+      resolved_by_id,
       assignment_group_id,
       priority_id,
       impact_id,
@@ -199,6 +201,7 @@ router.post('/import', verifyToken, async (req, res) => {
       requester_id = COALESCE(EXCLUDED.requester_id, tickets.requester_id),
       assigned_to_id = COALESCE(EXCLUDED.assigned_to_id, tickets.assigned_to_id),
       closed_by_id = COALESCE(EXCLUDED.closed_by_id, tickets.closed_by_id),
+      resolved_by_id = COALESCE(EXCLUDED.resolved_by_id, tickets.resolved_by_id),
       assignment_group_id = COALESCE(EXCLUDED.assignment_group_id, tickets.assignment_group_id),
       priority_id = COALESCE(EXCLUDED.priority_id, tickets.priority_id),
       impact_id = COALESCE(EXCLUDED.impact_id, tickets.impact_id),

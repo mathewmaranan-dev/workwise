@@ -15,6 +15,9 @@
 -- Include the sample data migration
 \i 002_sample_data.sql
 
+-- Include additional migrations for evolving existing installations
+\i 008_add_resolved_by_id.sql
+
 -- Verify the data was loaded correctly
 SELECT
   t.ticket_id,

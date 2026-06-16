@@ -202,19 +202,20 @@ def build_ticket_row(
     # Calculate days since ticket creation for age-dependent status assignment
     days_ago = (now - created_date).days
 
-    # Old tickets (>14 days) should almost always be resolved (95%)
-    # Recent tickets (<=14 days) have mixed statuses
+    # Old tickets (>14 days) should almost always be resolved, but a small
+    # portion can remain pending while waiting on external dependencies.
+    # Older tickets should rarely remain new because that indicates poor queue hygiene.
     status_new_id, status_in_progress_id, status_resolved_id, status_pending_id = fetch_status_ids(lookup)
     if days_ago > 14:
         status_choice = rng.choices(
             ['resolved', 'in_progress', 'new', 'pending'],
-            weights=[0.95, 0.03, 0.01, 0.01],
+            weights=[0.75, 0.10, 0.05, 0.10],
             k=1,
         )[0]
     else:
         status_choice = rng.choices(
             ['resolved', 'in_progress', 'new', 'pending'],
-            weights=[0.35, 0.40, 0.18, 0.07],
+            weights=[0.20, 0.30, 0.35, 0.15],
             k=1,
         )[0]
     status_id = {
@@ -266,6 +267,8 @@ def build_ticket_row(
             duration = sla_hours * rng.uniform(1.05, 2.20)
 
     resolved_date = created_date + timedelta(hours=duration) if status_choice == 'resolved' else None
+    if status_choice == 'pending':
+        resolved_date = None
     made_sla = bool(resolved_date and resolved_date <= sla_duedate)
 
     base_fcr_rate = rng.uniform(0.82, 0.92)
