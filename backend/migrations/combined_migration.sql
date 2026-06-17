@@ -18,6 +18,9 @@
 -- Include additional migrations for evolving existing installations
 \i 008_add_resolved_by_id.sql
 
+-- Include ML training samples table
+\i 009_create_ml_training_samples.sql
+
 -- Verify the data was loaded correctly
 SELECT
   t.ticket_id,

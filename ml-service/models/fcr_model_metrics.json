@@ -1,19 +1,19 @@
 {
-  "accuracy": 0.664,
-  "precision": 0.7626,
-  "recall": 0.7388,
-  "f1": 0.7505,
-  "roc_auc": 0.7011,
-  "best_threshold": 0.6265340733528137,
+  "accuracy": 0.54,
+  "precision": 0.3115,
+  "recall": 0.6781,
+  "f1": 0.4269,
+  "roc_auc": 0.6148,
+  "best_threshold": 0.45111985206604005,
   "threshold_metrics": {
-    "precision": 0.7625754527162978,
-    "recall": 0.7387914230019493,
-    "f1": 0.7504950495049505
+    "precision": 0.3115151515151515,
+    "recall": 0.6781002638522428,
+    "f1": 0.4269102990033223
   },
-  "samples": 2500,
-  "train_samples": 1750,
-  "test_samples": 750,
-  "source_table": "synthetic_offline",
+  "samples": 5000,
+  "train_samples": 3500,
+  "test_samples": 1500,
+  "source_table": "ml_training_samples",
   "model_type": "XGBoost Classifier",
   "best_params": {
     "classifier__colsample_bytree": 0.8,
@@ -22,6 +22,6 @@
     "classifier__n_estimators": 100,
     "classifier__subsample": 1.0
   },
-  "cv_score": 0.7169,
-  "features_count": 93
+  "cv_score": 0.5919,
+  "features_count": 124
 }

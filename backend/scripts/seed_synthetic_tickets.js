@@ -571,6 +571,109 @@ async function insertTickets(tickets) {
   }
 }
 
+async function populateTrainingSamples() {
+  const client = await pool.connect();
+  try {
+    console.log('\n📊 Populating ml_training_samples for ML model training...');
+
+    // First, calculate agent FCR history from resolved tickets
+    const agentFcrQuery = `
+      SELECT 
+        assigned_to_id,
+        COUNT(*) as total_tickets,
+        SUM(CASE WHEN fcr = true THEN 1 ELSE 0 END)::float / COUNT(*) as fcr_rate
+      FROM tickets
+      WHERE assigned_to_id IS NOT NULL 
+        AND resolved_date IS NOT NULL
+      GROUP BY assigned_to_id
+    `;
+    const agentFcrResult = await client.query(agentFcrQuery);
+    const agentFcrMap = {};
+    agentFcrResult.rows.forEach(row => {
+      agentFcrMap[row.assigned_to_id] = Math.min(0.99, Math.max(0.01, row.fcr_rate || 0.72));
+    });
+
+    // Calculate category non-FCR rates
+    const categoryNonFcrQuery = `
+      SELECT 
+        category_id,
+        COUNT(*) as total_tickets,
+        SUM(CASE WHEN fcr = false OR fcr IS NULL THEN 1 ELSE 0 END)::float / COUNT(*) as non_fcr_rate
+      FROM tickets
+      WHERE resolved_date IS NOT NULL
+      GROUP BY category_id
+    `;
+    const categoryNonFcrResult = await client.query(categoryNonFcrQuery);
+    const categoryNonFcrMap = {};
+    categoryNonFcrResult.rows.forEach(row => {
+      categoryNonFcrMap[row.category_id] = Math.min(0.99, Math.max(0.01, row.non_fcr_rate || 0.25));
+    });
+
+    // Delete previous training samples to refresh
+    await client.query('DELETE FROM ml_training_samples WHERE source_type = \'synthetic\'');
+
+    // Insert training samples for all resolved tickets
+    const insertQuery = `
+      INSERT INTO ml_training_samples (
+        ticket_id,
+        assignment_group_id,
+        assigned_to_id,
+        category_id,
+        priority_id,
+        impact_id,
+        urgency_id,
+        reopen_count,
+        reassignment_count,
+        duration,
+        ticket_complexity,
+        agent_fcr_history,
+        category_non_fcr_rate,
+        non_fcr_label,
+        source_type,
+        generated_at,
+        created_at
+      )
+      SELECT 
+        t.ticket_id,
+        t.assignment_group_id,
+        t.assigned_to_id,
+        t.category_id,
+        t.priority_id,
+        t.impact_id,
+        t.urgency_id,
+        t.reopen_count,
+        t.reassignment_count,
+        t.duration,
+        ROUND(SQRT(POWER(t.priority_id, 2) + POWER(t.impact_id, 2) + POWER(t.urgency_id, 2) + POWER(t.reopen_count, 2))::numeric, 2) as complexity,
+        ($1::jsonb->>(t.assigned_to_id::text))::numeric,
+        ($2::jsonb->>(t.category_id::text))::numeric,
+        (CASE WHEN t.fcr = false OR t.fcr IS NULL THEN 1 ELSE 0 END)::boolean as non_fcr_label,
+        'synthetic',
+        NOW(),
+        NOW()
+      FROM tickets t
+      WHERE t.resolved_date IS NOT NULL
+        AND t.assigned_to_id IS NOT NULL
+    `;
+
+    const result = await client.query(insertQuery, [
+      JSON.stringify(agentFcrMap),
+      JSON.stringify(categoryNonFcrMap)
+    ]);
+
+    const sampleCount = await client.query(
+      'SELECT COUNT(*) as count FROM ml_training_samples WHERE source_type = \'synthetic\' AND is_active = TRUE'
+    );
+
+    console.log(`✅ Populated ml_training_samples:`);
+    console.log(`   Training samples created: ${sampleCount.rows[0].count}`);
+    console.log(`   Agent FCR history calculated: ${Object.keys(agentFcrMap).length} agents`);
+    console.log(`   Category non-FCR rates calculated: ${Object.keys(categoryNonFcrMap).length} categories`);
+  } finally {
+    client.release();
+  }
+}
+
 async function main() {
   try {
     console.log('🚀 Synthetic Ticket Seeder\n');
@@ -602,6 +705,9 @@ async function main() {
 
     // Insert tickets
     await insertTickets(tickets);
+
+    // Populate ML training samples
+    await populateTrainingSamples();
 
     // Verify
     console.log('\n📈 Verifying import...');
