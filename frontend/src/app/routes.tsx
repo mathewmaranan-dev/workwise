@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router';
+import { createHashRouter, Navigate } from 'react-router';
 import LoginPage from './pages/LoginPage';
 import DashboardLayout from './pages/DashboardLayout';
 import AdminDashboard from './pages/dashboards/AdminDashboard';
@@ -58,7 +58,7 @@ function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export const router = createBrowserRouter([
+export const router = createHashRouter([
   {
     path: '/',
     element: <Navigate to="/login" replace />

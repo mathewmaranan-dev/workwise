@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { testConnection } from './config/database.js';
 
 // Routes
@@ -12,6 +14,8 @@ import kpisRoutes from './routes/kpis.js';
 
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -85,6 +89,19 @@ app.use('/api/ml', async (req, res) => {
     res.status(502).json({ error: 'Failed to reach ML service' });
   }
 });
+
+// Serve frontend static assets in production
+if (NODE_ENV === 'production') {
+  const frontendDist = path.resolve(__dirname, '../frontend/dist');
+  app.use(express.static(frontendDist));
+
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+}
 
 // 404 handler
 app.use((req, res) => {
