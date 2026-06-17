@@ -16,7 +16,11 @@ import MyAccountPage from './pages/MyAccountPage';
 import { useAuth } from './context/AuthContext';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, isAuthReady, user } = useAuth();
+
+  if (!isAuthReady) {
+    return null;
+  }
   
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

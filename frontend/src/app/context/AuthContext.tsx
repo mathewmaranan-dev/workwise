@@ -21,6 +21,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; termsAccepted?: boolean }>;
   logout: () => void;
   isAuthenticated: boolean;
+  isAuthReady: boolean;
   users: User[];
   createUser: (user: User, password: string, assignment_group_id?: number) => Promise<boolean>;
   updateUser: (user: User) => Promise<boolean>;
@@ -100,6 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   const getAuthToken = () => token || localStorage.getItem('workwise_token');
 
@@ -168,7 +171,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const storedToken = localStorage.getItem('workwise_token');
     if (storedToken) {
       setToken(storedToken);
-      fetchCurrentUser(storedToken);
+      fetchCurrentUser(storedToken).finally(() => setIsAuthReady(true));
+    } else {
+      setIsAuthReady(true);
     }
   }, []);
 
@@ -389,6 +394,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         logout,
         isAuthenticated: !!user,
+        isAuthReady,
         users,
         createUser,
         updateUser,
