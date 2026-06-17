@@ -612,6 +612,10 @@ async function populateTrainingSamples() {
     // Delete previous training samples to refresh
     await client.query('DELETE FROM ml_training_samples WHERE source_type = \'synthetic\'');
 
+    // Debug: count resolved tickets that qualify for training samples
+    const qualifyingTicketsRes = await client.query(`SELECT COUNT(*) as count FROM tickets t WHERE t.resolved_date IS NOT NULL AND t.assigned_to_id IS NOT NULL`);
+    console.log(`   Resolved & assigned tickets available for samples: ${qualifyingTicketsRes.rows[0].count}`);
+
     // Insert training samples for all resolved tickets
     const insertQuery = `
       INSERT INTO ml_training_samples (
@@ -645,9 +649,9 @@ async function populateTrainingSamples() {
         t.reassignment_count,
         t.duration,
         ROUND(SQRT(POWER(t.priority_id, 2) + POWER(t.impact_id, 2) + POWER(t.urgency_id, 2) + POWER(t.reopen_count, 2))::numeric, 2) as complexity,
-        ($1::jsonb->>(t.assigned_to_id::text))::numeric,
-        ($2::jsonb->>(t.category_id::text))::numeric,
-        (CASE WHEN t.fcr = false OR t.fcr IS NULL THEN 1 ELSE 0 END)::boolean as non_fcr_label,
+        COALESCE( ($1::jsonb->>(t.assigned_to_id::text))::numeric, 0.5 ) as agent_fcr_history,
+        COALESCE( ($2::jsonb->>(t.category_id::text))::numeric, 0.25 ) as category_non_fcr_rate,
+        (CASE WHEN t.fcr = false OR t.fcr IS NULL THEN true ELSE false END) as non_fcr_label,
         'synthetic',
         NOW(),
         NOW()

@@ -118,6 +118,10 @@ export const router = createHashRouter([
     ]
   },
   {
+    path: '/demo',
+    element: <ManagerDashboard />
+  },
+  {
     path: '/terms',
     element: <TermsPromptPage />
   },

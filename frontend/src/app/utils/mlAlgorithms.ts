@@ -217,28 +217,32 @@ export const predictNonFCRRisk = async (tickets: Ticket[], allTickets: Ticket[] 
   }
 
   const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
-  const endpoint = `${apiBase.replace(/\/$/, '')}/api/ml/fcr/predict`;
+  const mlApiBase = (import.meta as any).env?.VITE_ML_API_URL || apiBase;
+  const backendEndpoint = `${apiBase.replace(/\/$/, '')}/api/ml/fcr/predict`;
+  const directMlEndpoint = `${mlApiBase.replace(/\/$/, '')}/api/ml/fcr/predict`;
 
   const predictions = await Promise.all(
     tickets.map(async (ticket) => {
       const payload = buildFcrPredictionPayload(ticket, allTickets);
       const mlPayload = {
         ticket_category: (getCategoryById(ticket.category_id ?? 1)?.category_name || 'software').toLowerCase(),
-        priority: ticket.priority_id ?? 3,
-        assigned_group: ticket.assignment_group_id ?? 1,
-        assigned_to_id: ticket.assigned_to_id ?? 1,
-        impact_id: ticket.impact_id ?? 3,
-        urgency_id: ticket.urgency_id ?? 2,
-        reopen_count: ticket.reopen_count ?? 0,
-        reassignment_count: ticket.reassignment_count ?? 0,
-        duration: ticket.duration ?? 120,
+        category_id: payload.category_id,
+        priority: payload.priority_id,
+        assigned_group: payload.assignment_group_id,
+        assignment_group_id: payload.assignment_group_id,
+        assigned_to_id: payload.assigned_to_id,
+        impact_id: payload.impact_id,
+        urgency_id: payload.urgency_id,
+        reopen_count: payload.reopen_count,
+        reassignment_count: payload.reassignment_count,
+        duration: payload.duration,
         ticket_complexity: payload.ticket_complexity,
         agent_fcr_history: payload.agent_fcr_history,
         category_non_fcr_rate: payload.category_non_fcr_rate,
       };
 
       try {
-        const response = await fetch(endpoint, {
+        const response = await fetch(backendEndpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -264,8 +268,38 @@ export const predictNonFCRRisk = async (tickets: Ticket[], allTickets: Ticket[] 
           recommendation: Array.isArray(riskData.recommendations) ? riskData.recommendations.join(' • ') : 'Monitor ticket'
         };
       } catch (error) {
-        console.warn('FCR model request failed, falling back to local heuristic:', error);
-        return predictNonFCRRiskLocal([ticket])[0];
+        console.warn('FCR model request failed on backend endpoint, trying direct ML service:', error);
+
+        try {
+          const fallbackResponse = await fetch(directMlEndpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(mlPayload)
+          });
+
+          if (!fallbackResponse.ok) {
+            throw new Error(`Direct ML service responded with status ${fallbackResponse.status}`);
+          }
+
+          const fallbackData = await fallbackResponse.json();
+          const fallbackRiskData = fallbackData?.fcr_risk;
+
+          if (!fallbackRiskData || typeof fallbackRiskData.risk_score !== 'number') {
+            throw new Error('Unexpected direct ML service response');
+          }
+
+          return {
+            ticket_id: ticket.ticket_id,
+            riskScore: Math.min(100, Math.round(fallbackRiskData.risk_score * 100)),
+            factors: Array.isArray(fallbackRiskData.drivers) ? fallbackRiskData.drivers : [],
+            recommendation: Array.isArray(fallbackRiskData.recommendations) ? fallbackRiskData.recommendations.join(' • ') : 'Monitor ticket'
+          };
+        } catch (fallbackError) {
+          console.warn('Direct ML service fallback failed, using local heuristic:', fallbackError);
+          return predictNonFCRRiskLocal([ticket])[0];
+        }
       }
     })
   );

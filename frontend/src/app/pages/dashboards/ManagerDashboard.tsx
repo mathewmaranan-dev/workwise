@@ -4,6 +4,8 @@ import { Users, Activity, AlertTriangle, Target, Filter } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
 import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance } from '../../utils/analytics';
 import { predictNonFCRRisk, NonFCRRiskScore } from '../../utils/mlAlgorithms';
+import NonFCRRiskPanel from '../../components/NonFCRRiskPanel';
+import ScenarioTester from '../../components/ScenarioTester';
 import { 
   tickets as seedDataTickets, 
   weeklyCounts, 
@@ -1076,6 +1078,15 @@ export default function ManagerDashboard() {
       </div>
 
       {/* Non-FCR Detection List */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">
+          <NonFCRRiskPanel tickets={currentTickets} riskScoreMap={riskScoreMap} />
+        </div>
+        <div>
+          <ScenarioTester apiBase={apiBase} />
+        </div>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Non-FCR Detection List - Action Required</CardTitle>
