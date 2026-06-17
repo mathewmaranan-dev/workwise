@@ -102,7 +102,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [isAuthReady, setIsAuthReady] = useState(false);
 
   const getAuthToken = () => token || localStorage.getItem('workwise_token');
 
