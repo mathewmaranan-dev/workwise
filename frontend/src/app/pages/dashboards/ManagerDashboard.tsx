@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Users, Activity, AlertTriangle, Target, Filter } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
-import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance } from '../../utils/analytics';
+import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance } from '../../utils/analytics';
 import { predictNonFCRRisk, NonFCRRiskScore } from '../../utils/mlAlgorithms';
 import { 
   tickets as seedDataTickets, 
@@ -91,6 +91,10 @@ export default function ManagerDashboard() {
   const groupTickets = selectedGroupTickets;
   const groupNonFCRTickets = selectedGroupNonFCRTickets;
   const groupNonFCRTicketRecords = useMemo(() => groupTickets.filter(t => !t.fcr), [groupTickets]);
+  const groupNonFCRCategoryRiskRows = useMemo(
+    () => getNonFCRTicketsWithCategoryRisk(groupTickets),
+    [groupTickets]
+  );
   const isFallbackGroup = false;
   
   // Calculate KPIs for manager's group only
@@ -717,6 +721,56 @@ export default function ManagerDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Non-FCR Risk Summary</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">
+            Ticket-level non-FCR risk and category action guidance for {displayGroup?.group_name || `Group ${displayGroupId}`}
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Ticket</th>
+                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Category</th>
+                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Category FCR Rate</th>
+                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Agent</th>
+                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Agent Category FCR Rate</th>
+                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Recommended Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {groupNonFCRCategoryRiskRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-4 text-sm text-slate-500">
+                      No non-FCR category risk rows available for this team yet.
+                    </td>
+                  </tr>
+                ) : groupNonFCRCategoryRiskRows.slice(0, 10).map((row) => {
+                  const agent = row.agentId ? getUserById(row.agentId) : null;
+                  const agentName = agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown agent';
+                  const category = getCategoryById(row.categoryId);
+                  const categoryName = category ? category.category_name : 'Unknown category';
+
+                  return (
+                    <tr key={`${row.ticketId}-${row.agentId || 'unknown'}`}>
+                      <td className="px-3 py-3 text-slate-900">{row.ticketId}</td>
+                      <td className="px-3 py-3 text-slate-700">{categoryName}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.categoryFCRRate.toFixed(1)}%</td>
+                      <td className="px-3 py-3 text-slate-700">{agentName}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.agentCategoryFCRRate.toFixed(1)}%</td>
+                      <td className="px-3 py-3 text-slate-700">{row.action}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
