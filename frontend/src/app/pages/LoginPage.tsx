@@ -6,6 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { AlertCircle } from 'lucide-react';
+import Logo from '../components/Logo';
 
 // Fuzzy search function to find closest match
 const calculateSimilarity = (str1: string, str2: string): number => {
@@ -123,16 +124,17 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-950 p-4">
       <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center">
         {/* Left side - Branding */}
         <div className="text-center md:text-left space-y-6">
+          <Logo className="mx-auto md:mx-0" />
           <div className="inline-block">
             <h1 className="text-5xl font-bold text-indigo-900 mb-2">WORK-WISE</h1>
             <p className="text-xl text-indigo-700">Intelligent IT Service Management System</p>
           </div>
           
-          <div className="space-y-4 text-gray-700">
+          <div className="space-y-4 text-slate-700">
             <p className="text-lg">Enterprise-grade ITSM analytics and insights</p>
             <ul className="space-y-2 text-left inline-block">
               <li className="flex items-center gap-2">
@@ -156,7 +158,7 @@ export default function LoginPage() {
         </div>
 
         {/* Right side - Login form */}
-        <Card className="w-full shadow-2xl">
+        <Card className="w-full shadow-2xl bg-card text-card-foreground">
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl">Sign In</CardTitle>
             <CardDescription>Enter your credentials to access WORK-WISE</CardDescription>
@@ -180,17 +182,17 @@ export default function LoginPage() {
                   />
                   
                   {showEmailSuggestions && emailSuggestions.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
+                    <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-lg max-h-60 overflow-auto text-foreground">
                       {emailSuggestions.map((suggestion) => (
                         <button
                           key={suggestion}
                           type="button"
                           onClick={() => handleSelectEmail(suggestion)}
-                          className="w-full text-left px-4 py-2 hover:bg-indigo-50 transition-colors border-b last:border-b-0 focus:bg-indigo-50 text-sm"
+                          className="w-full text-left px-4 py-2 hover:bg-accent hover:text-accent-foreground transition-colors border-b last:border-b-0 focus:bg-accent text-sm"
                         >
-                          <div className="font-medium text-gray-900">{suggestion}</div>
+                          <div className="font-medium">{suggestion}</div>
                           {runtimeEmails.includes(suggestion) && (
-                            <div className="text-xs text-gray-500">Previously used</div>
+                            <div className="text-xs text-muted-foreground">Previously used</div>
                           )}
                         </button>
                       ))}
@@ -219,7 +221,7 @@ export default function LoginPage() {
               )}
 
               <div className="flex items-center justify-between">
-                <Link to="/forgot-password" className="text-sm text-indigo-600 hover:text-indigo-800">
+                <Link to="/forgot-password" className="text-sm text-primary hover:text-primary/90">
                   Forgot password?
                 </Link>
                 <Button type="submit" className="ml-4" disabled={loading}>

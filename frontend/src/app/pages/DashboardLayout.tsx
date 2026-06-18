@@ -7,10 +7,13 @@ import {
   Upload,
   Users,
   User,
+  Activity,
+  ListTodo,
   LogOut,
   Menu
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetTrigger } from '../components/ui/sheet';
+import Logo from '../components/Logo';
 
 export default function DashboardLayout() {
   const { user, logout } = useAuth();
@@ -25,20 +28,25 @@ export default function DashboardLayout() {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/dashboard/account', label: 'My Account', icon: User },
-    ...(user?.role === 'admin' ? [
-      { path: '/dashboard/users', label: 'User Management', icon: Users }
+    ...(user?.role === 'manager' ? [
+      { path: '/dashboard/team-performance', label: 'Team Performance', icon: Activity },
+      { path: '/dashboard/team-agents', label: 'Team Agents', icon: Users }
+    ] : []),
+    ...(user?.role === 'agent' ? [
+      { path: '/dashboard/my-tasks', label: 'My Tasks', icon: ListTodo }
     ] : []),
     ...(user?.role === 'admin' ? [
+      { path: '/dashboard/users', label: 'User Management', icon: Users },
       { path: '/dashboard/upload', label: 'Upload Data', icon: Upload }
     ] : [])
   ];
 
   const SidebarContent = () => (
-    <div className="flex flex-col h-full">
-      <div className="p-6 border-b">
-        <h2 className="text-base font-bold text-indigo-900">WORK-WISE</h2>
-        <p className="text-xs text-gray-600 mt-0.5">{user?.name}</p>
-        <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
+    <div className="flex flex-col h-full bg-background text-foreground">
+      <div className="p-6 border-b border-border">
+        <Logo />
+        <p className="text-xs text-muted-foreground mt-3">{user?.name}</p>
+        <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
       </div>
       
       <nav className="flex-1 p-4 space-y-2">
@@ -74,20 +82,22 @@ export default function DashboardLayout() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="h-screen flex flex-col bg-white text-slate-950">
       {/* Mobile header */}
       <div className="lg:hidden border-b bg-white p-2 flex items-center justify-between">
-        <h1 className="text-base font-bold text-indigo-900">WORK-WISE</h1>
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <Menu className="w-5 h-5" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="p-0 w-48">
-            <SidebarContent />
-          </SheetContent>
-        </Sheet>
+        <Logo className="h-fit" />
+        <div className="flex items-center gap-2">
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Menu className="w-5 h-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="p-0 w-48">
+              <SidebarContent />
+            </SheetContent>
+          </Sheet>
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -97,8 +107,11 @@ export default function DashboardLayout() {
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto bg-background text-foreground">
           <div className="p-4 lg:p-6">
+            <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <Logo />
+            </div>
             <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
               <div className="flex flex-wrap gap-2 items-center">
                 <span className="font-semibold text-slate-900">Logged in as:</span>
