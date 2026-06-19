@@ -54,7 +54,9 @@ const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5001';
 
 app.use('/api/ml', async (req, res) => {
   try {
-    const mlPath = req.originalUrl.replace(/^\/api\/ml/, '') || '/';
+    // Forward the original request path to the ML service so that
+    // endpoints defined under `/api/ml/...` on the ML service match.
+    const mlPath = req.originalUrl || '/';
     const target = new URL(mlPath, ML_SERVICE_URL);
     const headers = new Headers();
 

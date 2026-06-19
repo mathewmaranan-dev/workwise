@@ -44,6 +44,7 @@ export default function ManagerDashboard() {
   const [backendTickets, setBackendTickets] = useState<any[]>([]);
   const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
   const [loadingTickets, setLoadingTickets] = useState(false);
+  const [usersList, setUsersList] = useState<any[]>([]);
   const apiBase = env.VITE_API_BASE_URL || env.VITE_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
@@ -83,16 +84,44 @@ export default function ManagerDashboard() {
       });
   }, [apiBase, user]);
 
+  const [selectedGroupId, setSelectedGroupId] = useState<number>(user?.assignment_group_id ?? 1);
+  const selectedGroup = getAssignmentGroupById(selectedGroupId);
+
+  useEffect(() => {
+    // Load users from backend so we can map user -> assignment group (from DB).
+    // Managers can only fetch users in their own assignment group.
+    const token = localStorage.getItem('workwise_token');
+    if (!token || !user) return;
+
+    const url = user?.role === 'manager'
+      ? `${apiBase.replace(/\/$/, '')}/api/users/group/${selectedGroupId}`
+      : `${apiBase.replace(/\/$/, '')}/api/users`;
+
+    fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+    })
+      .then((r) => r.ok ? r.json() : Promise.reject('Failed to load users'))
+      .then((u) => setUsersList(Array.isArray(u) ? u : []))
+      .catch((err) => {
+        console.warn('Failed to load users for assignment group mapping', err);
+        setUsersList([]);
+      });
+  }, [apiBase, user, selectedGroupId]);
+
+  useEffect(() => {
+    if (!user || user.role !== 'manager' || !user.assignment_group_id) return;
+    if (user.assignment_group_id !== selectedGroupId) {
+      setSelectedGroupId(user.assignment_group_id);
+    }
+  }, [user, selectedGroupId]);
+
   const currentTickets = useMemo(() => {
     if (backendTicketsLoaded) return backendTickets;
     if (uploadedData && uploadedData.length > 0) return uploadedData;
     return [];
   }, [backendTickets, backendTicketsLoaded, uploadedData]);
   const hasData = currentTickets.length > 0;
-  
-  const initialGroupId = user?.assignment_group_id ?? (user?.role === 'manager' ? 1 : 2);
-  const [selectedGroupId, setSelectedGroupId] = useState<number>(initialGroupId);
-  const selectedGroup = getAssignmentGroupById(selectedGroupId);
 
   const selectedGroupTickets = useMemo(
     () => currentTickets.filter(t => t.assignment_group_id === selectedGroupId),
@@ -294,6 +323,48 @@ export default function ManagerDashboard() {
       summary: `Workload balancing may improve SLA compliance by about ${slaGain.toFixed(1)} points, reduce average resolution time by ${resolutionGain.toFixed(1)}%, and boost FCR by ${fcrGain.toFixed(1)} points.`
     };
   }, [workloadBalance, workloadAnalysis]);
+
+  const workloadBalanceRecommendations = useMemo(() => {
+    return Array.isArray(workloadBalance?.recommendations) ? workloadBalance.recommendations as any[] : [];
+  }, [workloadBalance?.recommendations]);
+
+  const workloadRecommendationSummary = useMemo(() => {
+    return workloadBalanceRecommendations.map((rec) => {
+      const currentLoad = Number(rec.current_load ?? 0);
+      const adjustment = Number(rec.adjustment ?? 0);
+      const redirectPct = currentLoad > 0 ? Math.round(Math.abs(adjustment) / currentLoad * 100) : 0;
+      const flag = adjustment > 1 ? 'Overloaded' : adjustment < -1 ? 'Underloaded' : 'Balanced';
+      const expectedSla = rec.sla_compliance != null ? `${Number(rec.sla_compliance).toFixed(1)}%` : `${predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%`;
+      const expectedFcr = rec.fcr_rate != null ? `${Number(rec.fcr_rate).toFixed(1)}%` : `${predictedKpiImprovements.fcr_rate_gain_pct ?? 0}%`;
+
+      // Determine suggested team strictly as an assignment group name.
+      // Do not use employee_name here; the dashboard should show the team/group only.
+      const matchedUser = usersList.find((u) => Number(u.user_id || u.id) === Number(rec.user_id));
+      let suggestedTeam: string | null = null;
+      if (matchedUser && matchedUser.assignment_group) {
+        suggestedTeam = String(matchedUser.assignment_group);
+      } else if (matchedUser && matchedUser.assignment_group_id) {
+        suggestedTeam = getAssignmentGroupById(Number(matchedUser.assignment_group_id))?.group_name ?? null;
+      } else if (rec.assignment_group_id) {
+        suggestedTeam = getAssignmentGroupById(Number(rec.assignment_group_id))?.group_name ?? null;
+      } else if (rec.assignment_group) {
+        suggestedTeam = String(rec.assignment_group);
+      } else if (selectedGroup?.group_name) {
+        suggestedTeam = selectedGroup.group_name;
+      } else {
+        suggestedTeam = 'Unknown Assignment Group';
+      }
+
+      return {
+        user_id: rec.user_id,
+        flag,
+        redirectPct,
+        suggestedTeam,
+        expectedSla,
+        expectedFcr,
+      };
+    });
+  }, [workloadBalanceRecommendations, predictedKpiImprovements, usersList]);
 
   const staffingScenarioData = [0, 1, 2, 3].map((extraAgents) => {
     const scenarioStaff = currentStaffCount + extraAgents;
@@ -1046,8 +1117,8 @@ export default function ManagerDashboard() {
             </div>
           </div>
 
-          {workloadBalance?.recommendations?.length > 0 && (
-            <div className="mt-6 overflow-x-auto">
+          <>
+            <div className="mt-6 overflow-x-auto border rounded-lg border-slate-200 bg-white">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-gray-50">
@@ -1059,23 +1130,68 @@ export default function ManagerDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {workloadBalance.recommendations.map((rec: any) => (
-                    <tr key={rec.user_id} className="border-b hover:bg-gray-50">
-                      <td className="p-3 font-medium">{rec.employee_name || `Agent ${rec.user_id}`}</td>
-                      <td className="p-3">{rec.current_load}</td>
-                      <td className="p-3">{Number(rec.recommended_load).toFixed(1)}</td>
-                      <td className={`p-3 font-semibold ${rec.adjustment > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{rec.adjustment >= 0 ? `+${Number(rec.adjustment).toFixed(1)}` : Number(rec.adjustment).toFixed(1)}</td>
-                      <td className="p-3">{rec.utilization_rate ? `${(rec.utilization_rate * 100).toFixed(0)}%` : 'N/A'}</td>
+                  {workloadBalanceRecommendations.length > 0 ? (
+                    workloadBalanceRecommendations.map((rec: any) => (
+                      <tr key={rec.user_id} className="border-b hover:bg-gray-50">
+                        <td className="p-3 font-medium">{rec.employee_name || `Agent ${rec.user_id}`}</td>
+                        <td className="p-3">{rec.current_load}</td>
+                        <td className="p-3">{Number(rec.recommended_load).toFixed(1)}</td>
+                        <td className={`p-3 font-semibold ${rec.adjustment > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{rec.adjustment >= 0 ? `+${Number(rec.adjustment).toFixed(1)}` : Number(rec.adjustment).toFixed(1)}</td>
+                        <td className="p-3">{rec.utilization_rate ? `${(rec.utilization_rate * 100).toFixed(0)}%` : 'N/A'}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="p-4 text-sm text-gray-500">
+                        {workloadBalance ? 'No agent-level redistribution recommendations available yet.' : 'No workload balance data available yet.'}
+                      </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
-          )}
 
-          {!workloadBalance?.recommendations?.length && (
-            <p className="mt-4 text-sm text-gray-500">No redistribution recommendations available yet.</p>
-          )}
+            <div className="mt-6 overflow-x-auto border rounded-lg border-slate-200 bg-white">
+              <div className="px-4 py-3 border-b border-slate-200">
+                <h2 className="text-sm font-semibold text-gray-800">Master recommendation summary</h2>
+                <p className="text-xs text-gray-500 mt-1">Actionable flags and expected SLA/FCR impact if the recommended redistribution plan is followed.</p>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    <th className="text-left p-3 font-medium">Flag</th>
+                    <th className="text-left p-3 font-medium">% Redirect</th>
+                    <th className="text-left p-3 font-medium">Suggested Team</th>
+                    <th className="text-left p-3 font-medium">Expected SLA if Followed</th>
+                    <th className="text-left p-3 font-medium">Expected FCR if Followed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workloadRecommendationSummary.length > 0 ? (
+                    workloadRecommendationSummary.map((summary) => (
+                      <tr key={summary.user_id} className="border-b hover:bg-gray-50">
+                        <td className="p-3">
+                          <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${summary.flag === 'Overloaded' ? 'bg-rose-100 text-rose-700' : summary.flag === 'Underloaded' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {summary.flag}
+                          </span>
+                        </td>
+                        <td className="p-3">{summary.redirectPct}%</td>
+                        <td className="p-3 font-medium">{summary.suggestedTeam}</td>
+                        <td className="p-3">{summary.expectedSla}</td>
+                        <td className="p-3">{summary.expectedFcr}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="p-4 text-sm text-gray-500">
+                        {workloadBalance ? 'Master recommendation summary is unavailable until agent-level recommendations are generated.' : 'Master recommendation summary is unavailable because workload balance data has not loaded.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
         </CardContent>
       </Card>
 
