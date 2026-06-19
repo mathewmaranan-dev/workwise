@@ -10,12 +10,21 @@ from itertools import product
 
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from statsmodels.tsa.stattools import adfuller
+
+try:
+    from statsmodels.tsa.arima.model import ARIMA
+    from statsmodels.tsa.holtwinters import ExponentialSmoothing
+    from statsmodels.tsa.stattools import adfuller
+    STATS_MODELS_AVAILABLE = True
+except ImportError:
+    ARIMA = None
+    ExponentialSmoothing = None
+    adfuller = None
+    STATS_MODELS_AVAILABLE = False
 
 # Suppress convergence warnings for synthetic data
-warnings.filterwarnings('ignore', category=UserWarning, module='statsmodels')
+if STATS_MODELS_AVAILABLE:
+    warnings.filterwarnings('ignore', category=UserWarning, module='statsmodels')
 
 
 class TicketForecast:
@@ -64,6 +73,9 @@ class TicketForecast:
     
     def _find_optimal_arima_order(self, series, max_p=2, max_d=1, max_q=2):
         """Find optimal ARIMA parameters using grid search and AIC"""
+        if ARIMA is None:
+            return (1, 1, 1)
+
         best_aic = np.inf
         best_order = (1, 1, 1)
         
@@ -96,6 +108,9 @@ class TicketForecast:
         return best_order
 
     def _fit_ets(self, series):
+        if ExponentialSmoothing is None:
+            return None
+
         try:
             if len(series) < 14:
                 return None
@@ -139,34 +154,35 @@ class TicketForecast:
                     'trend': self.trend,
                     'aic': float(ets_model.aic) if hasattr(ets_model, 'aic') else 0,
                 }
-            
-            # Fall back to ARIMA if ETS is not stable
-            self.best_order = self._find_optimal_arima_order(series)
-            model = ARIMA(series, order=self.best_order)
-            fitted_model = model.fit()
 
-            forecast = fitted_model.get_forecast(steps=days_ahead)
-            forecast_ci = forecast.conf_int()
+            # Fall back to ARIMA if available; otherwise use deterministic baseline.
+            if ARIMA is not None:
+                self.best_order = self._find_optimal_arima_order(series)
+                model = ARIMA(series, order=self.best_order)
+                fitted_model = model.fit()
 
-            rsquared = fitted_model.rsquared if hasattr(fitted_model, 'rsquared') else 0
-            
-            upper_bound = np.maximum(forecast_ci.iloc[:, 1].values, 0).astype(float).tolist()
-            lower_bound = np.maximum(forecast_ci.iloc[:, 0].values, 0).astype(float).tolist()
-            
-            if self.trend == 'increasing':
-                upper_bound = [u * 1.1 for u in upper_bound]
-            elif self.trend == 'decreasing':
-                lower_bound = [max(l * 0.9, 10) for l in lower_bound]
+                forecast = fitted_model.get_forecast(steps=days_ahead)
+                forecast_ci = forecast.conf_int()
 
-            return {
-                'forecast': np.maximum(forecast.predicted_mean.values, 0).astype(float).tolist(),
-                'lower_bound': lower_bound,
-                'upper_bound': upper_bound,
-                'model': f'ARIMA{self.best_order}',
-                'rsquared': float(rsquared),
-                'trend': self.trend,
-                'aic': float(fitted_model.aic) if hasattr(fitted_model, 'aic') else 0,
-            }
+                rsquared = fitted_model.rsquared if hasattr(fitted_model, 'rsquared') else 0
+                
+                upper_bound = np.maximum(forecast_ci.iloc[:, 1].values, 0).astype(float).tolist()
+                lower_bound = np.maximum(forecast_ci.iloc[:, 0].values, 0).astype(float).tolist()
+                
+                if self.trend == 'increasing':
+                    upper_bound = [u * 1.1 for u in upper_bound]
+                elif self.trend == 'decreasing':
+                    lower_bound = [max(l * 0.9, 10) for l in lower_bound]
+
+                return {
+                    'forecast': np.maximum(forecast.predicted_mean.values, 0).astype(float).tolist(),
+                    'lower_bound': lower_bound,
+                    'upper_bound': upper_bound,
+                    'model': f'ARIMA{self.best_order}',
+                    'rsquared': float(rsquared),
+                    'trend': self.trend,
+                    'aic': float(fitted_model.aic) if hasattr(fitted_model, 'aic') else 0,
+                }
 
         except Exception as e:
             # Fallback with better error handling

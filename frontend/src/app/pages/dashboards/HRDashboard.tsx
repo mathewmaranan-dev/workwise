@@ -9,18 +9,28 @@ import {
   calculateProductivityTrend,
   getOptimizationNeeds 
 } from '../../utils/analytics';
-import { weeklyCounts, getAssignmentGroupById, assignmentGroups, tickets as seedDataTickets } from '../../data/seedData';
+import { weeklyCounts, getAssignmentGroupById, getUserById, assignmentGroups, tickets as seedDataTickets } from '../../data/seedData';
 import { useData } from '../../context/DataContext';
+import { useAuth } from '../../context/AuthContext';
 
 export default function HRDashboard() {
+  const { isAuthReady } = useAuth();
   const { data: uploadedData } = useData();
   const [backendTickets, setBackendTickets] = useState<any[]>([]);
+  const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
   const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
-    const token = localStorage.getItem('workwise_token');
-    if (!token) return;
+    if (!isAuthReady) return;
 
+    const token = localStorage.getItem('workwise_token');
+    if (!token) {
+      setBackendTickets([]);
+      setBackendTicketsLoaded(true);
+      return;
+    }
+
+    setBackendTicketsLoaded(false);
     fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?t=${Date.now()}`, {
       method: 'GET',
       cache: 'no-store',
@@ -33,17 +43,23 @@ export default function HRDashboard() {
         if (!response.ok) throw new Error('Failed to load tickets');
         return response.json();
       })
-      .then((tickets) => setBackendTickets(Array.isArray(tickets) ? tickets : []))
+      .then((tickets) => {
+        setBackendTickets(Array.isArray(tickets) ? tickets : []);
+      })
       .catch((error) => {
         console.warn('Failed to load backend tickets for HR dashboard', error);
         setBackendTickets([]);
+      })
+      .finally(() => {
+        setBackendTicketsLoaded(true);
       });
-  }, [apiBase]);
+  }, [apiBase, isAuthReady]);
 
   const currentTickets = useMemo(() => {
-    if (backendTickets.length > 0) return backendTickets;
-    return uploadedData && uploadedData.length > 0 ? uploadedData : seedDataTickets;
-  }, [backendTickets, uploadedData]);
+    if (backendTicketsLoaded) return backendTickets;
+    if (uploadedData && uploadedData.length > 0) return uploadedData;
+    return [];
+  }, [backendTickets, backendTicketsLoaded, uploadedData]);
   const hasData = currentTickets.length > 0;
 
   const kpis = calculateKPIs(currentTickets);
@@ -106,81 +122,207 @@ export default function HRDashboard() {
     .filter(g => g.overallScore < 75)
     .sort((a, b) => a.overallScore - b.overallScore);
 
-  // Dynamic recommendations based on data
-  const generateRecommendations = () => {
-    const recs = [];
+  const recommendationData = useMemo(() => {
+    const now = new Date();
+    const recentWindowMs = 21 * 24 * 60 * 60 * 1000;
+    const previousWindowMs = 42 * 24 * 60 * 60 * 1000;
 
-    const staffingRecommendations = groupPerformance
-      .map((group) => {
-        const groupTickets = currentTickets.filter((ticket: any) => ticket.assignment_group_id === group.groupId);
-        const assignedAgentIds = new Set(groupTickets
-          .map((ticket: any) => ticket.assigned_to_id)
-          .filter((value): value is number => typeof value === 'number'));
-        const currentStaff = assignedAgentIds.size > 0 ? assignedAgentIds.size : 1;
-        const recommendedStaff = Math.ceil(group.totalTickets / 10);
-        const staffingGap = Math.max(recommendedStaff - currentStaff, 0);
-        const teamName = getAssignmentGroupById(group.groupId)?.group_name || `Group ${group.groupId}`;
+    const recentTickets = currentTickets.filter((ticket: any) => {
+      const date = new Date(ticket.created_date || ticket.created_at || ticket.opened_at || ticket.updated_at || 0);
+      return !isNaN(date.getTime()) && date.getTime() >= now.getTime() - recentWindowMs;
+    });
+    const previousTickets = currentTickets.filter((ticket: any) => {
+      const date = new Date(ticket.created_date || ticket.created_at || ticket.opened_at || ticket.updated_at || 0);
+      return !isNaN(date.getTime()) &&
+        date.getTime() >= now.getTime() - previousWindowMs &&
+        date.getTime() < now.getTime() - recentWindowMs;
+    });
+
+    const recentCount = recentTickets.length;
+    const previousCount = previousTickets.length;
+    const growthRate = previousCount > 0 ? ((recentCount - previousCount) / previousCount) * 100 : 0;
+    const isShortTermSpike = recentCount >= 8 && growthRate <= 10 && kpis.slaCompliance >= 88 && kpis.fcrRate >= 75;
+    const isSustainedGrowth = growthRate > 10 && recentCount >= 10;
+
+    const groupSummary = performanceScores.map((group) => {
+      const groupTickets = currentTickets.filter((ticket: any) => ticket.assignment_group_id === group.groupId);
+      const assignedAgentIds = new Set(groupTickets
+        .map((ticket: any) => ticket.assigned_to_id)
+        .filter((value): value is number => typeof value === 'number'));
+      const currentStaff = Math.max(assignedAgentIds.size, 1);
+      const targetLoadPerAgent = 12;
+      const currentLoadPerAgent = group.totalTickets / Math.max(currentStaff, 1);
+      const projectedLoadPerAgent = group.totalTickets / Math.max(currentStaff, 1) * (1 + Math.max(growthRate, 0) / 100);
+      const recommendedStaff = Math.max(
+        currentStaff,
+        Math.ceil(Math.max(group.totalTickets / targetLoadPerAgent, projectedLoadPerAgent / targetLoadPerAgent))
+      );
+      const capacityGap = Math.max(recommendedStaff - currentStaff, 0);
+      const loadRatio = currentLoadPerAgent / targetLoadPerAgent;
+      const fairnessScore = Math.max(0, Math.min(100, Math.round(100 - Math.abs(loadRatio - 1) * 40)));
+      const teamName = getAssignmentGroupById(group.groupId)?.group_name || `Group ${group.groupId}`;
+
+      const decision = (() => {
+        const hasKpiPressure = group.slaCompliance < 90 || group.fcrRate < 75 || group.avgResolutionTime > 1.6;
+        if (capacityGap > 0 && hasKpiPressure && (isSustainedGrowth || loadRatio > 1.1)) {
+          return 'Hire';
+        }
+        if (loadRatio > 1.05 && (group.slaCompliance >= 90 || group.fcrRate >= 75)) {
+          return 'Temporary staffing / reassign';
+        }
+        if (group.slaCompliance < 88 || group.fcrRate < 72) {
+          return 'Training';
+        }
+        return 'Retain & monitor';
+      })();
+
+      const predictedImpact = (() => {
+        switch (decision) {
+          case 'Hire':
+            return {
+              followed: { sla: '+2.5 pts', fcr: '+1.5 pts', resolution: '-0.4h' },
+              notFollowed: { sla: '-1.2 pts', fcr: '-1.0 pts', resolution: '+0.3h' },
+            };
+          case 'Temporary staffing / reassign':
+            return {
+              followed: { sla: '+1.8 pts', fcr: '+1.0 pts', resolution: '-0.3h' },
+              notFollowed: { sla: '-0.8 pts', fcr: '-0.7 pts', resolution: '+0.2h' },
+            };
+          case 'Training':
+            return {
+              followed: { sla: '+1.5 pts', fcr: '+3.0 pts', resolution: '-0.4h' },
+              notFollowed: { sla: '-0.6 pts', fcr: '-1.8 pts', resolution: '+0.2h' },
+            };
+          default:
+            return {
+              followed: { sla: '+0.5 pts', fcr: '+0.4 pts', resolution: '-0.1h' },
+              notFollowed: { sla: '-0.3 pts', fcr: '-0.2 pts', resolution: '+0.1h' },
+            };
+        }
+      })();
+
+      return {
+        groupId: group.groupId,
+        teamName,
+        currentLoad: group.totalTickets,
+        recommendedLoad: Math.max(group.totalTickets, recommendedStaff * targetLoadPerAgent),
+        capacityGap,
+        fairnessScore,
+        loadRatio,
+        decision,
+        predictedImpact,
+        rationale: (() => {
+          if (decision === 'Hire') {
+            return `Sustained load above target and KPI pressure indicate a permanent staffing fit.`;
+          }
+          if (decision === 'Temporary staffing / reassign') {
+            return `Workload is elevated, but KPI quality is still acceptable so a short-term response is better.`;
+          }
+          if (decision === 'Training') {
+            return `Performance indicators are below target, so coaching and process improvements should lead first.`;
+          }
+          return `Current demand is stable and the team is performing within acceptable limits.`;
+        })(),
+      };
+    });
+
+    const agentSummary = Array.from(
+      currentTickets.reduce((acc: Map<number, { assignedCount: number; resolvedCount: number; totalMinutes: number }>, ticket: any) => {
+        const agentId = typeof ticket.assigned_to_id === 'number' ? ticket.assigned_to_id : null;
+        if (!agentId) return acc;
+
+        const entry = acc.get(agentId) || { assignedCount: 0, resolvedCount: 0, totalMinutes: 0 };
+        entry.assignedCount += 1;
+        if (ticket.status_id === 3 || ticket.status_id === 4) {
+          entry.resolvedCount += 1;
+          if (typeof ticket.duration === 'number') entry.totalMinutes += ticket.duration;
+        }
+        acc.set(agentId, entry);
+        return acc;
+      }, new Map())
+    )
+      .map(([agentId, stats]) => {
+        const user = getUserById(agentId as number);
+        const groupId = user?.assignment_group_id;
+        const groupName = groupId ? getAssignmentGroupById(groupId)?.group_name : 'Unassigned';
+        const avgResolution = stats.resolvedCount > 0 ? stats.totalMinutes / stats.resolvedCount / 60 : 0;
+        const currentLoad = stats.assignedCount;
+        const recommendedLoad = Math.max(currentLoad, Math.round(currentLoad * (1 + Math.max(growthRate, 0) / 100)));
+        const capacityGap = Math.max(recommendedLoad - currentLoad, 0);
+        const fairnessScore = Math.max(0, Math.min(100, Math.round(100 - Math.abs((currentLoad - 8) * 4))));
 
         return {
-          category: 'Staffing Planning',
-          teamName,
-          action: staffingGap > 0
-            ? `Add ${staffingGap} agent${staffingGap === 1 ? '' : 's'} to ${teamName} to cover ${group.totalTickets} forecasted tickets.`
-            : `Maintain ${currentStaff} agents in ${teamName} and monitor capacity balance.`,
-          impact: `${group.slaCompliance.toFixed(1)}% SLA, ${group.fcrRate.toFixed(1)}% FCR, ${group.avgResolutionTime.toFixed(1)}h average resolution`,
-          priority: staffingGap >= 3 ? 'High' : staffingGap >= 1 ? 'Medium' : 'Low'
+          agentId,
+          name: user ? `${user.first_name} ${user.last_name}` : `Agent ${agentId}`,
+          groupName,
+          currentLoad,
+          recommendedLoad,
+          capacityGap,
+          avgResolution,
+          fairnessScore,
         };
       })
-      .sort((a, b) => (b.priority === 'High' ? 2 : b.priority === 'Medium' ? 1 : 0) - (a.priority === 'High' ? 2 : a.priority === 'Medium' ? 1 : 0))
-      .slice(0, 5);
+      .sort((a, b) => b.currentLoad - a.currentLoad)
+      .slice(0, 8);
 
-    recs.push(...staffingRecommendations);
-    
-    if (optimizationNeeds.needsMoreStaff) {
-      recs.push({
-        category: 'Resource Allocation',
-        teamName: 'Organization-wide',
-        action: `Increase staffing to raise SLA compliance from ${kpis.slaCompliance.toFixed(1)}% toward 90%+`,
-        impact: `Overall workload is exceeding current capacity across the support org`,
-        priority: 'High'
-      });
-    }
-    
-    if (optimizationNeeds.needsTraining) {
-      const lowFCRGroup = underperformers[0];
-      recs.push({
-        category: 'Training',
-        teamName: lowFCRGroup?.teamName || 'Underperforming teams',
-        action: `Implement troubleshooting workshops for ${lowFCRGroup?.teamName || 'underperforming teams'}`,
-        impact: `Target a 5-15% FCR lift from the current ${kpis.fcrRate.toFixed(1)}%`,
-        priority: 'High'
-      });
-    }
-    
-    if (optimizationNeeds.needsProcessReview) {
-      recs.push({
-        category: 'Process Improvement',
-        teamName: 'Organization-wide',
-        action: 'Review ticket triage and escalation routines to reduce reopen spikes',
-        impact: `Lower reopen rate from ${kpis.reopenRate.toFixed(1)}% toward the <5% target`,
-        priority: 'Medium'
-      });
-    }
-    
-    if (productivityTrend < 0) {
-      recs.push({
-        category: 'Workload Analysis',
-        teamName: 'Organization-wide',
-        action: 'Investigate declining productivity trends and rebalance peak workloads',
-        impact: `Current trend is ${productivityTrend.toFixed(1)}% and requires intervention`,
-        priority: 'High'
-      });
-    }
-    
-    return recs.slice(0, 8);
-  };
+    const recommendations = groupSummary
+      .filter((entry) => entry.decision !== 'Retain & monitor' || groupSummary.length <= 3)
+      .sort((a, b) => {
+        const priorityValue = (decision: string) => decision === 'Hire' ? 3 : decision === 'Training' ? 2 : decision === 'Temporary staffing / reassign' ? 1 : 0;
+        return priorityValue(b.decision) - priorityValue(a.decision);
+      })
+      .slice(0, 6)
+      .map((entry) => ({
+        category: entry.decision === 'Hire' ? 'Hiring' : entry.decision === 'Training' ? 'Training' : entry.decision === 'Temporary staffing / reassign' ? 'Temporary staffing' : 'Retention',
+        teamName: entry.teamName,
+        action: (() => {
+          if (entry.decision === 'Hire') {
+            return `Add ${entry.capacityGap || 1} agent${entry.capacityGap === 1 ? '' : 's'} to ${entry.teamName} to close the sustained capacity gap.`;
+          }
+          if (entry.decision === 'Temporary staffing / reassign') {
+            return `Use temporary staffing or cross-team reassignment for ${entry.teamName} to handle the short-term demand spike.`;
+          }
+          if (entry.decision === 'Training') {
+            return `Run coaching and process improvement for ${entry.teamName} to improve FCR and reduce resolution time.`;
+          }
+          return `Retain current staffing in ${entry.teamName} and monitor the weekly trend.`;
+        })(),
+        impact: `${entry.predictedImpact.followed.sla} SLA, ${entry.predictedImpact.followed.fcr} FCR, ${entry.predictedImpact.followed.resolution} resolution`,
+        predictedIfFollowed: `If followed: SLA ${entry.predictedImpact.followed.sla}, FCR ${entry.predictedImpact.followed.fcr}, resolution ${entry.predictedImpact.followed.resolution}`,
+        predictedIfNotFollowed: `If not followed: SLA ${entry.predictedImpact.notFollowed.sla}, FCR ${entry.predictedImpact.notFollowed.fcr}, resolution ${entry.predictedImpact.notFollowed.resolution}`,
+        businessImpact: entry.decision === 'Hire'
+          ? 'Reduces overload risk and helps protect SLA during sustained growth.'
+          : entry.decision === 'Training'
+            ? 'Improves first-contact resolution and lowers avoidable rework.'
+            : entry.decision === 'Temporary staffing / reassign'
+              ? 'Covers demand peaks without committing to permanent headcount.'
+              : 'Maintains service stability while keeping hiring decisions evidence-based.',
+        priority: entry.decision === 'Hire' ? 'High' : entry.decision === 'Training' ? 'High' : entry.decision === 'Temporary staffing / reassign' ? 'Medium' : 'Low',
+        rationale: entry.rationale,
+      }));
 
-  const recommendations = generateRecommendations();
+    return {
+      groupSummary,
+      agentSummary,
+      recommendations,
+      recentCount,
+      previousCount,
+      growthRate,
+      isShortTermSpike,
+      isSustainedGrowth,
+    };
+  }, [currentTickets, kpis, performanceScores, groupPerformance]);
+
+  const {
+    groupSummary,
+    agentSummary,
+    recommendations,
+    recentCount,
+    previousCount,
+    growthRate,
+    isShortTermSpike,
+    isSustainedGrowth,
+  } = recommendationData;
 
   return (
     <div className="space-y-6">
@@ -449,6 +591,117 @@ export default function HRDashboard() {
         </CardContent>
       </Card>
 
+      {/* Demand Outlook */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Demand Outlook & Scenario Signals</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">Recent demand vs. prior period to separate short spikes from sustained growth</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-gray-500">Recent tickets</p>
+              <p className="text-2xl font-semibold text-gray-900">{recentCount}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-gray-500">Previous window</p>
+              <p className="text-2xl font-semibold text-gray-900">{previousCount}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-gray-500">Growth rate</p>
+              <p className="text-2xl font-semibold text-gray-900">{growthRate >= 0 ? '+' : ''}{growthRate.toFixed(1)}%</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-gray-500">Scenario class</p>
+              <p className="text-sm font-semibold text-gray-900">{isShortTermSpike ? 'Short-term spike' : isSustainedGrowth ? 'Sustained growth' : 'Stable / monitor'}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Group Capacity Summary */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Group Capacity & Fairness Summary</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">Current vs. recommended load, capacity gap, and fairness score</p>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left p-3 font-medium">Team</th>
+                  <th className="text-left p-3 font-medium">Current Load</th>
+                  <th className="text-left p-3 font-medium">Recommended Load</th>
+                  <th className="text-left p-3 font-medium">Gap</th>
+                  <th className="text-left p-3 font-medium">Fairness Score</th>
+                  <th className="text-left p-3 font-medium">Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupSummary.map((entry) => (
+                  <tr key={entry.groupId} className="border-b hover:bg-gray-50">
+                    <td className="p-3 font-medium">{entry.teamName}</td>
+                    <td className="p-3">{entry.currentLoad}</td>
+                    <td className="p-3">{entry.recommendedLoad}</td>
+                    <td className="p-3 font-medium text-orange-700">{entry.capacityGap > 0 ? `+${entry.capacityGap}` : '0'}</td>
+                    <td className="p-3">{entry.fairnessScore}%</td>
+                    <td className="p-3">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        entry.decision === 'Hire' ? 'bg-red-100 text-red-800' :
+                        entry.decision === 'Training' ? 'bg-amber-100 text-amber-800' :
+                        entry.decision === 'Temporary staffing / reassign' ? 'bg-blue-100 text-blue-800' :
+                        'bg-green-100 text-green-800'
+                      }`}>
+                        {entry.decision}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Agent Load Summary */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Agent-Level Load Summary</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">Current vs. recommended workload per agent</p>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left p-3 font-medium">Agent</th>
+                  <th className="text-left p-3 font-medium">Team</th>
+                  <th className="text-left p-3 font-medium">Current Load</th>
+                  <th className="text-left p-3 font-medium">Recommended Load</th>
+                  <th className="text-left p-3 font-medium">Gap</th>
+                  <th className="text-left p-3 font-medium">Avg Resolution</th>
+                  <th className="text-left p-3 font-medium">Fairness</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agentSummary.map((agent) => (
+                  <tr key={agent.agentId} className="border-b hover:bg-gray-50">
+                    <td className="p-3 font-medium">{agent.name}</td>
+                    <td className="p-3">{agent.groupName}</td>
+                    <td className="p-3">{agent.currentLoad}</td>
+                    <td className="p-3">{agent.recommendedLoad}</td>
+                    <td className="p-3 font-medium text-orange-700">{agent.capacityGap > 0 ? `+${agent.capacityGap}` : '0'}</td>
+                    <td className="p-3">{agent.avgResolution.toFixed(1)}h</td>
+                    <td className="p-3">{agent.fairnessScore}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Recommended Actions */}
       <Card>
         <CardHeader>
@@ -472,7 +725,19 @@ export default function HRDashboard() {
                       </span>
                     </div>
                     <p className="text-sm text-gray-700 mb-1">{rec.action}</p>
-                    <p className="text-xs text-gray-500">{rec.impact}</p>
+                    <p className="text-xs text-gray-500 mb-2">{rec.impact}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      <div className="rounded-md bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">If followed</p>
+                        <p className="mt-1 text-sm text-gray-700">{rec.predictedIfFollowed}</p>
+                      </div>
+                      <div className="rounded-md bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">If not followed</p>
+                        <p className="mt-1 text-sm text-gray-700">{rec.predictedIfNotFollowed}</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-sm text-gray-700"><span className="font-semibold">Business impact:</span> {rec.businessImpact}</p>
+                    <p className="mt-1 text-sm text-gray-700"><span className="font-semibold">Rationale:</span> {rec.rationale}</p>
                   </div>
                 </div>
               </div>

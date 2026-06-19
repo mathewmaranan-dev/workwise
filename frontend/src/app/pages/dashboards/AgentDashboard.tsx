@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { ListTodo, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { tickets as seedDataTickets } from '../../data/seedData';
+import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -10,23 +9,88 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 const COLORS = ['#4F46E5', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6'];
 
 export default function AgentDashboard({ showAgentSelector = false }: { showAgentSelector?: boolean }) {
-  const { user, users: authUsers } = useAuth();
+  const { user, users: authUsers, isAuthReady } = useAuth();
   const { data: uploadedData } = useData();
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [backendTickets, setBackendTickets] = useState<any[] | null>(null);
+  const [backendTickets, setBackendTickets] = useState<any[]>([]);
+  const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
   const [loadingTickets, setLoadingTickets] = useState(false);
 
-  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || '';
+  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
   const token = typeof window !== 'undefined' ? localStorage.getItem('workwise_token') : null;
 
-  // Use backend tickets if loaded, otherwise use uploaded or seed data.
-  const currentTickets = backendTickets !== null
-    ? backendTickets
-    : (uploadedData && uploadedData.length > 0) ? uploadedData : seedDataTickets;
+  const priorityLabelMap: Record<number, string> = {
+    1: 'Low',
+    2: 'Medium',
+    3: 'High',
+    4: 'Critical'
+  };
+
+  const categoryMap: Record<number, string> = {
+    1: 'Password',
+    2: 'Server',
+    3: 'Network',
+    4: 'Software',
+    5: 'Hardware'
+  };
+
+  const statusMap: Record<number, string> = {
+    1: 'New',
+    2: 'In Progress',
+    3: 'Resolved',
+    4: 'Closed',
+    5: 'On Hold',
+    6: 'Open'
+  };
+
+  const getPriorityLabel = (ticket: any): string => {
+    if (ticket?.priority) return ticket.priority;
+    return priorityLabelMap[Number(ticket?.priority_id)] || 'Unknown';
+  };
+
+  const getCategoryLabel = (ticket: any): string => {
+    if (ticket?.category) return ticket.category;
+    return categoryMap[Number(ticket?.category_id)] || 'Uncategorized';
+  };
+
+  const getStatusLabel = (ticket: any): string => {
+    if (ticket?.status) return ticket.status;
+    if (ticket?.status_name) return ticket.status_name;
+    return statusMap[Number(ticket?.status_id)] || 'Unknown';
+  };
+
+  const normalizeTicket = (ticket: any) => ({
+    ...ticket,
+    ticket_id: String(ticket?.ticket_id ?? ticket?.id ?? ''),
+    priority: getPriorityLabel(ticket),
+    category: getCategoryLabel(ticket),
+    status: getStatusLabel(ticket),
+  });
+
+  const safeBackendTickets = Array.isArray(backendTickets) ? backendTickets : [];
+  const safeUploadedData = Array.isArray(uploadedData) ? uploadedData : [];
+
+  const currentTickets = useMemo(() => {
+    if (backendTicketsLoaded && safeBackendTickets.length > 0) {
+      return safeBackendTickets;
+    }
+    if (backendTicketsLoaded && safeBackendTickets.length === 0 && safeUploadedData.length > 0) {
+      return safeUploadedData;
+    }
+    if (!backendTicketsLoaded && safeUploadedData.length > 0) {
+      return safeUploadedData;
+    }
+    return safeBackendTickets;
+  }, [backendTicketsLoaded, safeBackendTickets, safeUploadedData]);
+
+  const normalizedTickets = useMemo(() =>
+    Array.isArray(currentTickets) ? currentTickets.map(normalizeTicket) : [],
+    [currentTickets]
+  );
 
   // Get all agents from backend users
-  const agents = authUsers.filter(u => u.role === 'agent');
+  const agents = authUsers.filter((u) => String(u.role || '').toLowerCase().includes('agent'));
   const [selectedAgent, setSelectedAgent] = useState<number | null>(showAgentSelector ? (agents[0]?.id ? parseInt(agents[0].id, 10) : null) : null);
   const currentUserId = user ? parseInt(user.id, 10) : null;
 
@@ -38,25 +102,43 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
   const currentAgent = showAgentSelector
     ? selectedAgent !== null ? agents.find(a => parseInt(a.id, 10) === selectedAgent) : null
     : (user?.role === 'agent' && currentUserId !== null)
-      ? { user_id: currentUserId, first_name: user.first_name || '', last_name: user.last_name || '', email: user.email }
+      ? {
+          id: currentUserId,
+          user_id: currentUserId,
+          first_name: user.first_name || '',
+          last_name: user.last_name || '',
+          email: user.email,
+        }
       : null;
 
   const matchesCurrentAgent = (ticket: any): boolean => {
-    const ticketAssignedToId = Number((ticket as any).assigned_to_id ?? (ticket as any).assigned_to ?? (ticket as any).agent_id);
-    const ticketAssignedTo = String((ticket as any).assigned_to || (ticket as any).assigned_to_name || '').toLowerCase();
+    const ticketAssignedToId = Number(
+      (ticket as any).assigned_to_id ??
+      (ticket as any).assigned_to ??
+      (ticket as any).agent_id ??
+      (ticket as any).user_id
+    );
+    const ticketAssignedTo = String(
+      (ticket as any).assigned_to ||
+      (ticket as any).assigned_to_name ||
+      (ticket as any).agent_name ||
+      (ticket as any).owner ||
+      ''
+    ).toLowerCase();
     const currentAgentId = currentAgent ? Number((currentAgent as any).user_id ?? (currentAgent as any).id) : NaN;
     const currentAgentName = String((currentAgent as any).first_name || (currentAgent as any).name || '').toLowerCase();
     const currentAgentLastName = String((currentAgent as any).last_name || '').toLowerCase();
+    const currentAgentFullName = `${currentAgentName} ${currentAgentLastName}`.trim();
     const currentAgentEmail = String((currentAgent as any).email || '').toLowerCase();
 
     return (
-      (!Number.isNaN(ticketAssignedToId) && ticketAssignedToId === currentAgentId) ||
-      (ticketAssignedTo && (
+      (!Number.isNaN(ticketAssignedToId) && currentAgentId !== 0 && ticketAssignedToId === currentAgentId) ||
+      (ticketAssignedTo !== '' && (
         ticketAssignedTo.includes(currentAgentEmail) ||
         ticketAssignedTo.includes(currentAgentName) ||
+        ticketAssignedTo.includes(currentAgentFullName) ||
         ticketAssignedTo.includes(currentAgentLastName)
-      )) ||
-      (currentAgentEmail && ticketAssignedTo.includes(currentAgentEmail))
+      ))
     );
   };
 
@@ -89,35 +171,18 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
     return Number(ticket?.status_id) === 3;
   };
 
-  const getPriorityLabel = (ticket: any): string => {
-    if (ticket?.priority) return ticket.priority;
-    const map: Record<number, string> = {
-      1: 'Low',
-      2: 'Medium',
-      3: 'High',
-      4: 'Critical'
-    };
-    return map[Number(ticket?.priority_id)] || 'Unknown';
-  };
-
-  const getCategoryLabel = (ticket: any): string => {
-    if (ticket?.category) return ticket.category;
-    const map: Record<number, string> = {
-      1: 'Password',
-      2: 'Server',
-      3: 'Network',
-      4: 'Software',
-      5: 'Hardware'
-    };
-    return map[Number(ticket?.category_id)] || 'Uncategorized';
-  };
-
   useEffect(() => {
-    if (!apiBase || !user || user.role !== 'agent' || !token) return;
+    if (!apiBase || !isAuthReady || !user || user.role !== 'agent' || !token) {
+      setBackendTickets([]);
+      setBackendTicketsLoaded(false);
+      return;
+    }
 
     setLoadingTickets(true);
-    fetch(`${apiBase}/api/tickets?assigned_to=${user.id}`, {
+    setBackendTicketsLoaded(false);
+    fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?assigned_to=${encodeURIComponent(user.id)}`, {
       method: 'GET',
+      cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
@@ -127,9 +192,7 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
         if (!response.ok) {
           throw new Error('Failed to load agent tickets');
         }
-        return response.json();
-      })
-      .then((data) => {
+        const data = await response.json();
         setBackendTickets(Array.isArray(data) ? data : []);
       })
       .catch((error) => {
@@ -138,8 +201,17 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
       })
       .finally(() => {
         setLoadingTickets(false);
+        setBackendTicketsLoaded(true);
       });
-  }, [apiBase, user, token]);
+  }, [apiBase, isAuthReady, user, token]);
+
+  if (!isAuthReady) {
+    return (
+      <div className="text-center py-16">
+        <h1 className="text-2xl font-semibold text-gray-900">Loading agent dashboard…</h1>
+      </div>
+    );
+  }
 
   if (!currentAgent) {
     return (
@@ -150,10 +222,16 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
     );
   }
 
-  // Get tickets assigned to current agent across multiple common assignment fields.
-  const agentTickets = currentAgent && currentTickets.length > 0
-    ? currentTickets.filter((ticket) => matchesCurrentAgent(ticket))
-    : currentTickets.slice(0, 50);
+  const agentTickets = useMemo(() => {
+    if (!currentAgent) {
+      return [];
+    }
+    const matched = normalizedTickets.filter((ticket) => matchesCurrentAgent(ticket));
+    if (matched.length > 0) {
+      return matched;
+    }
+    return normalizedTickets;
+  }, [currentAgent, normalizedTickets]);
 
   const openTickets = agentTickets.filter(t => !isResolvedOrClosed(t));
   
@@ -193,15 +271,15 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
     .sort((a, b) => b.value - a.value);
 
   // Priority distribution from CSV or DB priority field
-  const priorityMap: Record<string, number> = {};
-  agentTickets.forEach(t => {
+  const priorityCountMap: Record<string, number> = {};
+  agentTickets.forEach((t) => {
     const priority = getPriorityLabel(t);
-    priorityMap[priority] = (priorityMap[priority] || 0) + 1;
+    priorityCountMap[priority] = (priorityCountMap[priority] || 0) + 1;
   });
 
-  const priorityData = Object.entries(priorityMap).map(([priority, count]) => ({
+  const priorityData = Object.entries(priorityCountMap).map(([priority, count]) => ({
     priority,
-    count
+    count,
   }));
 
   // Task allocation suggestions - sorted by priority and date
@@ -377,7 +455,7 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
-                  {Array.from(new Set(currentTickets.map((t: any) => t.category))).map(category => (
+                  {Array.from(new Set(normalizedTickets.map((t: any) => t.category))).map(category => (
                     <SelectItem key={category} value={String(category)}>
                       {String(category)}
                     </SelectItem>

@@ -19,15 +19,23 @@ const COLORS = ['#4F46E5', '#06B6D4', '#10B981', '#F59E0B', '#EF4444'];
 
 export default function AdminDashboard() {
   const [dashboardView, setDashboardView] = useState('admin');
-  const { user } = useAuth();
+  const { user, isAuthReady } = useAuth();
   const { data: uploadedData } = useData(); // subscribe to uploads to trigger re-render
   const [backendTickets, setBackendTickets] = useState<any[]>([]);
+  const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
   const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
-    const token = localStorage.getItem('workwise_token');
-    if (!token) return;
+    if (!isAuthReady) return;
 
+    const token = localStorage.getItem('workwise_token');
+    if (!token) {
+      setBackendTickets([]);
+      setBackendTicketsLoaded(true);
+      return;
+    }
+
+    setBackendTicketsLoaded(false);
     fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?t=${Date.now()}`, {
       method: 'GET',
       cache: 'no-store',
@@ -40,17 +48,23 @@ export default function AdminDashboard() {
         if (!response.ok) throw new Error('Failed to load tickets');
         return response.json();
       })
-      .then((tickets) => setBackendTickets(Array.isArray(tickets) ? tickets : []))
+      .then((tickets) => {
+        setBackendTickets(Array.isArray(tickets) ? tickets : []);
+      })
       .catch((error) => {
         console.warn('Failed to load backend tickets for admin dashboard', error);
         setBackendTickets([]);
+      })
+      .finally(() => {
+        setBackendTicketsLoaded(true);
       });
-  }, [apiBase]);
+  }, [apiBase, isAuthReady]);
 
   const currentTickets = useMemo(() => {
-    if (backendTickets.length > 0) return backendTickets;
-    return uploadedData && uploadedData.length > 0 ? uploadedData : seedDataTickets;
-  }, [backendTickets, uploadedData]);
+    if (backendTicketsLoaded) return backendTickets;
+    if (uploadedData && uploadedData.length > 0) return uploadedData;
+    return [];
+  }, [backendTickets, backendTicketsLoaded, uploadedData]);
   const hasData = currentTickets.length > 0;
 
   const kpis = calculateKPIs(currentTickets);
