@@ -7,10 +7,10 @@ import {
   Upload,
   Users,
   User,
+  Activity,
+  ListTodo,
   LogOut,
-  Menu,
-  Moon,
-  Sun
+  Menu
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetTrigger } from '../components/ui/sheet';
 import Logo from '../components/Logo';
@@ -28,10 +28,15 @@ export default function DashboardLayout() {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/dashboard/account', label: 'My Account', icon: User },
-    ...(user?.role === 'admin' ? [
-      { path: '/dashboard/users', label: 'User Management', icon: Users }
+    ...(user?.role === 'manager' ? [
+      { path: '/dashboard/team-performance', label: 'Team Performance', icon: Activity },
+      { path: '/dashboard/team-agents', label: 'Team Agents', icon: Users }
+    ] : []),
+    ...(user?.role === 'agent' ? [
+      { path: '/dashboard/my-tasks', label: 'My Tasks', icon: ListTodo }
     ] : []),
     ...(user?.role === 'admin' ? [
+      { path: '/dashboard/users', label: 'User Management', icon: Users },
       { path: '/dashboard/upload', label: 'Upload Data', icon: Upload }
     ] : [])
   ];

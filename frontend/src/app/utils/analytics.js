@@ -77,6 +77,73 @@ export const getNonFCRTickets = (ticketData) => {
     })
         .slice(0, 20); // Top 20
 };
+export const getNonFCRTicketsWithCategoryRisk = (ticketData) => {
+    const ticketsToUse = ticketData !== undefined ? ticketData : seedDataTickets;
+    const categoryStats = {};
+    const agentCategoryStats = {};
+    ticketsToUse.forEach((ticket) => {
+        const categoryId = Number(ticket.category_id);
+        if (!categoryId)
+            return;
+        if (!categoryStats[categoryId]) {
+            categoryStats[categoryId] = { total: 0, fcrCount: 0 };
+        }
+        categoryStats[categoryId].total += 1;
+        if (ticket.fcr) {
+            categoryStats[categoryId].fcrCount += 1;
+        }
+        const agentId = Number(ticket.assigned_to_id ?? ticket.assigned_to ?? ticket.agent_id);
+        if (!Number.isNaN(agentId) && agentId > 0) {
+            if (!agentCategoryStats[categoryId]) {
+                agentCategoryStats[categoryId] = {};
+            }
+            if (!agentCategoryStats[categoryId][agentId]) {
+                agentCategoryStats[categoryId][agentId] = { total: 0, fcrCount: 0 };
+            }
+            agentCategoryStats[categoryId][agentId].total += 1;
+            if (ticket.fcr) {
+                agentCategoryStats[categoryId][agentId].fcrCount += 1;
+            }
+        }
+    });
+    return ticketsToUse
+        .filter((ticket) => !ticket.fcr)
+        .map((ticket) => {
+        const ticketId = String(ticket.ticket_id || ticket.id || 'unknown');
+        const categoryId = Number(ticket.category_id) || 0;
+        const agentId = Number(ticket.assigned_to_id ?? ticket.assigned_to ?? ticket.agent_id);
+        const category = categoryStats[categoryId] || { total: 0, fcrCount: 0 };
+        const agentStats = !Number.isNaN(agentId) && agentId > 0 && agentCategoryStats[categoryId]
+            ? agentCategoryStats[categoryId][agentId] || { total: 0, fcrCount: 0 }
+            : { total: 0, fcrCount: 0 };
+        const categoryFCRRate = category.total > 0 ? (category.fcrCount / category.total) * 100 : 0;
+        const agentCategoryFCRRate = agentStats.total > 0 ? (agentStats.fcrCount / agentStats.total) * 100 : 0;
+        let action = 'No Risk: retain assignment';
+        if (categoryFCRRate < 40 && agentCategoryFCRRate === 0) {
+            action = 'Dual Alert: retrain agent and escalate systemic fixes';
+        }
+        else if (categoryFCRRate < 40) {
+            action = 'Systemic Category Issue: everyone struggles, process fix needed';
+        }
+        else if (agentCategoryFCRRate < categoryFCRRate - 20) {
+            action = 'Agent Skill Gap: training/coaching needed';
+        }
+        return {
+            ticketId,
+            categoryId,
+            categoryFCRRate,
+            agentId: Number.isNaN(agentId) ? undefined : agentId,
+            agentCategoryFCRRate,
+            action,
+        };
+    })
+        .sort((a, b) => {
+        if (a.categoryFCRRate !== b.categoryFCRRate) {
+            return a.categoryFCRRate - b.categoryFCRRate;
+        }
+        return a.agentCategoryFCRRate - b.agentCategoryFCRRate;
+    });
+};
 export const getTicketsByCategory = (ticketData) => {
     const ticketsToUse = ticketData !== undefined ? ticketData : seedDataTickets;
     const categoryCounts = ticketsToUse.reduce((acc, ticket) => {
