@@ -40,14 +40,22 @@ export default function ManagerDashboard() {
   const { data: uploadedData } = useData();
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'new' | 'closed'>('all');
   const [backendTickets, setBackendTickets] = useState<any[]>([]);
+  const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
   const [loadingTickets, setLoadingTickets] = useState(false);
   const apiBase = env.VITE_API_BASE_URL || env.VITE_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
+    if (!user) return;
+
     const token = localStorage.getItem('workwise_token');
-    if (!token) return;
+    if (!token) {
+      setBackendTickets([]);
+      setBackendTicketsLoaded(true);
+      return;
+    }
 
     setLoadingTickets(true);
+    setBackendTicketsLoaded(false);
     fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?t=${Date.now()}`, {
       method: 'GET',
       cache: 'no-store',
@@ -60,18 +68,24 @@ export default function ManagerDashboard() {
         if (!response.ok) throw new Error('Failed to load tickets');
         return response.json();
       })
-      .then((tickets) => setBackendTickets(Array.isArray(tickets) ? tickets : []))
+      .then((tickets) => {
+        setBackendTickets(Array.isArray(tickets) ? tickets : []);
+      })
       .catch((error) => {
         console.warn('Failed to load backend tickets for manager dashboard', error);
         setBackendTickets([]);
       })
-      .finally(() => setLoadingTickets(false));
-  }, [apiBase]);
+      .finally(() => {
+        setLoadingTickets(false);
+        setBackendTicketsLoaded(true);
+      });
+  }, [apiBase, user]);
 
   const currentTickets = useMemo(() => {
-    if (backendTickets.length > 0) return backendTickets;
-    return uploadedData && uploadedData.length > 0 ? uploadedData : seedDataTickets;
-  }, [backendTickets, uploadedData]);
+    if (backendTicketsLoaded) return backendTickets;
+    if (uploadedData && uploadedData.length > 0) return uploadedData;
+    return [];
+  }, [backendTickets, backendTicketsLoaded, uploadedData]);
   const hasData = currentTickets.length > 0;
   
   const initialGroupId = user?.assignment_group_id ?? (user?.role === 'manager' ? 1 : 2);

@@ -48,7 +48,7 @@ export async function getAllTickets(filters: { status?: string; assigned_to?: st
   const params: any[] = [];
 
   if (filters.status) {
-    queryStr += ` AND status = $${params.length + 1}`;
+    queryStr += ` AND status_id = $${params.length + 1}`;
     params.push(filters.status);
   }
   if (filters.assigned_to) {

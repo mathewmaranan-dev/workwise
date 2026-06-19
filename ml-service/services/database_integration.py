@@ -8,8 +8,12 @@ import logging
 import os
 from typing import List, Dict, Any, Optional
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+except ImportError:
+    psycopg2 = None
+    RealDictCursor = None
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +27,17 @@ class DatabaseConnector:
             'postgresql://user:password@localhost:5432/workwise'
         )
         self.conn = None
+        self.available = psycopg2 is not None and RealDictCursor is not None
+        if not self.available:
+            logger.warning(
+                "psycopg2 is not installed; database-backed ML features will be unavailable until the dependency is fixed."
+            )
     
     def connect(self) -> bool:
         """Establish database connection"""
+        if not self.available:
+            logger.warning("Database connector is unavailable because psycopg2 is not installed")
+            return False
         try:
             self.conn = psycopg2.connect(self.connection_string)
             logger.info("✅ Database connected")
@@ -52,8 +64,12 @@ class DatabaseConnector:
             List of ticket dictionaries
         """
         try:
+            if not self.available:
+                return []
             if not self.conn:
                 self.connect()
+            if not self.conn:
+                return []
             
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
@@ -107,8 +123,12 @@ class DatabaseConnector:
             List of employee dictionaries
         """
         try:
+            if not self.available:
+                return []
             if not self.conn:
                 self.connect()
+            if not self.conn:
+                return []
             
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
@@ -145,8 +165,12 @@ class DatabaseConnector:
     def get_assignment_groups(self) -> List[Dict[str, Any]]:
         """Fetch all assignment groups"""
         try:
+            if not self.available:
+                return []
             if not self.conn:
                 self.connect()
+            if not self.conn:
+                return []
             
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
@@ -183,8 +207,12 @@ class DatabaseConnector:
             Success status
         """
         try:
+            if not self.available:
+                return False
             if not self.conn:
                 self.connect()
+            if not self.conn:
+                return False
             
             with self.conn.cursor() as cur:
                 query = """
@@ -207,8 +235,12 @@ class DatabaseConnector:
     def get_ticket_categories(self) -> List[Dict[str, Any]]:
         """Fetch ticket categories"""
         try:
+            if not self.available:
+                return []
             if not self.conn:
                 self.connect()
+            if not self.conn:
+                return []
             
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = "SELECT id, name FROM ticket_categories ORDER BY name"

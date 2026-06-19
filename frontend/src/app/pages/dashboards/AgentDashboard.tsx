@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { ListTodo, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { tickets as seedDataTickets } from '../../data/seedData';
+import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -14,16 +13,68 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
   const { data: uploadedData } = useData();
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [backendTickets, setBackendTickets] = useState<any[] | null>(null);
+  const [backendTickets, setBackendTickets] = useState<any[]>([]);
+  const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
   const [loadingTickets, setLoadingTickets] = useState(false);
 
-  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || '';
+  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
   const token = typeof window !== 'undefined' ? localStorage.getItem('workwise_token') : null;
 
-  // Use backend tickets if loaded, otherwise use uploaded or seed data.
-  const currentTickets = backendTickets !== null
-    ? backendTickets
-    : (uploadedData && uploadedData.length > 0) ? uploadedData : seedDataTickets;
+  const priorityMap: Record<number, string> = {
+    1: 'Low',
+    2: 'Medium',
+    3: 'High',
+    4: 'Critical'
+  };
+
+  const categoryMap: Record<number, string> = {
+    1: 'Password',
+    2: 'Server',
+    3: 'Network',
+    4: 'Software',
+    5: 'Hardware'
+  };
+
+  const statusMap: Record<number, string> = {
+    1: 'New',
+    2: 'In Progress',
+    3: 'Resolved',
+    4: 'Closed',
+    5: 'On Hold',
+    6: 'Open'
+  };
+
+  const getPriorityLabel = (ticket: any): string => {
+    if (ticket?.priority) return ticket.priority;
+    return priorityMap[Number(ticket?.priority_id)] || 'Unknown';
+  };
+
+  const getCategoryLabel = (ticket: any): string => {
+    if (ticket?.category) return ticket.category;
+    return categoryMap[Number(ticket?.category_id)] || 'Uncategorized';
+  };
+
+  const getStatusLabel = (ticket: any): string => {
+    if (ticket?.status) return ticket.status;
+    if (ticket?.status_name) return ticket.status_name;
+    return statusMap[Number(ticket?.status_id)] || 'Unknown';
+  };
+
+  const normalizeTicket = (ticket: any) => ({
+    ...ticket,
+    ticket_id: String(ticket?.ticket_id ?? ticket?.id ?? ''),
+    priority: getPriorityLabel(ticket),
+    category: getCategoryLabel(ticket),
+    status: getStatusLabel(ticket),
+  });
+
+  const currentTickets = useMemo(() => {
+    if (backendTickets.length > 0) return backendTickets;
+    if (uploadedData && uploadedData.length > 0) return uploadedData;
+    return backendTickets;
+  }, [backendTickets, uploadedData]);
+
+  const normalizedTickets = useMemo(() => currentTickets.map(normalizeTicket), [currentTickets]);
 
   // Get all agents from backend users
   const agents = authUsers.filter(u => u.role === 'agent');
@@ -89,33 +140,15 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
     return Number(ticket?.status_id) === 3;
   };
 
-  const getPriorityLabel = (ticket: any): string => {
-    if (ticket?.priority) return ticket.priority;
-    const map: Record<number, string> = {
-      1: 'Low',
-      2: 'Medium',
-      3: 'High',
-      4: 'Critical'
-    };
-    return map[Number(ticket?.priority_id)] || 'Unknown';
-  };
-
-  const getCategoryLabel = (ticket: any): string => {
-    if (ticket?.category) return ticket.category;
-    const map: Record<number, string> = {
-      1: 'Password',
-      2: 'Server',
-      3: 'Network',
-      4: 'Software',
-      5: 'Hardware'
-    };
-    return map[Number(ticket?.category_id)] || 'Uncategorized';
-  };
-
   useEffect(() => {
-    if (!apiBase || !user || user.role !== 'agent' || !token) return;
+    if (!apiBase || !user || user.role !== 'agent' || !token) {
+      setBackendTickets([]);
+      setBackendTicketsLoaded(true);
+      return;
+    }
 
     setLoadingTickets(true);
+    setBackendTicketsLoaded(false);
     fetch(`${apiBase}/api/tickets?assigned_to=${user.id}`, {
       method: 'GET',
       headers: {
@@ -138,6 +171,7 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
       })
       .finally(() => {
         setLoadingTickets(false);
+        setBackendTicketsLoaded(true);
       });
   }, [apiBase, user, token]);
 
@@ -151,9 +185,9 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
   }
 
   // Get tickets assigned to current agent across multiple common assignment fields.
-  const agentTickets = currentAgent && currentTickets.length > 0
-    ? currentTickets.filter((ticket) => matchesCurrentAgent(ticket))
-    : currentTickets.slice(0, 50);
+  const agentTickets = currentAgent && normalizedTickets.length > 0
+    ? normalizedTickets.filter((ticket) => matchesCurrentAgent(ticket))
+    : normalizedTickets.slice(0, 50);
 
   const openTickets = agentTickets.filter(t => !isResolvedOrClosed(t));
   
@@ -377,7 +411,7 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
-                  {Array.from(new Set(currentTickets.map((t: any) => t.category))).map(category => (
+                  {Array.from(new Set(normalizedTickets.map((t: any) => t.category))).map(category => (
                     <SelectItem key={category} value={String(category)}>
                       {String(category)}
                     </SelectItem>

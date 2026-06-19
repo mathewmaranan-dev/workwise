@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useAuth } from './AuthContext';
 
 interface DataContextType {
   data: any[];
@@ -9,13 +10,15 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<any[]>([]);
+  const { isAuthReady, user } = useAuth();
+  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     const loadBackendTickets = async () => {
-      const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
       const token = typeof window !== 'undefined' ? localStorage.getItem('workwise_token') : null;
 
-      if (!apiBase || !token) {
+      if (!token) {
+        setData([]);
         return;
       }
 
@@ -34,16 +37,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
 
         const tickets = await response.json();
-        if (Array.isArray(tickets)) {
-          setData(tickets);
-        }
+        setData(Array.isArray(tickets) ? tickets : []);
       } catch (error) {
         console.warn('Failed to load backend tickets into dashboard context', error);
+        setData([]);
       }
     };
 
+    if (!isAuthReady) {
+      return;
+    }
+
     loadBackendTickets();
-  }, []);
+  }, [apiBase, isAuthReady, user?.id]);
 
   return (
     <DataContext.Provider value={{ data, setData }}>

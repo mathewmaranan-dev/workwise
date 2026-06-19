@@ -41,6 +41,31 @@
 				"package": "${workspaceFolder}/frontend/package.json",
 				"enableDebugging": true
 			}
+		},
+		{
+			"label": "frontend-build",
+			"type": "shell",
+			"command": "cd frontend && npm run build",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "frontend-build-check",
+			"type": "shell",
+			"command": "cd frontend; npm run build",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
+			"label": "git-status",
+			"type": "shell",
+			"command": "git status --short",
+			"isBackground": false,
+			"problemMatcher": []
 		}
 	]
 }
