@@ -731,17 +731,20 @@ export default function ManagerDashboard() {
             </div>
           </>
         )}
-        <div className="mt-3 flex flex-wrap gap-3 items-center">
-          {assignmentGroups.map(group => (
-            <button
-              key={group.assignment_group_id}
-              type="button"
-              onClick={() => setSelectedGroupId(group.assignment_group_id)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${selectedGroupId === group.assignment_group_id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-              {group.group_name}
-            </button>
-          ))}
-        </div>
+        {/* Group selector - only shown for admins, not for managers */}
+        {user?.role === 'admin' && (
+          <div className="mt-3 flex flex-wrap gap-3 items-center">
+            {assignmentGroups.map(group => (
+              <button
+                key={group.assignment_group_id}
+                type="button"
+                onClick={() => setSelectedGroupId(group.assignment_group_id)}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${selectedGroupId === group.assignment_group_id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+                {group.group_name}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="mt-4">
           <div className="inline-flex rounded-md bg-slate-100 p-1">
             <button
