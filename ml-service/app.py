@@ -58,7 +58,7 @@ def forecast_tickets():
     try:
         data = request.get_json(force=True, silent=True) or {}
         group_id = data.get('assignment_group_id')
-        days_ahead = int(data.get('days_ahead', 7))
+        days_ahead = int(data.get('days_ahead', 90))  # Default to 90 days (3 months) instead of 7
 
         if group_id is None:
             return jsonify({'error': 'Missing assignment_group_id'}), 400

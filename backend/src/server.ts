@@ -11,6 +11,7 @@ import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
 import ticketsRoutes from './routes/tickets.js';
 import kpisRoutes from './routes/kpis.js';
+import lookupsRoutes from './routes/lookups.js';
 
 dotenv.config();
 
@@ -49,6 +50,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/kpis', kpisRoutes);
+app.use('/api/lookups', lookupsRoutes);
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5001';
 

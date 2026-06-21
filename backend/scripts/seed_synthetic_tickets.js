@@ -53,8 +53,8 @@ const reopenReasons = [
 const descriptionTemplates = {
   1: [
     'User unable to access corporate network',
-    'Wi-Fi disconnects intermittently',
-    'VPN connection fails for remote worker'
+    'VPN connection fails for remote worker',
+    'Access control rule blocking essential service'
   ],
   2: [
     'Software installation blocked by license',
@@ -63,13 +63,13 @@ const descriptionTemplates = {
   ],
   3: [
     'Desktop machine will not boot',
-    'Server fan alert detected',
+    'Server rack power fault detected',
     'Printer hardware failure in office'
   ],
   4: [
-    'Account locked after too many attempts',
-    'Cannot access shared drive',
-    'User requires password reset'
+    'Password reset required after lockout',
+    'Password expired and user cannot log in',
+    'User account locked due to repeated failures'
   ],
   5: [
     'Email delivery delays for the team',
@@ -77,19 +77,19 @@ const descriptionTemplates = {
     'Mail client cannot send attachments'
   ],
   6: [
-    'VPN tunnel drops after login',
-    'Remote site cannot authenticate',
-    'Two-factor authentication fails intermittently'
+    'Two-factor authentication fails intermittently',
+    'SSO login returns unexpected error',
+    'Authentication token rejected during login'
   ],
   7: [
-    'Password reset required for locked account',
-    'Password expired and user cannot log in',
-    'MFA device not recognized during login'
+    'Alert floods from monitoring dashboard',
+    'Unable to access log files for audit',
+    'System monitoring alerts not updating'
   ],
   8: [
-    'Printer cannot complete job',
-    'Paper feed error persists',
-    'Printer queue stalled on network printer'
+    'Server CPU utilization remains above threshold',
+    'Disk space warning on production server',
+    'Network latency spike on backend host'
   ]
 };
 
@@ -107,6 +107,72 @@ const assignmentGroupWeights = [
   { id: 3, weight: 0.14 },
   { id: 4, weight: 0.12 }
 ];
+
+// Assign realistic category weights per assignment group.
+// Service Desk is intentionally broader and gets both general and some technical categories at lower rates.
+const categoryDistributionByGroup = {
+  1: {
+    'Software': 0.35,
+    'Password': 0.20,
+    'Authentication': 0.15,
+    'Access Control': 0.10,
+    'Email': 0.10,
+    'Logging & Monitoring': 0.05,
+    'Hardware': 0.03,
+    'Server': 0.02
+  },
+  2: {
+    'Access Control': 0.30,
+    'Server': 0.25,
+    'Logging & Monitoring': 0.20,
+    'Hardware': 0.10,
+    'Authentication': 0.10,
+    'Software': 0.05,
+    'Email': 0.00,
+    'Password': 0.00
+  },
+  3: {
+    'Authentication': 0.30,
+    'Access Control': 0.25,
+    'Logging & Monitoring': 0.20,
+    'Email': 0.10,
+    'Software': 0.10,
+    'Hardware': 0.03,
+    'Server': 0.02,
+    'Password': 0.00
+  },
+  4: {
+    'Hardware': 0.35,
+    'Server': 0.25,
+    'Software': 0.10,
+    'Access Control': 0.10,
+    'Authentication': 0.10,
+    'Email': 0.05,
+    'Logging & Monitoring': 0.05,
+    'Password': 0.00
+  },
+  5: {
+    'Password': 0.35,
+    'Access Control': 0.10,
+    'Email': 0.20,
+    'Software': 0.12,
+    'Hardware': 0.10,
+    'Authentication': 0.06,
+    'Logging & Monitoring': 0.04,
+    'Server': 0.03
+  }
+};
+
+const defaultCategoryWeights = {
+  'Software': 0.20,
+  'Password': 0.15,
+  'Access Control': 0.15,
+  'Hardware': 0.15,
+  'Email': 0.15,
+  'Authentication': 0.10,
+  'Logging & Monitoring': 0.05,
+  'Server': 0.05
+};
 
 const ticketPriorityToSlaId = {
   1: 1,
@@ -229,16 +295,23 @@ function generateTicketDataset(ticketCount = 500, daysBack = 90, seedData) {
     const offsets = [];
     for (let offset = 0; offset <= daysBack; offset++) {
       const date = new Date(now.getTime() - offset * 24 * 60 * 60 * 1000);
-      const weight = buildSeasonalWeight(date) * clamp(1.05 - offset / 140, 0.3, 1.0);
+      const recency = 1 - offset / daysBack;
+      const trendBias = 0.5 + 0.5 * Math.pow(recency, 1.25);
+      const weight = buildSeasonalWeight(date) * clamp(trendBias, 0.45, 1.0);
       offsets.push({ offset, date, weight });
     }
 
     const chosen = weightedChoice(offsets, offsets.map(item => item.weight));
     const createdDate = new Date(chosen.date);
-    const hour = (createdDate.getDay() >= 1 && createdDate.getDay() <= 4)
-      ? randomInt(8, 17)
-      : randomInt(9, 20);
+    const isToday = createdDate.toDateString() === now.toDateString();
+    const earliestHour = (createdDate.getDay() >= 1 && createdDate.getDay() <= 4) ? 8 : 9;
+    const latestHour = isToday ? now.getHours() : (createdDate.getDay() >= 1 && createdDate.getDay() <= 4 ? 17 : 20);
+    const hour = randomInt(earliestHour, Math.max(earliestHour, latestHour));
     createdDate.setHours(hour, randomInt(0, 59), 0, 0);
+
+    if (createdDate > now) {
+      createdDate.setTime(now.getTime());
+    }
 
     return {
       createdDate,
@@ -305,6 +378,16 @@ function generateTicketDataset(ticketCount = 500, daysBack = 90, seedData) {
 
   const chooseRequester = () => randomChoice(requesterIds);
 
+  const chooseCategoryByGroup = (groupId) => {
+    const groupWeights = categoryDistributionByGroup[groupId] || defaultCategoryWeights;
+    const availableCategories = seedData.categories.filter((category) => groupWeights[category.category_name] > 0);
+    const weights = availableCategories.map((category) => groupWeights[category.category_name] ?? 0);
+    if (availableCategories.length === 0) {
+      return randomChoice(seedData.categories);
+    }
+    return weightedChoice(availableCategories, weights);
+  };
+
   const calculateSlaMissed = (statusId, priorityId, resolvedDate, slaDueDate, reopenCount, daysAgo, createdDate) => {
     if (!resolvedDate) {
       const [minBreach, maxBreach] = priorityBreachRates[priorityId] ?? [0.06, 0.10];
@@ -332,7 +415,8 @@ function generateTicketDataset(ticketCount = 500, daysBack = 90, seedData) {
   };
 
   const buildTicket = (ticketId, created, statusId, requesterOverride = null, isReopen = false) => {
-    const category = randomChoice(seedData.categories);
+    const assignmentGroupId = chooseAssignmentGroup();
+    const category = chooseCategoryByGroup(assignmentGroupId);
     const categorySubcats = seedData.subcategories.filter(sub => sub.category_id === category.category_id);
     let subcategory = categorySubcats.length > 0 ? randomChoice(categorySubcats) : null;
     if (!subcategory && seedData.subcategories.length > 0) {
@@ -346,7 +430,6 @@ function generateTicketDataset(ticketCount = 500, daysBack = 90, seedData) {
     const slaDefinition = seedData.slas.find(s => s.sla_id === slaId) ?? seedData.slas[seedData.slas.length - 1];
     const slaDueDate = new Date(created.createdDate.getTime() + slaDefinition.sla_hours * 60 * 60 * 1000);
 
-    const assignmentGroupId = chooseAssignmentGroup();
     const assignedTo = chooseAgentByGroup(assignmentGroupId);
     const requester = requesterOverride || chooseRequester();
 
@@ -464,6 +547,9 @@ function generateTicketDataset(ticketCount = 500, daysBack = 90, seedData) {
     parent.nextSuffix += 1;
 
     const reopenedCreatedDate = new Date(parent.created.createdDate.getTime() + randomInt(1, Math.min(14, daysBack)) * 24 * 60 * 60 * 1000);
+    if (reopenedCreatedDate > now) {
+      reopenedCreatedDate.setTime(now.getTime());
+    }
     const reopenedDaysAgo = Math.floor((now.getTime() - reopenedCreatedDate.getTime()) / (24 * 60 * 60 * 1000));
     const reopenedCreated = { createdDate: reopenedCreatedDate, daysAgo: reopenedDaysAgo, seasonalIntensity: parent.created.seasonalIntensity };
     const statusId = chooseStatus(getAgeBucket(reopenedDaysAgo), parent.created.seasonalIntensity, reopenedCreated.createdDate);
@@ -571,113 +657,6 @@ async function insertTickets(tickets) {
   }
 }
 
-async function populateTrainingSamples() {
-  const client = await pool.connect();
-  try {
-    console.log('\n📊 Populating ml_training_samples for ML model training...');
-
-    // First, calculate agent FCR history from resolved tickets
-    const agentFcrQuery = `
-      SELECT 
-        assigned_to_id,
-        COUNT(*) as total_tickets,
-        SUM(CASE WHEN fcr = true THEN 1 ELSE 0 END)::float / COUNT(*) as fcr_rate
-      FROM tickets
-      WHERE assigned_to_id IS NOT NULL 
-        AND resolved_date IS NOT NULL
-      GROUP BY assigned_to_id
-    `;
-    const agentFcrResult = await client.query(agentFcrQuery);
-    const agentFcrMap = {};
-    agentFcrResult.rows.forEach(row => {
-      agentFcrMap[row.assigned_to_id] = Math.min(0.99, Math.max(0.01, row.fcr_rate || 0.72));
-    });
-
-    // Calculate category non-FCR rates
-    const categoryNonFcrQuery = `
-      SELECT 
-        category_id,
-        COUNT(*) as total_tickets,
-        SUM(CASE WHEN fcr = false OR fcr IS NULL THEN 1 ELSE 0 END)::float / COUNT(*) as non_fcr_rate
-      FROM tickets
-      WHERE resolved_date IS NOT NULL
-      GROUP BY category_id
-    `;
-    const categoryNonFcrResult = await client.query(categoryNonFcrQuery);
-    const categoryNonFcrMap = {};
-    categoryNonFcrResult.rows.forEach(row => {
-      categoryNonFcrMap[row.category_id] = Math.min(0.99, Math.max(0.01, row.non_fcr_rate || 0.25));
-    });
-
-    // Delete previous training samples to refresh
-    await client.query('DELETE FROM ml_training_samples WHERE source_type = \'synthetic\'');
-
-    // Debug: count resolved tickets that qualify for training samples
-    const qualifyingTicketsRes = await client.query(`SELECT COUNT(*) as count FROM tickets t WHERE t.resolved_date IS NOT NULL AND t.assigned_to_id IS NOT NULL`);
-    console.log(`   Resolved & assigned tickets available for samples: ${qualifyingTicketsRes.rows[0].count}`);
-
-    // Insert training samples for all resolved tickets
-    const insertQuery = `
-      INSERT INTO ml_training_samples (
-        ticket_id,
-        assignment_group_id,
-        assigned_to_id,
-        category_id,
-        priority_id,
-        impact_id,
-        urgency_id,
-        reopen_count,
-        reassignment_count,
-        duration,
-        ticket_complexity,
-        agent_fcr_history,
-        category_non_fcr_rate,
-        non_fcr_label,
-        source_type,
-        generated_at,
-        created_at
-      )
-      SELECT 
-        t.ticket_id,
-        t.assignment_group_id,
-        t.assigned_to_id,
-        t.category_id,
-        t.priority_id,
-        t.impact_id,
-        t.urgency_id,
-        t.reopen_count,
-        t.reassignment_count,
-        t.duration,
-        ROUND(SQRT(POWER(t.priority_id, 2) + POWER(t.impact_id, 2) + POWER(t.urgency_id, 2) + POWER(t.reopen_count, 2))::numeric, 2) as complexity,
-        COALESCE( ($1::jsonb->>(t.assigned_to_id::text))::numeric, 0.5 ) as agent_fcr_history,
-        COALESCE( ($2::jsonb->>(t.category_id::text))::numeric, 0.25 ) as category_non_fcr_rate,
-        (CASE WHEN t.fcr = false OR t.fcr IS NULL THEN true ELSE false END) as non_fcr_label,
-        'synthetic',
-        NOW(),
-        NOW()
-      FROM tickets t
-      WHERE t.resolved_date IS NOT NULL
-        AND t.assigned_to_id IS NOT NULL
-    `;
-
-    const result = await client.query(insertQuery, [
-      JSON.stringify(agentFcrMap),
-      JSON.stringify(categoryNonFcrMap)
-    ]);
-
-    const sampleCount = await client.query(
-      'SELECT COUNT(*) as count FROM ml_training_samples WHERE source_type = \'synthetic\' AND is_active = TRUE'
-    );
-
-    console.log(`✅ Populated ml_training_samples:`);
-    console.log(`   Training samples created: ${sampleCount.rows[0].count}`);
-    console.log(`   Agent FCR history calculated: ${Object.keys(agentFcrMap).length} agents`);
-    console.log(`   Category non-FCR rates calculated: ${Object.keys(categoryNonFcrMap).length} categories`);
-  } finally {
-    client.release();
-  }
-}
-
 async function main() {
   try {
     console.log('🚀 Synthetic Ticket Seeder\n');
@@ -709,9 +688,6 @@ async function main() {
 
     // Insert tickets
     await insertTickets(tickets);
-
-    // Populate ML training samples
-    await populateTrainingSamples();
 
     // Verify
     console.log('\n📈 Verifying import...');

@@ -27,6 +27,7 @@ interface TeamMemberMetrics {
   fcr_rate: number;
   capacity: number;
   experience_level: number;
+  assignment_group_id?: number;
 }
 
 interface EmployeeWorkloadPayload {
@@ -36,6 +37,15 @@ interface EmployeeWorkloadPayload {
 }
 
 const env = (import.meta as any).env as Record<string, string | undefined>;
+
+// Mapping of assignment group -> ticket categories they handle
+const GROUP_CATEGORY_MAPPING: Record<number, number[]> = {
+  1: [2, 3], // Software Team: Software Installation, Hardware Failure
+  2: [1, 6], // Network Team: Network Issues, VPN Access
+  3: [4, 1], // Security Team: Account Access, Network Issues
+  4: [3], // Hardware Team: Hardware Failure
+  5: [7, 5, 8, 4], // Service Desk: Password Reset, Email Issues, Printer Issues, Account Access
+};
 
 export default function ManagerDashboard() {
   const { user } = useAuth();
@@ -116,6 +126,30 @@ export default function ManagerDashboard() {
     }
   }, [user, selectedGroupId]);
 
+  // Load categories from backend so UI reflects live DB lookup values.
+  const [categoriesFromApi, setCategoriesFromApi] = useState<{category_id: number; category_name: string}[]>([]);
+  useEffect(() => {
+    const token = localStorage.getItem('workwise_token');
+    fetch(`${apiBase.replace(/\/$/, '')}/api/lookups/categories`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
+    })
+      .then((r) => r.ok ? r.json() : Promise.reject('Failed to load categories'))
+      .then((cats) => setCategoriesFromApi(Array.isArray(cats) ? cats : []))
+      .catch((err) => {
+        console.warn('Failed to load categories for manager dashboard', err);
+        setCategoriesFromApi([]);
+      });
+  }, [apiBase]);
+
+  const getCategoryNameById = (id?: number | null) => {
+    if (id === null || id === undefined) return 'Unknown category';
+    const found = categoriesFromApi.find(c => Number(c.category_id) === Number(id));
+    if (found) return found.category_name;
+    const seed = getCategoryById(Number(id));
+    return seed?.category_name ?? 'Unknown category';
+  };
+
   const currentTickets = useMemo(() => {
     if (backendTicketsLoaded) return backendTickets;
     if (uploadedData && uploadedData.length > 0) return uploadedData;
@@ -179,6 +213,9 @@ export default function ManagerDashboard() {
     forecastMean: null as number | null,
     forecastUpper: null as number | null,
     forecastLower: null as number | null,
+    forecastArray: [] as number[],
+    forecastUpperArray: [] as number[],
+    forecastLowerArray: [] as number[],
     anomalyCount: 0,
     anomalyPeak: null as number | null,
     loading: false,
@@ -233,6 +270,7 @@ export default function ManagerDashboard() {
       fcr_rate: number;
       capacity: number;
       experience_level: number;
+      assignment_group_id?: number;
     }> = {};
 
     groupTickets.forEach(ticket => {
@@ -248,6 +286,7 @@ export default function ManagerDashboard() {
           fcr_rate: 0,
           capacity: 10,
           experience_level: 1,
+          assignment_group_id: user?.assignment_group_id,
         };
       }
 
@@ -302,14 +341,120 @@ export default function ManagerDashboard() {
   const staffingDecision = demandCapacityRatio > 1.1 ? 'Hire' : demandCapacityRatio >= 0.9 ? 'Redistribute' : 'Maintain';
   const staffingReason = `${workloadPerAgent > agentCapacityTarget ? 'Workload overload is driving SLA risk.' : 'Workload remains within target capacity.'} ${averageRiskScore >= 70 ? 'High repeat-ticket risk is lowering FCR performance.' : 'FCR risk is moderate and monitorable.'} ${demandCapacityRatio > 1.1 ? 'Capacity mismatch warrants staffing action.' : 'Current capacity is broadly aligned with demand.'}`;
 
+  // Determine if current group is imbalanced and should show redistribution recommendations
+  const isGroupImbalanced = useMemo(() => {
+    return demandCapacityRatio > 1.1 || (workloadPerAgent > agentCapacityTarget && currentStaffCount > 1);
+  }, [demandCapacityRatio, workloadPerAgent, agentCapacityTarget, currentStaffCount]);
+
+  // Find groups that can accept tickets from the current group's categories
+  const acceptingGroupsForOffload = useMemo(() => {
+    if (!isGroupImbalanced) return [];
+    
+    const currentGroupCategories = GROUP_CATEGORY_MAPPING[selectedGroupId] || [];
+    const potentialReceivers: number[] = [];
+    
+    Object.entries(GROUP_CATEGORY_MAPPING).forEach(([groupIdStr, categories]) => {
+      const groupId = Number(groupIdStr);
+      if (groupId === selectedGroupId) return; // Don't offload to self
+      // Check if this group handles any of the current group's categories
+      if (currentGroupCategories.some(cat => categories.includes(cat))) {
+        potentialReceivers.push(groupId);
+      }
+    });
+    
+    return potentialReceivers;
+  }, [isGroupImbalanced, selectedGroupId]);
+
+  const fallbackWorkloadBalance = useMemo(() => {
+    if (!teamMemberMetrics || teamMemberMetrics.length === 0) return null;
+    if (!isGroupImbalanced) return null; // Only show recommendations if imbalanced
+
+    const currentLoads = teamMemberMetrics.map((member) => Number(member.current_tickets ?? 0));
+    const totalCurrentLoad = currentLoads.reduce((sum, load) => sum + load, 0);
+    const forecastLoad = Math.round(mlInsights.forecastMean ?? groupTickets.length ?? 0);
+    const totalWorkload = totalCurrentLoad + Math.max(0, forecastLoad);
+    const agentCount = Math.max(1, teamMemberMetrics.length);
+    const targetLoad = Math.round(totalWorkload / agentCount);
+    const minLoad = Math.min(...currentLoads);
+    const maxLoad = Math.max(...currentLoads);
+    const meanLoad = totalCurrentLoad / agentCount;
+    const imbalanceRatio = minLoad > 0 ? maxLoad / minLoad : 1;
+    const fairnessScore = 1 - Math.min(imbalanceRatio / 1.5, 1);
+    const stdDev = Math.sqrt(currentLoads.reduce((sum, load) => sum + Math.pow(load - meanLoad, 2), 0) / agentCount);
+
+    // For overloaded members, suggest offloading to accepting groups
+    const recommendations = teamMemberMetrics.map((member) => {
+      const currentLoad = Number(member.current_tickets ?? 0);
+      const adjustment = targetLoad - currentLoad;
+      
+      // If this member is overloaded and we have accepting groups, suggest them
+      let suggestedGroupId = member.assignment_group_id ?? selectedGroupId;
+      if (adjustment < -5 && acceptingGroupsForOffload.length > 0) {
+        // Suggest the first accepting group
+        suggestedGroupId = acceptingGroupsForOffload[0];
+      }
+
+      return {
+        user_id: member.user_id,
+        employee_name: member.employee_name,
+        assignment_group_id: suggestedGroupId,
+        current_load: currentLoad,
+        recommended_load: targetLoad,
+        adjustment,
+        tickets_to_assign: Math.max(0, adjustment),
+        tickets_to_release: Math.max(0, -adjustment),
+        sla_compliance: Number(member.sla_compliance ?? 85),
+        fcr_rate: Number(member.fcr_rate ?? 70),
+        capacity: Number(member.capacity ?? 10),
+      };
+    });
+
+    const currentAnalysis = {
+      mean: Number(meanLoad.toFixed(1)),
+      std_dev: Number(stdDev.toFixed(2)),
+      coefficient_of_variation: Number((meanLoad > 0 ? stdDev / meanLoad : 0).toFixed(2)),
+      imbalance_ratio: Number(imbalanceRatio.toFixed(2)),
+      total_workload: totalWorkload,
+      min_load: minLoad,
+      max_load: maxLoad,
+      fairness_score: Number(fairnessScore.toFixed(2)),
+    };
+
+    const optimizedAnalysis = {
+      ...currentAnalysis,
+      mean: targetLoad,
+    };
+
+    return {
+      recommendations,
+      is_balanced: imbalanceRatio <= 1.5,
+      optimization_status: 'fallback',
+      target_load: Number(targetLoad.toFixed(1)),
+      current_analysis: currentAnalysis,
+      optimized_analysis: optimizedAnalysis,
+      predicted_improvements: {
+        sla_compliance_gain_pct: 0,
+        avg_resolution_time_reduction_pct: 0,
+        fcr_rate_gain_pct: 0,
+        summary: `This ${selectedGroup?.group_name || 'group'} is overloaded. Consider offloading qualifying tickets to other specialized teams.`,
+      },
+      total_reassignments: recommendations.reduce((sum, rec) => sum + Math.max(0, Number(rec.adjustment ?? 0)), 0),
+      fairness_score: Number(fairnessScore.toFixed(2)),
+      business_impact: { note: 'Group-specific fallback estimate' },
+    };
+  }, [teamMemberMetrics, mlInsights.forecastMean, groupTickets.length, isGroupImbalanced, selectedGroupId, selectedGroup, acceptingGroupsForOffload]);
+
+
+  const effectiveWorkloadBalance = workloadBalance ?? fallbackWorkloadBalance;
+
   const predictedKpiImprovements = useMemo(() => {
-    if (workloadBalance?.predicted_improvements) {
-      return workloadBalance.predicted_improvements;
+    if (effectiveWorkloadBalance?.predicted_improvements) {
+      return effectiveWorkloadBalance.predicted_improvements;
     }
 
-    const currentFairness = workloadBalance?.current_analysis?.fairness_score ?? workloadAnalysis?.analysis?.fairness_score ?? 0;
-    const optimizedFairness = workloadBalance?.optimized_analysis?.fairness_score ?? Math.min(1, currentFairness + 0.08);
-    const currentCv = workloadBalance?.current_analysis?.coefficient_of_variation ?? workloadAnalysis?.analysis?.coefficient_of_variation ?? 0.2;
+    const currentFairness = effectiveWorkloadBalance?.current_analysis?.fairness_score ?? workloadAnalysis?.analysis?.fairness_score ?? 0;
+    const optimizedFairness = effectiveWorkloadBalance?.optimized_analysis?.fairness_score ?? Math.min(1, currentFairness + 0.08);
+    const currentCv = effectiveWorkloadBalance?.current_analysis?.coefficient_of_variation ?? workloadAnalysis?.analysis?.coefficient_of_variation ?? 0.2;
     const improvedCv = Math.max(0, currentCv - 0.05);
 
     const slaGain = Math.max(0, Math.min(10, (optimizedFairness - currentFairness) * 20 + (currentCv - improvedCv) * 10));
@@ -322,37 +467,37 @@ export default function ManagerDashboard() {
       fcr_rate_gain_pct: Number(fcrGain.toFixed(1)),
       summary: `Workload balancing may improve SLA compliance by about ${slaGain.toFixed(1)} points, reduce average resolution time by ${resolutionGain.toFixed(1)}%, and boost FCR by ${fcrGain.toFixed(1)} points.`
     };
-  }, [workloadBalance, workloadAnalysis]);
+  }, [effectiveWorkloadBalance, workloadAnalysis]);
+
+  const isServiceDeskGroup = selectedGroup?.group_name === 'Service Desk';
 
   const workloadBalanceRecommendations = useMemo(() => {
-    return Array.isArray(workloadBalance?.recommendations) ? workloadBalance.recommendations as any[] : [];
-  }, [workloadBalance?.recommendations]);
+    if (!effectiveWorkloadBalance) return [];
+    if (!isGroupImbalanced || !isServiceDeskGroup) return [];
+    return Array.isArray(effectiveWorkloadBalance.recommendations) ? effectiveWorkloadBalance.recommendations as any[] : [];
+  }, [effectiveWorkloadBalance, effectiveWorkloadBalance?.recommendations, isGroupImbalanced, isServiceDeskGroup]);
 
   const workloadRecommendationSummary = useMemo(() => {
+    if (!isGroupImbalanced || !isServiceDeskGroup || workloadBalanceRecommendations.length === 0) return [];
     return workloadBalanceRecommendations.map((rec) => {
       const currentLoad = Number(rec.current_load ?? 0);
       const adjustment = Number(rec.adjustment ?? 0);
       const redirectPct = currentLoad > 0 ? Math.round(Math.abs(adjustment) / currentLoad * 100) : 0;
       const flag = adjustment > 1 ? 'Overloaded' : adjustment < -1 ? 'Underloaded' : 'Balanced';
-      const expectedSla = rec.sla_compliance != null ? `${Number(rec.sla_compliance).toFixed(1)}%` : `${predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%`;
-      const expectedFcr = rec.fcr_rate != null ? `${Number(rec.fcr_rate).toFixed(1)}%` : `${predictedKpiImprovements.fcr_rate_gain_pct ?? 0}%`;
+      const expectedSla = `+${predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%`;
+      const expectedFcr = `+${predictedKpiImprovements.fcr_rate_gain_pct ?? 0}%`;
 
-      // Determine suggested team strictly as an assignment group name.
-      // Do not use employee_name here; the dashboard should show the team/group only.
-      const matchedUser = usersList.find((u) => Number(u.user_id || u.id) === Number(rec.user_id));
-      let suggestedTeam: string | null = null;
-      if (matchedUser && matchedUser.assignment_group) {
-        suggestedTeam = String(matchedUser.assignment_group);
-      } else if (matchedUser && matchedUser.assignment_group_id) {
-        suggestedTeam = getAssignmentGroupById(Number(matchedUser.assignment_group_id))?.group_name ?? null;
-      } else if (rec.assignment_group_id) {
-        suggestedTeam = getAssignmentGroupById(Number(rec.assignment_group_id))?.group_name ?? null;
-      } else if (rec.assignment_group) {
-        suggestedTeam = String(rec.assignment_group);
-      } else if (selectedGroup?.group_name) {
-        suggestedTeam = selectedGroup.group_name;
-      } else {
-        suggestedTeam = 'Unknown Assignment Group';
+      const targetGroupId = Number(rec.assignment_group_id ?? 0);
+      let suggestedTeam = targetGroupId && targetGroupId !== selectedGroupId
+        ? getAssignmentGroupById(targetGroupId)?.group_name
+        : null;
+
+      if (!suggestedTeam && flag === 'Overloaded' && acceptingGroupsForOffload.length > 0) {
+        suggestedTeam = getAssignmentGroupById(acceptingGroupsForOffload[0])?.group_name ?? null;
+      }
+
+      if (!suggestedTeam) {
+        suggestedTeam = selectedGroup?.group_name ?? 'Current Group';
       }
 
       return {
@@ -364,7 +509,7 @@ export default function ManagerDashboard() {
         expectedFcr,
       };
     });
-  }, [workloadBalanceRecommendations, predictedKpiImprovements, usersList]);
+  }, [workloadBalanceRecommendations, predictedKpiImprovements, acceptingGroupsForOffload, selectedGroupId, selectedGroup]);
 
   const staffingScenarioData = [0, 1, 2, 3].map((extraAgents) => {
     const scenarioStaff = currentStaffCount + extraAgents;
@@ -398,15 +543,49 @@ export default function ManagerDashboard() {
 
   const weightedForecastData = useMemo(() => {
     if (weeklyGroupData.length === 0) return [];
-    const averageForecast = mlInsights.forecastMean ?? groupTickets.length;
-    const forecastPerWeek = Number((averageForecast / Math.max(weeklyGroupData.length, 1)).toFixed(1));
-    return weeklyGroupData.map((entry) => ({
+    
+    // Historical data from actual tickets
+    const historicalData = weeklyGroupData.map((entry) => ({
       week: entry.week,
       actualTickets: entry.tickets,
-      forecastTarget: forecastPerWeek,
+      forecastTarget: null as number | null,
       capacityThreshold: currentStaffCount * agentCapacityTarget,
+      isHistorical: true,
     }));
-  }, [weeklyGroupData, mlInsights.forecastMean, currentStaffCount, agentCapacityTarget, groupTickets.length]);
+
+    // Forecast data from ML
+    if (mlInsights.forecastArray.length === 0) return historicalData;
+
+    const forecastData: any[] = [];
+    const now = new Date();
+    
+    // Group forecast data by week for cleaner visualization
+    let weekAccum = 0;
+    let dayCount = 0;
+    
+    mlInsights.forecastArray.forEach((dailyForecast, index) => {
+      const forecastDate = new Date(now.getTime() + (index + 1) * 24 * 60 * 60 * 1000);
+      const weekKey = forecastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      
+      weekAccum += dailyForecast;
+      dayCount += 1;
+      
+      // Every 7 days or at the end, add a weekly summary
+      if (dayCount === 7 || index === mlInsights.forecastArray.length - 1) {
+        forecastData.push({
+          week: weekKey,
+          actualTickets: null as number | null,
+          forecastTarget: Math.round(weekAccum / dayCount),
+          capacityThreshold: currentStaffCount * agentCapacityTarget,
+          isHistorical: false,
+        });
+        weekAccum = 0;
+        dayCount = 0;
+      }
+    });
+
+    return [...historicalData, ...forecastData];
+  }, [weeklyGroupData, mlInsights.forecastArray, currentStaffCount, agentCapacityTarget]);
 
   const teamStaffingAnalysis = useMemo(() => {
     return assignmentGroups
@@ -525,7 +704,7 @@ export default function ManagerDashboard() {
         console.warn('Failed to load ML recommendations', error);
         if (isMounted) {
           setRecError('ML recommendations unavailable — showing priority-sorted fallback');
-          setWorkloadBalance(null);
+          setWorkloadBalance(fallbackWorkloadBalance);
           setRecommendations(
             [...groupTickets]
               .sort((a, b) => (a.priority_id - b.priority_id) || (new Date(b.created_date).getTime() - new Date(a.created_date).getTime()))
@@ -556,7 +735,7 @@ export default function ManagerDashboard() {
             },
             body: JSON.stringify({
               assignment_group_id: selectedGroupId,
-              days_ahead: 7
+              days_ahead: 90
             })
           }),
           fetch(`${apiBase.replace(/\/$/, '')}/api/ml/anomalies/detect?group_id=${selectedGroupId}`)
@@ -574,10 +753,18 @@ export default function ManagerDashboard() {
 
         if (!isMounted) return;
 
+        const forecastArray = Array.isArray(forecastData?.forecast) ? forecastData.forecast : [];
+        const forecastMean = forecastArray.length > 0 ? forecastArray.reduce((sum: number, v: number) => sum + v, 0) / forecastArray.length : null;
+        const forecastUpperArray = Array.isArray(forecastData?.upper_bound) ? forecastData.upper_bound : [];
+        const forecastLowerArray = Array.isArray(forecastData?.lower_bound) ? forecastData.lower_bound : [];
+
         setMlInsights({
-          forecastMean: forecastData?.forecast?.mean ?? null,
-          forecastUpper: forecastData?.forecast?.upper_bound ?? null,
-          forecastLower: forecastData?.forecast?.lower_bound ?? null,
+          forecastMean,
+          forecastUpper: forecastUpperArray.length > 0 ? Math.max(...forecastUpperArray) : null,
+          forecastLower: forecastLowerArray.length > 0 ? Math.min(...forecastLowerArray) : null,
+          forecastArray,
+          forecastUpperArray,
+          forecastLowerArray,
           anomalyCount: Number(anomalyData?.total_anomalies ?? anomalyEntries.length ?? 0),
           anomalyPeak: Number.isFinite(peakAnomaly) ? peakAnomaly : null,
           loading: false,
@@ -833,29 +1020,35 @@ export default function ManagerDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
-                {groupNonFCRCategoryRiskRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-3 py-4 text-sm text-slate-500">
-                      No non-FCR category risk rows available for this team yet.
-                    </td>
-                  </tr>
-                ) : groupNonFCRCategoryRiskRows.slice(0, 10).map((row) => {
-                  const agent = row.agentId ? getUserById(row.agentId) : null;
-                  const agentName = agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown agent';
-                  const category = getCategoryById(row.categoryId);
-                  const categoryName = category ? category.category_name : 'Unknown category';
+                {(() => {
+                  const visibleRows = groupNonFCRCategoryRiskRows.filter(r => !/No Risk/i.test(r.action)).slice(0, 10);
+                  if (visibleRows.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-4 text-sm text-slate-500">
+                          No non-FCR category risk rows available for this team yet.
+                        </td>
+                      </tr>
+                    );
+                  }
 
-                  return (
-                    <tr key={`${row.ticketId}-${row.agentId || 'unknown'}`}>
-                      <td className="px-3 py-3 text-slate-900">{row.ticketId}</td>
-                      <td className="px-3 py-3 text-slate-700">{categoryName}</td>
-                      <td className="px-3 py-3 text-slate-700">{row.categoryFCRRate.toFixed(1)}%</td>
-                      <td className="px-3 py-3 text-slate-700">{agentName}</td>
-                      <td className="px-3 py-3 text-slate-700">{row.agentCategoryFCRRate.toFixed(1)}%</td>
-                      <td className="px-3 py-3 text-slate-700">{row.action}</td>
-                    </tr>
-                  );
-                })}
+                  return visibleRows.map((row) => {
+                    const agent = row.agentId ? getUserById(row.agentId) : null;
+                    const agentName = agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown agent';
+                    const categoryName = getCategoryNameById(row.categoryId);
+
+                    return (
+                      <tr key={`${row.ticketId}-${row.agentId || 'unknown'}`}>
+                        <td className="px-3 py-3 text-slate-900">{row.ticketId}</td>
+                        <td className="px-3 py-3 text-slate-700">{categoryName}</td>
+                        <td className="px-3 py-3 text-slate-700">{row.categoryFCRRate.toFixed(1)}%</td>
+                        <td className="px-3 py-3 text-slate-700">{agentName}</td>
+                        <td className="px-3 py-3 text-slate-700">{row.agentCategoryFCRRate.toFixed(1)}%</td>
+                        <td className="px-3 py-3 text-slate-700">{row.action}</td>
+                      </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>
@@ -1165,8 +1358,8 @@ export default function ManagerDashboard() {
                     <th className="text-left p-3 font-medium">Flag</th>
                     <th className="text-left p-3 font-medium">% Redirect</th>
                     <th className="text-left p-3 font-medium">Suggested Team</th>
-                    <th className="text-left p-3 font-medium">Expected SLA if Followed</th>
-                    <th className="text-left p-3 font-medium">Expected FCR if Followed</th>
+                    <th className="text-left p-3 font-medium">Expected SLA Gain</th>
+                    <th className="text-left p-3 font-medium">Expected FCR Gain</th>
                   </tr>
                 </thead>
                 <tbody>
