@@ -31,7 +31,7 @@ export default function HRDashboard() {
     }
 
     setBackendTicketsLoaded(false);
-    fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?t=${Date.now()}`, {
+    fetch(`${apiBase.replace(/\/$/, '')}/api/kpis/dashboard/tickets?t=${Date.now()}`, {
       method: 'GET',
       cache: 'no-store',
       headers: {

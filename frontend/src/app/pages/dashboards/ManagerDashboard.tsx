@@ -10,11 +10,11 @@ import {
   tickets as seedDataTickets, 
   weeklyCounts, 
   getAssignmentGroupById, 
-  getCategoryById,
   getUserById,
   assignmentGroups,
   Ticket,
 } from '../../data/seedData';
+import { useLookupData } from '../../hooks/useLookupData';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { Button } from '../../components/ui/button';
@@ -53,10 +53,33 @@ export default function ManagerDashboard() {
   const { data: uploadedData } = useData();
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'new' | 'closed'>('all');
   const [backendTickets, setBackendTickets] = useState<any[]>([]);
+  const [backendTicketSummary, setBackendTicketSummary] = useState<any | null>(null);
   const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
   const [loadingTickets, setLoadingTickets] = useState(false);
   const [usersList, setUsersList] = useState<any[]>([]);
   const apiBase = env.VITE_API_BASE_URL || env.VITE_API_URL || 'http://localhost:5000';
+
+  const normalizeTicket = (ticket: any) => {
+    if (!ticket || typeof ticket !== 'object') return ticket;
+    return {
+      ...ticket,
+      assignment_group_id: ticket.assignment_group_id != null ? Number(ticket.assignment_group_id) : undefined,
+      assigned_to_id: ticket.assigned_to_id != null ? Number(ticket.assigned_to_id) : undefined,
+      category_id: ticket.category_id != null ? Number(ticket.category_id) : undefined,
+      status_id: ticket.status_id != null ? Number(ticket.status_id) : undefined,
+      priority_id: ticket.priority_id != null ? Number(ticket.priority_id) : undefined,
+      made_sla: ticket.made_sla === true || ticket.made_sla === 'true',
+      fcr: ticket.fcr === true || ticket.fcr === 'true',
+    };
+  };
+
+  const normalizedBackendTickets = useMemo(() => {
+    if (!Array.isArray(backendTickets)) return [];
+    return backendTickets.map(normalizeTicket);
+  }, [backendTickets]);
+
+  const [selectedGroupId, setSelectedGroupId] = useState<number>(user?.assignment_group_id ?? 1);
+  const selectedGroup = getAssignmentGroupById(selectedGroupId);
 
   useEffect(() => {
     if (!user) return;
@@ -70,20 +93,31 @@ export default function ManagerDashboard() {
 
     setLoadingTickets(true);
     setBackendTicketsLoaded(false);
-    fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?t=${Date.now()}`, {
-      method: 'GET',
-      cache: 'no-store',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    })
+    fetch(
+      `${apiBase.replace(/\/$/, '')}/api/kpis/dashboard/tickets?assignment_group_id=${encodeURIComponent(
+        String(selectedGroupId)
+      )}&includeSummary=true&t=${Date.now()}`,
+      {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    )
       .then((response) => {
         if (!response.ok) throw new Error('Failed to load tickets');
         return response.json();
       })
-      .then((tickets) => {
-        setBackendTickets(Array.isArray(tickets) ? tickets : []);
+      .then((responseData) => {
+        if (responseData && typeof responseData === 'object' && Array.isArray(responseData.tickets)) {
+          setBackendTickets(responseData.tickets);
+          setBackendTicketSummary(responseData.summary || null);
+        } else {
+          setBackendTickets(Array.isArray(responseData) ? responseData : []);
+          setBackendTicketSummary(null);
+        }
       })
       .catch((error) => {
         console.warn('Failed to load backend tickets for manager dashboard', error);
@@ -93,10 +127,7 @@ export default function ManagerDashboard() {
         setLoadingTickets(false);
         setBackendTicketsLoaded(true);
       });
-  }, [apiBase, user]);
-
-  const [selectedGroupId, setSelectedGroupId] = useState<number>(user?.assignment_group_id ?? 1);
-  const selectedGroup = getAssignmentGroupById(selectedGroupId);
+  }, [apiBase, user, selectedGroupId]);
 
   useEffect(() => {
     // Load users from backend so we can map user -> assignment group (from DB).
@@ -127,39 +158,18 @@ export default function ManagerDashboard() {
     }
   }, [user, selectedGroupId]);
 
-  // Load categories from backend so UI reflects live DB lookup values.
-  const [categoriesFromApi, setCategoriesFromApi] = useState<{category_id: number; category_name: string}[]>([]);
-  useEffect(() => {
-    const token = localStorage.getItem('workwise_token');
-    fetch(`${apiBase.replace(/\/$/, '')}/api/lookups/categories`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-    })
-      .then((r) => r.ok ? r.json() : Promise.reject('Failed to load categories'))
-      .then((cats) => setCategoriesFromApi(Array.isArray(cats) ? cats : []))
-      .catch((err) => {
-        console.warn('Failed to load categories for manager dashboard', err);
-        setCategoriesFromApi([]);
-      });
-  }, [apiBase]);
-
-  const getCategoryNameById = (id?: number | null) => {
-    if (id === null || id === undefined) return 'Unknown category';
-    const found = categoriesFromApi.find(c => Number(c.category_id) === Number(id));
-    if (found) return found.category_name;
-    const seed = getCategoryById(Number(id));
-    return seed?.category_name ?? 'Unknown category';
-  };
+  const { getCategoryName, getStatusName, getPriorityLabel } = useLookupData(apiBase);
 
   const currentTickets = useMemo(() => {
-    if (backendTicketsLoaded) return backendTickets;
+    if (backendTicketsLoaded) return normalizedBackendTickets;
     if (uploadedData && uploadedData.length > 0) return uploadedData;
     return [];
-  }, [backendTickets, backendTicketsLoaded, uploadedData]);
-  const hasData = currentTickets.length > 0;
+  }, [normalizedBackendTickets, backendTicketsLoaded, uploadedData]);
+
+  const hasData = currentTickets.length > 0 || backendTicketSummary !== null;
 
   const selectedGroupTickets = useMemo(
-    () => currentTickets.filter(t => t.assignment_group_id === selectedGroupId),
+    () => currentTickets.filter(t => Number(t.assignment_group_id) === Number(selectedGroupId)),
     [currentTickets, selectedGroupId]
   );
   const selectedGroupNonFCRTickets = useMemo(
@@ -269,15 +279,19 @@ export default function ManagerDashboard() {
   
   // Calculate KPIs for manager's group only
   const groupKPIs = {
-    slaCompliance: groupTickets.length > 0 
-      ? (groupTickets.filter(t => t.made_sla).length / groupTickets.length) * 100 
+    slaCompliance: backendTicketSummary?.total
+      ? (Number(backendTicketSummary.sla_met || 0) / Number(backendTicketSummary.total)) * 100
+      : groupTickets.length > 0
+      ? (groupTickets.filter(t => t.made_sla).length / groupTickets.length) * 100
       : 0,
-    fcrRate: groupTickets.length > 0 
-      ? (groupTickets.filter(t => t.fcr).length / groupTickets.length) * 100 
+    fcrRate: backendTicketSummary?.total
+      ? (Number(backendTicketSummary.fcr_count || 0) / Number(backendTicketSummary.total)) * 100
+      : groupTickets.length > 0
+      ? (groupTickets.filter(t => t.fcr).length / groupTickets.length) * 100
       : 0,
-    totalTickets: groupTickets.length,
-    activeTickets: groupTickets.filter(t => t.status_id !== 3 && t.status_id !== 4).length,
-    resolvedTickets: groupTickets.filter(t => t.status_id === 3 || t.status_id === 4).length
+    totalTickets: backendTicketSummary?.total ?? groupTickets.length,
+    activeTickets: groupTickets.filter(t => Number(t.status_id) !== 3 && Number(t.status_id) !== 4).length,
+    resolvedTickets: backendTicketSummary?.resolved_count ?? groupTickets.filter(t => Number(t.status_id) === 3 || Number(t.status_id) === 4).length,
   };
 
   // Task allocation by status
@@ -620,7 +634,7 @@ export default function ManagerDashboard() {
   const recommendedScenario = staffingScenarioData.reduce((best, scenario) => scenario.projectedSla > best.projectedSla ? scenario : best, staffingScenarioData[0]);
 
   const categoryLoadData = Object.entries(groupTickets.reduce<Record<string, number>>((acc, ticket) => {
-    const label = getCategoryById(ticket.category_id)?.category_name || 'Uncategorized';
+    const label = getCategoryName(ticket.category_id);
     acc[label] = (acc[label] || 0) + 1;
     return acc;
   }, {}))
@@ -1126,7 +1140,7 @@ export default function ManagerDashboard() {
                   return visibleRows.map((row: any) => {
                     const agent = row.agentId ? getUserById(row.agentId) : null;
                     const agentName = agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown agent';
-                    const categoryName = getCategoryNameById(row.categoryId);
+                    const categoryName = getCategoryName(row.categoryId);
 
                     return (
                       <tr key={`${row.categoryId}-${row.agentId || 'unknown'}`}> 
@@ -1166,7 +1180,7 @@ export default function ManagerDashboard() {
             <div className="space-y-4">
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-600">Category</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900">{getCategoryNameById(selectedRiskRow.categoryId)}</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900">{getCategoryName(selectedRiskRow.categoryId)}</p>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -1660,6 +1674,9 @@ export default function ManagerDashboard() {
                     (new Date().getTime() - new Date(ticket.created_date).getTime()) / (1000 * 60 * 60 * 24)
                   );
                   const fullTicket = groupTickets.find(t => t.ticket_id === ticket.ticket_id);
+                  const priorityLabel = getPriorityLabel(ticket.priority_id);
+                  const categoryLabel = getCategoryName(ticket.category_id);
+                  const statusLabel = getStatusName(fullTicket?.status_id);
                   return (
                     <tr key={ticket.ticket_id} className="border-b hover:bg-gray-50">
                       <td className="p-3 font-mono text-xs font-medium">{ticket.ticket_id}</td>
@@ -1670,16 +1687,12 @@ export default function ManagerDashboard() {
                           ticket.priority_id === 3 ? 'bg-yellow-100 text-yellow-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          P{ticket.priority_id}
+                          {priorityLabel}
                         </span>
                       </td>
-                      <td className="p-3">{getCategoryById(ticket.category_id)?.category_name}</td>
+                      <td className="p-3">{categoryLabel}</td>
                       <td className="p-3 text-xs">
-                        {fullTicket?.status_id === 1 && 'New'}
-                        {fullTicket?.status_id === 2 && 'In Progress'}
-                        {fullTicket?.status_id === 3 && 'Resolved'}
-                        {fullTicket?.status_id === 4 && 'Closed'}
-                        {fullTicket?.status_id === 5 && 'On Hold'}
+                        {statusLabel}
                       </td>
                       <td className="p-3">
                         {riskScoreMap[ticket.ticket_id] ? (
@@ -1819,11 +1832,7 @@ export default function ManagerDashboard() {
                         ticket.status_id === 4 ? 'bg-gray-100 text-gray-800' :
                         'bg-amber-100 text-amber-800'
                       }`}>
-                        {ticket.status_id === 1 && 'New'}
-                        {ticket.status_id === 2 && 'In Progress'}
-                        {ticket.status_id === 3 && 'Resolved'}
-                        {ticket.status_id === 4 && 'Closed'}
-                        {ticket.status_id === 5 && 'Pending'}
+                        {getStatusName(ticket.status_id)}
                       </span>
                     </td>
                     <td className="p-3">
@@ -1833,7 +1842,7 @@ export default function ManagerDashboard() {
                         ticket.priority_id === 3 ? 'bg-yellow-100 text-yellow-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        P{ticket.priority_id}
+                        {getPriorityLabel(ticket.priority_id)}
                       </span>
                     </td>
                     <td className="p-3 text-xs">
@@ -1879,8 +1888,8 @@ export default function ManagerDashboard() {
                 ) : (
                   recommendations.map((ticket) => {
                     const age = Math.floor((Date.now() - new Date(ticket.created_date).getTime()) / (1000 * 60 * 60 * 24));
-                    const categoryName = getCategoryById(ticket.category_id)?.category_name || 'Uncategorized';
-                    const statusText = ticket.status_id === 1 ? 'New' : ticket.status_id === 2 ? 'In Progress' : ticket.status_id === 3 ? 'Resolved' : ticket.status_id === 4 ? 'Closed' : ticket.status_id === 5 ? 'On Hold' : 'Other';
+                    const categoryName = getCategoryName(ticket.category_id);
+                    const statusText = getStatusName(ticket.status_id);
                     const slaText = ticket.made_sla ? 'Met' : 'At Risk';
                     return (
                       <tr key={ticket.ticket_id} className="border-b hover:bg-gray-50">
@@ -1892,7 +1901,7 @@ export default function ManagerDashboard() {
                             ticket.priority_id === 3 ? 'bg-yellow-100 text-yellow-800' :
                             'bg-gray-100 text-gray-800'
                           }`}>
-                            P{ticket.priority_id}
+                            {getPriorityLabel(ticket.priority_id)}
                           </span>
                         </td>
                         <td className="p-3">{categoryName}</td>

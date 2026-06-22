@@ -43,25 +43,163 @@ async function resolveStatusId(statusId: unknown, statusName: unknown) {
   return undefined;
 }
 
-export async function getAllTickets(filters: { status?: string; assigned_to?: string; priority?: string }) {
-  let queryStr = 'SELECT * FROM tickets WHERE 1=1';
+interface TicketFilterOptions {
+  ticket_id?: string;
+  assigned_to_id?: string;
+  assignment_group_id?: string;
+  category_id?: string;
+  status_id?: string;
+  status?: string;
+  priority_id?: string;
+  priority?: string;
+  created_from?: string;
+  created_to?: string;
+  limit?: string;
+  offset?: string;
+}
+
+async function buildTicketQuery(filters: TicketFilterOptions, selectClause: string, includeOrder = true) {
+  let queryStr = `${selectClause} FROM tickets WHERE 1=1`;
   const params: any[] = [];
 
-  if (filters.status) {
-    queryStr += ` AND status_id = $${params.length + 1}`;
-    params.push(filters.status);
-  }
-  if (filters.assigned_to) {
-    queryStr += ` AND assigned_to_id = $${params.length + 1}`;
-    params.push(filters.assigned_to);
-  }
-  if (filters.priority) {
-    queryStr += ` AND priority_id = $${params.length + 1}`;
-    params.push(filters.priority);
+  if (typeof filters.ticket_id === 'string' && filters.ticket_id.trim()) {
+    queryStr += ` AND ticket_id = $${params.length + 1}`;
+    params.push(filters.ticket_id.trim());
   }
 
-  queryStr += ' ORDER BY created_at DESC';
-  const result = await query(queryStr, params);
+  const assignedToId = normalizeOptionalNumber(filters.assigned_to_id);
+  if (assignedToId !== undefined) {
+    queryStr += ` AND assigned_to_id = $${params.length + 1}`;
+    params.push(assignedToId);
+  }
+
+  const groupId = normalizeOptionalNumber(filters.assignment_group_id);
+  if (groupId !== undefined) {
+    queryStr += ` AND assignment_group_id = $${params.length + 1}`;
+    params.push(groupId);
+  }
+
+  const categoryId = normalizeOptionalNumber(filters.category_id);
+  if (categoryId !== undefined) {
+    queryStr += ` AND category_id = $${params.length + 1}`;
+    params.push(categoryId);
+  }
+
+  const priorityId = normalizeOptionalNumber(filters.priority_id ?? filters.priority);
+  if (priorityId !== undefined) {
+    queryStr += ` AND priority_id = $${params.length + 1}`;
+    params.push(priorityId);
+  }
+
+  let resolvedStatusId = normalizeOptionalNumber(filters.status_id ?? filters.status);
+  if (resolvedStatusId === undefined && typeof filters.status === 'string' && filters.status.trim()) {
+    resolvedStatusId = await resolveStatusId(undefined, filters.status.trim());
+  }
+
+  if (resolvedStatusId !== undefined) {
+    queryStr += ` AND status_id = $${params.length + 1}`;
+    params.push(resolvedStatusId);
+  }
+
+  if (typeof filters.created_from === 'string' && filters.created_from.trim()) {
+    const fromDate = new Date(filters.created_from);
+    if (!Number.isNaN(fromDate.getTime())) {
+      queryStr += ` AND created_date >= $${params.length + 1}`;
+      params.push(fromDate.toISOString());
+    }
+  }
+
+  if (typeof filters.created_to === 'string' && filters.created_to.trim()) {
+    const toDate = new Date(filters.created_to);
+    if (!Number.isNaN(toDate.getTime())) {
+      queryStr += ` AND created_date <= $${params.length + 1}`;
+      params.push(toDate.toISOString());
+    }
+  }
+
+  if (includeOrder) {
+    queryStr += ' ORDER BY created_date DESC';
+  }
+
+  return { queryStr, params };
+}
+
+export async function getAllTicketsAnalyticsWithSummary(filters: TicketFilterOptions) {
+  const selectClause = 'SELECT ticket_id, created_date, resolved_date, status_id, priority_id, assignment_group_id, category_id, assigned_to_id, reopen_count, fcr, made_sla, duration, short_description';
+  const { queryStr, params } = await buildTicketQuery(filters, selectClause, false);
+
+  const rawLimit = typeof filters.limit !== 'undefined' ? Number(filters.limit) : NaN;
+  const rawOffset = typeof filters.offset !== 'undefined' ? Number(filters.offset) : NaN;
+  const maxLimit = 20000;
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, maxLimit) : maxLimit;
+  const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+  const pagedQuery = `${queryStr} ORDER BY created_date DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+  const pagedParams = [...params, limit, offset];
+
+  const summaryQuery = queryStr.replace(
+    /^SELECT[\s\S]*?FROM tickets/i,
+    `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN made_sla = true THEN 1 ELSE 0 END) as sla_met,
+         SUM(CASE WHEN fcr = true THEN 1 ELSE 0 END) as fcr_count,
+         SUM(CASE WHEN status_id IN (3,4) THEN 1 ELSE 0 END) as resolved_count
+       FROM tickets`
+  );
+
+  const [ticketsResult, summaryResult] = await Promise.all([
+    query(pagedQuery, pagedParams),
+    query(summaryQuery, params),
+  ]);
+
+  return {
+    tickets: ticketsResult.rows,
+    summary: summaryResult.rows[0],
+  };
+}
+
+export async function getAllTickets(filters: TicketFilterOptions) {
+  const selectClause = 'SELECT ticket_id, created_date, status_id, priority_id, assignment_group_id, category_id, assigned_to_id, short_description';
+  const { queryStr, params } = await buildTicketQuery(filters, selectClause);
+
+  const rawLimit = typeof filters.limit !== 'undefined' ? Number(filters.limit) : NaN;
+  const rawOffset = typeof filters.offset !== 'undefined' ? Number(filters.offset) : NaN;
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 1000) : 100;
+  const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+  const pagedQuery = `${queryStr} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+  params.push(limit, offset);
+
+  const result = await query(pagedQuery, params);
+  return result.rows;
+}
+
+export async function getAllTicketsAnalytics(filters: TicketFilterOptions) {
+  const selectClause = 'SELECT ticket_id, created_date, resolved_date, status_id, priority_id, assignment_group_id, category_id, assigned_to_id, reopen_count, fcr, made_sla, duration, short_description';
+  const { queryStr, params } = await buildTicketQuery(filters, selectClause);
+
+  const rawLimit = typeof filters.limit !== 'undefined' ? Number(filters.limit) : NaN;
+  const rawOffset = typeof filters.offset !== 'undefined' ? Number(filters.offset) : NaN;
+  const maxLimit = 20000;
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, maxLimit) : maxLimit;
+  const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+  const pagedQuery = `${queryStr} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+  params.push(limit, offset);
+
+  const result = await query(pagedQuery, params);
+  return result.rows;
+}
+
+export async function getAllTicketsDetailed(filters: TicketFilterOptions) {
+  const selectClause = 'SELECT *';
+  const { queryStr, params } = await buildTicketQuery(filters, selectClause);
+
+  const rawLimit = typeof filters.limit !== 'undefined' ? Number(filters.limit) : NaN;
+  const rawOffset = typeof filters.offset !== 'undefined' ? Number(filters.offset) : NaN;
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 1000) : 100;
+  const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+  const pagedQuery = `${queryStr} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+  params.push(limit, offset);
+
+  const result = await query(pagedQuery, params);
   return result.rows;
 }
 

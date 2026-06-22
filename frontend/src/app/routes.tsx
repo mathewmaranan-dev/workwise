@@ -8,6 +8,7 @@ import AgentDashboard from './pages/dashboards/AgentDashboard';
 import UserManagementPage from './pages/UserManagementPage';
 import UploadPage from './pages/UploadPage';
 import TeamAgentsPage from './pages/TeamAgentsPage';
+import TicketFinderPage from './pages/TicketFinderPage';
 import NotFoundPage from './pages/NotFoundPage';
 import TermsPromptPage from './pages/TermsPromptPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
@@ -106,6 +107,10 @@ export const router = createHashRouter([
       {
         path: 'team-agents',
         element: <TeamAgentsPage />
+      },
+      {
+        path: 'tickets',
+        element: <TicketFinderPage />
       },
       {
         path: 'my-tasks',

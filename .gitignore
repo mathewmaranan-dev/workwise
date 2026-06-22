@@ -4,6 +4,15 @@ node_modules
 .env
 .env.*
 !*.env.example
- 
+
+# Python virtual environments and cache
+.venv
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
 # Pipeline Agent artifacts
 backend/scripts/pipeline_artifacts/

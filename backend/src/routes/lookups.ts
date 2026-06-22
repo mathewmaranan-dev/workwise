@@ -25,4 +25,24 @@ router.get('/subcategories', async (req, res) => {
   }
 });
 
+router.get('/statuses', async (req, res) => {
+  try {
+    const result = await query('SELECT status_id, status_name FROM status ORDER BY status_id');
+    return res.json(result.rows);
+  } catch (error) {
+    console.error('Failed to fetch statuses:', (error as any)?.stack || error);
+    return res.status(500).json({ error: 'Failed to fetch statuses' });
+  }
+});
+
+router.get('/priorities', async (req, res) => {
+  try {
+    const result = await query('SELECT priority_id, priority_level FROM priority ORDER BY priority_id');
+    return res.json(result.rows);
+  } catch (error) {
+    console.error('Failed to fetch priorities:', (error as any)?.stack || error);
+    return res.status(500).json({ error: 'Failed to fetch priorities' });
+  }
+});
+
 export default router;

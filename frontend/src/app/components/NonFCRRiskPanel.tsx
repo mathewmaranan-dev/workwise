@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { getUserById, getCategoryById } from '../data/seedData';
+import { useLookupData } from '../hooks/useLookupData';
+import { getUserById } from '../data/seedData';
 
 interface Props {
   tickets: any[];
@@ -8,6 +9,8 @@ interface Props {
 }
 
 export default function NonFCRRiskPanel({ tickets, riskScoreMap }: Props) {
+  const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
+  const { getCategoryName } = useLookupData(apiBase);
   const { topAgents, topCategories, highRiskCount } = useMemo(() => {
     const agentMap: Record<number, number[]> = {};
     const categoryMap: Record<number, number[]> = {};
@@ -76,7 +79,7 @@ export default function NonFCRRiskPanel({ tickets, riskScoreMap }: Props) {
             <ul className="mt-2 text-sm space-y-1">
               {topCategories.map(c => (
                 <li key={c.id} className="flex justify-between">
-                  <span>{getCategoryById(c.id)?.category_name || `Category ${c.id}`}</span>
+                  <span>{getCategoryName(c.id)}</span>
                   <span className="font-semibold">{Math.round(c.avg)}%</span>
                 </li>
               ))}

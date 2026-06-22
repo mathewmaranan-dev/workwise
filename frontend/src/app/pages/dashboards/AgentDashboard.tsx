@@ -4,6 +4,7 @@ import { ListTodo, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
+import { useLookupData } from '../../hooks/useLookupData';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 
 const COLORS = ['#4F46E5', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6'];
@@ -19,45 +20,22 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
 
   const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
   const token = typeof window !== 'undefined' ? localStorage.getItem('workwise_token') : null;
-
-  const priorityLabelMap: Record<number, string> = {
-    1: 'Low',
-    2: 'Medium',
-    3: 'High',
-    4: 'Critical'
-  };
-
-  const categoryMap: Record<number, string> = {
-    1: 'Password',
-    2: 'Server',
-    3: 'Network',
-    4: 'Software',
-    5: 'Hardware'
-  };
-
-  const statusMap: Record<number, string> = {
-    1: 'New',
-    2: 'In Progress',
-    3: 'Resolved',
-    4: 'Closed',
-    5: 'On Hold',
-    6: 'Open'
-  };
+  const { getCategoryName, getStatusName, getPriorityLabel: getPriorityLabelFromApi } = useLookupData(apiBase);
 
   const getPriorityLabel = (ticket: any): string => {
     if (ticket?.priority) return ticket.priority;
-    return priorityLabelMap[Number(ticket?.priority_id)] || 'Unknown';
+    return getPriorityLabelFromApi(ticket?.priority_id);
   };
 
   const getCategoryLabel = (ticket: any): string => {
     if (ticket?.category) return ticket.category;
-    return categoryMap[Number(ticket?.category_id)] || 'Uncategorized';
+    return getCategoryName(ticket?.category_id) || 'Uncategorized';
   };
 
   const getStatusLabel = (ticket: any): string => {
     if (ticket?.status) return ticket.status;
     if (ticket?.status_name) return ticket.status_name;
-    return statusMap[Number(ticket?.status_id)] || 'Unknown';
+    return getStatusName(ticket?.status_id);
   };
 
   const normalizeTicket = (ticket: any) => ({
@@ -180,7 +158,7 @@ export default function AgentDashboard({ showAgentSelector = false }: { showAgen
 
     setLoadingTickets(true);
     setBackendTicketsLoaded(false);
-    fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?assigned_to=${encodeURIComponent(user.id)}`, {
+    fetch(`${apiBase.replace(/\/$/, '')}/api/kpis/dashboard/tickets?assigned_to=${encodeURIComponent(user.id)}`, {
       method: 'GET',
       cache: 'no-store',
       headers: {

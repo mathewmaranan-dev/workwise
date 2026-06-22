@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../config/database.js';
 import { verifyToken } from '../middleware/auth.js';
+import { getAllTicketsAnalytics, getAllTicketsAnalyticsWithSummary } from '../services/ticketService.js';
 
 const router = Router();
 
@@ -77,6 +78,35 @@ router.get('/dashboard', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Get KPI dashboard error:', error);
     res.status(500).json({ error: 'Failed to fetch KPI data' });
+  }
+});
+
+router.get('/dashboard/tickets', verifyToken, async (req, res) => {
+  try {
+    const filters = {
+      ticket_id: String(req.query.ticket_id || ''),
+      assigned_to_id: String(req.query.assigned_to_id || req.query.assigned_to || ''),
+      assignment_group_id: String(req.query.assignment_group_id || ''),
+      category_id: String(req.query.category_id || ''),
+      status_id: String(req.query.status_id || ''),
+      status: String(req.query.status || ''),
+      priority_id: String(req.query.priority_id || req.query.priority || ''),
+      created_from: String(req.query.created_from || ''),
+      created_to: String(req.query.created_to || ''),
+      limit: String(req.query.limit || '20000'),
+      offset: String(req.query.offset || '0'),
+    };
+
+    if (String(req.query.includeSummary || '').toLowerCase() === 'true') {
+      const result = await getAllTicketsAnalyticsWithSummary(filters);
+      return res.json(result);
+    }
+
+    const tickets = await getAllTicketsAnalytics(filters);
+    res.json(tickets);
+  } catch (error) {
+    console.error('Get KPI dashboard tickets error:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard ticket analytics' });
   }
 });
 

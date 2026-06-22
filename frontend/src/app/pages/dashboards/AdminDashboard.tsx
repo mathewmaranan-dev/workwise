@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { TrendingUp, TrendingDown, Clock, RefreshCcw, Download } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { calculateKPIs, getTicketsByPriority, getNonFCRTickets, getAssignmentGroupPerformance } from '../../utils/analytics';
-import { getAssignmentGroupById, getPriorityById, getCategoryById, tickets as seedDataTickets } from '../../data/seedData';
+import { getAssignmentGroupById } from '../../data/seedData';
+import { useLookupData } from '../../hooks/useLookupData';
 import { Button } from '../../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { exportTicketsToCSV } from '../../utils/csvUtils';
@@ -21,8 +22,10 @@ export default function AdminDashboard() {
   const [dashboardView, setDashboardView] = useState('admin');
   const { user, isAuthReady } = useAuth();
   const { data: uploadedData } = useData(); // subscribe to uploads to trigger re-render
-  const [backendTickets, setBackendTickets] = useState<any[]>([]);
-  const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
+  const [dashboardTickets, setDashboardTickets] = useState<any[]>([]);
+  const [dashboardMetrics, setDashboardMetrics] = useState<any>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
@@ -30,44 +33,83 @@ export default function AdminDashboard() {
 
     const token = localStorage.getItem('workwise_token');
     if (!token) {
-      setBackendTickets([]);
-      setBackendTicketsLoaded(true);
+      setDashboardTickets([]);
+      setDashboardMetrics(null);
+      setDashboardLoading(false);
+      setDashboardError('No auth token available');
       return;
     }
 
-    setBackendTicketsLoaded(false);
-    fetch(`${apiBase.replace(/\/$/, '')}/api/tickets?t=${Date.now()}`, {
-      method: 'GET',
-      cache: 'no-store',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error('Failed to load tickets');
-        return response.json();
-      })
-      .then((tickets) => {
-        setBackendTickets(Array.isArray(tickets) ? tickets : []);
+    setDashboardLoading(true);
+    setDashboardError(null);
+
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    };
+
+    const metricsUrl = `${apiBase.replace(/\/$/, '')}/api/kpis/dashboard?t=${Date.now()}`;
+    const ticketsUrl = `${apiBase.replace(/\/$/, '')}/api/kpis/dashboard/tickets?t=${Date.now()}`;
+
+    Promise.all([
+      fetch(metricsUrl, { method: 'GET', cache: 'no-store', headers }),
+      fetch(ticketsUrl, { method: 'GET', cache: 'no-store', headers }),
+    ])
+      .then(async ([metricsResp, ticketsResp]) => {
+        if (!metricsResp.ok) {
+          throw new Error(`Failed to load dashboard metrics: ${metricsResp.status}`);
+        }
+        if (!ticketsResp.ok) {
+          throw new Error(`Failed to load dashboard analytics tickets: ${ticketsResp.status}`);
+        }
+
+        const metricsJson = await metricsResp.json();
+        const ticketsJson = await ticketsResp.json();
+
+        setDashboardMetrics(metricsJson);
+        setDashboardTickets(Array.isArray(ticketsJson) ? ticketsJson : []);
       })
       .catch((error) => {
-        console.warn('Failed to load backend tickets for admin dashboard', error);
-        setBackendTickets([]);
+        console.warn('Failed to load dashboard data', error);
+        setDashboardTickets([]);
+        setDashboardMetrics(null);
+        setDashboardError(String(error));
       })
       .finally(() => {
-        setBackendTicketsLoaded(true);
+        setDashboardLoading(false);
       });
   }, [apiBase, isAuthReady]);
 
   const currentTickets = useMemo(() => {
-    if (backendTicketsLoaded) return backendTickets;
-    if (uploadedData && uploadedData.length > 0) return uploadedData;
+    if (dashboardLoading) {
+      return uploadedData && uploadedData.length > 0 ? uploadedData : [];
+    }
+    if (dashboardTickets && dashboardTickets.length > 0) {
+      return dashboardTickets;
+    }
+    if (uploadedData && uploadedData.length > 0) {
+      return uploadedData;
+    }
     return [];
-  }, [backendTickets, backendTicketsLoaded, uploadedData]);
+  }, [dashboardLoading, dashboardTickets, uploadedData]);
   const hasData = currentTickets.length > 0;
 
-  const kpis = calculateKPIs(currentTickets);
+  const { getCategoryName, getPriorityLabel } = useLookupData(apiBase);
+
+  const kpis = useMemo(() => {
+    if (dashboardMetrics) {
+      return {
+        slaCompliance: Number(dashboardMetrics.slaCompliance?.percentage ?? 0),
+        fcrRate: Number(dashboardMetrics.fcrRate?.percentage ?? 0),
+        medianResolutionTime: Number(dashboardMetrics.avgResolutionTime?.hours ?? 0),
+        reopenRate: 0,
+        totalTickets: Number(dashboardMetrics.totalTickets?.count ?? 0),
+        resolvedTickets: Number(dashboardMetrics.resolvedTickets?.count ?? 0),
+      };
+    }
+    return calculateKPIs(currentTickets);
+  }, [dashboardMetrics, currentTickets]);
+
   const priorityData = getTicketsByPriority(currentTickets);
   const nonFCRTickets = getNonFCRTickets(currentTickets);
   const groupPerformance = getAssignmentGroupPerformance(currentTickets);
@@ -118,7 +160,16 @@ export default function AdminDashboard() {
         </TabsList>
 
         <TabsContent value="admin">
-          <AdminView currentTickets={currentTickets} hasData={hasData} user={user} />
+          <AdminView
+            currentTickets={currentTickets}
+            hasData={hasData}
+            user={user}
+            getCategoryName={getCategoryName}
+            getPriorityLabel={getPriorityLabel}
+            dashboardMetrics={dashboardMetrics}
+            dashboardLoading={dashboardLoading}
+            dashboardError={dashboardError}
+          />
         </TabsContent>
 
         <TabsContent value="manager">
@@ -137,10 +188,41 @@ export default function AdminDashboard() {
   );
 }
 
-function AdminView({ currentTickets, hasData, user }: { currentTickets: any[]; hasData: boolean; user: any }) {
+function AdminView({
+  currentTickets,
+  hasData,
+  user,
+  getCategoryName,
+  getPriorityLabel,
+  dashboardMetrics,
+  dashboardLoading,
+  dashboardError,
+}: {
+  currentTickets: any[];
+  hasData: boolean;
+  user: any;
+  getCategoryName: (id: number | string | undefined | null) => string;
+  getPriorityLabel: (id: number | string | undefined | null) => string;
+  dashboardMetrics: any | null;
+  dashboardLoading: boolean;
+  dashboardError: string | null;
+}) {
   const [chartPriorityFilter, setChartPriorityFilter] = useState<'all' | 'Critical' | 'High' | 'Medium' | 'Low'>('all');
 
-  const kpis = calculateKPIs(currentTickets);
+  const kpis = useMemo(() => {
+    if (dashboardMetrics) {
+      return {
+        slaCompliance: Number(dashboardMetrics.slaCompliance?.percentage ?? 0),
+        fcrRate: Number(dashboardMetrics.fcrRate?.percentage ?? 0),
+        medianResolutionTime: Number(dashboardMetrics.avgResolutionTime?.hours ?? 0),
+        reopenRate: 0,
+        totalTickets: Number(dashboardMetrics.totalTickets?.count ?? 0),
+        resolvedTickets: Number(dashboardMetrics.resolvedTickets?.count ?? 0),
+      };
+    }
+    return calculateKPIs(currentTickets);
+  }, [dashboardMetrics, currentTickets]);
+
   const priorityData = getTicketsByPriority(currentTickets);
   const nonFCRTickets = useMemo(() => getNonFCRTickets(currentTickets), [currentTickets]);
   const groupPerformance = getAssignmentGroupPerformance(currentTickets);
@@ -148,18 +230,18 @@ function AdminView({ currentTickets, hasData, user }: { currentTickets: any[]; h
   const filteredChartTickets = useMemo(() => {
     if (chartPriorityFilter === 'all') return currentTickets;
     return currentTickets.filter((ticket: any) => {
-      const label = getPriorityById(ticket.priority_id)?.priority_level || `Priority ${ticket.priority_id}`;
+      const label = getPriorityLabel(ticket.priority_id);
       return label === chartPriorityFilter;
     });
-  }, [chartPriorityFilter, currentTickets]);
+  }, [chartPriorityFilter, currentTickets, getPriorityLabel]);
 
   const filteredNonFCRTickets = useMemo(() => {
     if (chartPriorityFilter === 'all') return nonFCRTickets;
     return nonFCRTickets.filter((ticket) => {
-      const label = getPriorityById(ticket.priority_id)?.priority_level || `Priority ${ticket.priority_id}`;
+      const label = getPriorityLabel(ticket.priority_id);
       return label === chartPriorityFilter;
     });
-  }, [chartPriorityFilter, nonFCRTickets]);
+  }, [chartPriorityFilter, nonFCRTickets, getPriorityLabel]);
 
   // Aggregate tickets into weekly counts for the chart
   const weeklyMap: Record<string, number> = {};
@@ -391,8 +473,8 @@ function AdminView({ currentTickets, hasData, user }: { currentTickets: any[]; h
                   const age = openedAt && !isNaN(openedAt.getTime())
                     ? Math.floor((Date.now() - openedAt.getTime()) / (1000 * 60 * 60 * 24))
                     : 'N/A';
-                  const priorityLabel = getPriorityById(ticket.priority_id)?.priority_level || `P${ticket.priority_id}`;
-                  const categoryLabel = getCategoryById(ticket.category_id)?.category_name || 'Uncategorized';
+                  const priorityLabel = getPriorityLabel(ticket.priority_id);
+                  const categoryLabel = getCategoryName(ticket.category_id) || 'Uncategorized';
                   const reopenCount = (currentTickets.find(item => item.ticket_id === ticket.ticket_id)?.reopen_count ?? 0);
                   return (
                     <tr key={ticket.ticket_id} className="border-b hover:bg-gray-50">
