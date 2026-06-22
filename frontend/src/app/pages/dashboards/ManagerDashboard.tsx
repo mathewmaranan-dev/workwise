@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { Button } from '../../components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
 
 interface TeamMemberMetrics {
   user_id: number;
@@ -174,7 +175,97 @@ export default function ManagerDashboard() {
     () => getNonFCRTicketsWithCategoryRisk(groupTickets),
     [groupTickets]
   );
+  const [aggregatedNonFCRRows, setAggregatedNonFCRRows] = useState<any[] | null>(null);
+  const [selectedRiskRow, setSelectedRiskRow] = useState<any | null>(null);
+  const [riskDetailsOpen, setRiskDetailsOpen] = useState(false);
   const isFallbackGroup = false;
+
+  // Build a deduplicated display list: one row per category+agent. Prefer backend aggregated rows when available,
+  // otherwise build from group tickets (fallback). Each row includes ticketIds array for drilldown.
+  const aggregatedDisplayRows = useMemo(() => {
+    if (aggregatedNonFCRRows && Array.isArray(aggregatedNonFCRRows)) {
+      return aggregatedNonFCRRows.map((r: any) => ({
+        categoryId: r.categoryId,
+        agentId: r.agentId,
+        categoryFCRRate: r.categoryFCRRate,
+        agentCategoryFCRRate: r.agentCategoryFCRRate,
+        action: r.action,
+        ticketIds: Array.isArray(r.ticketIds) ? r.ticketIds : [],
+        totalTickets: r.totalTickets || (Array.isArray(r.ticketIds) ? r.ticketIds.length : 0),
+      }));
+    }
+
+    // Fallback: aggregate groupTickets client-side into category+agent rows
+    const map = new Map();
+    // Build totals per category+agent using all tickets so FCR rates are accurate,
+    // but only collect ticketIds for non-FCR (flagged) tickets to show in the drilldown.
+    groupTickets.forEach((t) => {
+      const cat = Number(t.category_id) || 0;
+      const agent = t.assigned_to_id ? Number(t.assigned_to_id) : null;
+      const key = `${cat}|${agent ?? 'null'}`;
+      if (!map.has(key)) {
+        map.set(key, { categoryId: cat, agentId: agent, ticketIds: [] as any[], total: 0, fcrCount: 0 });
+      }
+      const entry = map.get(key);
+      // Count totals and fcrs over all tickets
+      entry.total += 1;
+      if (t.fcr) entry.fcrCount += 1;
+      // If this ticket is non-FCR, include it in the flagged ticket list
+      if (!t.fcr) entry.ticketIds.push(t.ticket_id);
+    });
+
+    // Compute category-level FCR rates from all tickets in group
+    const categoryTotals: Record<number, { total: number; fcr: number }> = {};
+    groupTickets.forEach((t) => {
+      const cat = Number(t.category_id) || 0;
+      if (!categoryTotals[cat]) categoryTotals[cat] = { total: 0, fcr: 0 };
+      categoryTotals[cat].total += 1;
+      if (t.fcr) categoryTotals[cat].fcr += 1;
+    });
+
+    const rows: any[] = [];
+    for (const [, v] of map) {
+      const category = categoryTotals[v.categoryId] || { total: 0, fcr: 0 };
+      const categoryFCRRate = category.total > 0 ? (category.fcr / category.total) * 100 : 0;
+      const agentCategoryFCRRate = v.total > 0 ? (v.fcrCount / v.total) * 100 : 0;
+      let action = 'No Risk: retain assignment';
+      if (categoryFCRRate < 40 && agentCategoryFCRRate === 0) {
+        action = 'Dual Alert: retrain agent and escalate systemic fixes';
+      } else if (categoryFCRRate < 40) {
+        action = 'Systemic Category Issue: everyone struggles, process fix needed';
+      } else if (agentCategoryFCRRate < categoryFCRRate - 20) {
+        action = 'Agent Skill Gap: training/coaching needed';
+      }
+      rows.push({
+        categoryId: v.categoryId,
+        agentId: v.agentId,
+        categoryFCRRate,
+        agentCategoryFCRRate,
+        action,
+        ticketIds: v.ticketIds,
+        totalTickets: v.total,
+      });
+    }
+
+    return rows;
+  }, [aggregatedNonFCRRows, groupTickets]);
+
+  const selectRiskRow = (row: any) => {
+    // Build sample tickets list from available group tickets and aggregated ticket ids when present
+    let sampleTickets: any[] = [];
+    if (row.ticketIds && Array.isArray(row.ticketIds) && row.ticketIds.length > 0) {
+      const idSet = new Set(row.ticketIds.map((id: any) => String(id)));
+      sampleTickets = groupTickets.filter(t => idSet.has(String(t.ticket_id)) && !t.fcr && Number(t.category_id) === Number(row.categoryId) && (row.agentId == null || Number(t.assigned_to_id) === Number(row.agentId)));
+    }
+    // Fallback: find any matching non-FCR ticket
+    if (sampleTickets.length === 0) {
+      const fallback = groupTickets.find((t) => !t.fcr && Number(t.category_id) === Number(row.categoryId) && (row.agentId == null || Number(t.assigned_to_id) === Number(row.agentId)));
+      if (fallback) sampleTickets = [fallback];
+    }
+
+    setSelectedRiskRow({ ...row, sampleTickets });
+    setRiskDetailsOpen(true);
+  };
   
   // Calculate KPIs for manager's group only
   const groupKPIs = {
@@ -1003,7 +1094,7 @@ export default function ManagerDashboard() {
         <CardHeader>
           <CardTitle>Non-FCR Risk Summary</CardTitle>
           <p className="text-xs text-gray-500 mt-1">
-            Ticket-level non-FCR risk and category action guidance for {displayGroup?.group_name || `Group ${displayGroupId}`}
+            Category- and agent-level non-FCR risk guidance for {displayGroup?.group_name || `Group ${displayGroupId}`}
           </p>
         </CardHeader>
         <CardContent>
@@ -1011,17 +1102,17 @@ export default function ManagerDashboard() {
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Ticket</th>
                   <th className="px-3 py-3 text-left font-semibold text-slate-700">Category</th>
                   <th className="px-3 py-3 text-left font-semibold text-slate-700">Category FCR Rate</th>
                   <th className="px-3 py-3 text-left font-semibold text-slate-700">Agent</th>
                   <th className="px-3 py-3 text-left font-semibold text-slate-700">Agent Category FCR Rate</th>
                   <th className="px-3 py-3 text-left font-semibold text-slate-700">Recommended Action</th>
+                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Details</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
                 {(() => {
-                  const visibleRows = groupNonFCRCategoryRiskRows.filter(r => !/No Risk/i.test(r.action)).slice(0, 10);
+                  const visibleRows = aggregatedDisplayRows.filter((r: any) => !/No Risk/i.test(r.action)).slice(0, 10);
                   if (visibleRows.length === 0) {
                     return (
                       <tr>
@@ -1032,19 +1123,27 @@ export default function ManagerDashboard() {
                     );
                   }
 
-                  return visibleRows.map((row) => {
+                  return visibleRows.map((row: any) => {
                     const agent = row.agentId ? getUserById(row.agentId) : null;
                     const agentName = agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown agent';
                     const categoryName = getCategoryNameById(row.categoryId);
 
                     return (
-                      <tr key={`${row.ticketId}-${row.agentId || 'unknown'}`}>
-                        <td className="px-3 py-3 text-slate-900">{row.ticketId}</td>
+                      <tr key={`${row.categoryId}-${row.agentId || 'unknown'}`}> 
                         <td className="px-3 py-3 text-slate-700">{categoryName}</td>
-                        <td className="px-3 py-3 text-slate-700">{row.categoryFCRRate.toFixed(1)}%</td>
+                        <td className="px-3 py-3 text-slate-700">{Number(row.categoryFCRRate).toFixed(1)}%</td>
                         <td className="px-3 py-3 text-slate-700">{agentName}</td>
-                        <td className="px-3 py-3 text-slate-700">{row.agentCategoryFCRRate.toFixed(1)}%</td>
+                        <td className="px-3 py-3 text-slate-700">{Number(row.agentCategoryFCRRate).toFixed(1)}%</td>
                         <td className="px-3 py-3 text-slate-700">{row.action}</td>
+                        <td className="px-3 py-3 text-slate-700">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => selectRiskRow(row)}
+                          >
+                            View sample
+                          </Button>
+                        </td>
                       </tr>
                     );
                   });
@@ -1054,6 +1153,65 @@ export default function ManagerDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={riskDetailsOpen} onOpenChange={setRiskDetailsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Risk Detail</DialogTitle>
+            <DialogDescription>
+              This view shows a sample ticket and the underlying category/agent risk drivers.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedRiskRow ? (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-600">Category</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900">{getCategoryNameById(selectedRiskRow.categoryId)}</p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Category FCR Rate</p>
+                  <p className="mt-1 text-2xl font-bold text-slate-900">{Number(selectedRiskRow.categoryFCRRate).toFixed(1)}%</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Agent FCR Rate</p>
+                  <p className="mt-1 text-2xl font-bold text-slate-900">{Number(selectedRiskRow.agentCategoryFCRRate).toFixed(1)}%</p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Recommended action</p>
+                <p className="mt-1 text-base text-slate-900">{selectedRiskRow.action}</p>
+              </div>
+              {selectedRiskRow.sampleTickets && selectedRiskRow.sampleTickets.length > 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Flagged tickets ({selectedRiskRow?.sampleTickets?.length ?? 0})</p>
+                  <div className="mt-2 max-h-48 overflow-auto text-sm text-slate-700 space-y-2">
+                    {selectedRiskRow.sampleTickets.map((t: any) => (
+                      <div key={t.ticket_id} className="rounded p-2 border border-slate-100 bg-slate-50">
+                        <div><span className="font-semibold">Ticket:</span> {t.ticket_id}</div>
+                        <div><span className="font-semibold">Status:</span> {t.status_id}</div>
+                        <div><span className="font-semibold">Created:</span> {t.created_date}</div>
+                        <div><span className="font-semibold">Assignee:</span> {t.assigned_to_id ?? 'Unassigned'}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-sm text-slate-600">No flagged tickets found for this risk row.</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-600">Select a row to view more details.</p>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setRiskDetailsOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
