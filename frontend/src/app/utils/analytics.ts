@@ -44,40 +44,151 @@ export interface ProductivityTrend {
   avgResolutionTime: number;
 }
 
-export const normalizeTicket = (ticket: any) => {
-  const createdDate = ticket.created_date ?? ticket.opened_at ?? ticket.openedAt ?? ticket.date_created ?? ticket.dateOpened ?? ticket.open_date ?? '';
+export interface WorkloadTrendPoint {
+  weekStart: string;
+  weekLabel: string;
+  ticketCount: number;
+  projected?: boolean;
+  predictedTickets?: number;
+}
+
+export interface GroupWorkloadMetrics {
+  groupId: number;
+  totalTickets: number;
+  monthlyTicketRate: number;
+  ticketsPerAgent: number;
+  staffCount: number;
+  slaCompliance: number;
+  fcrRate: number;
+  medianResolutionTime: number;
+  reopenRate: number;
+  loadRatio: number;
+  hasKpiPressure: boolean;
+}
+
+export interface WorkloadRecommendation {
+  groupId: number;
+  teamName: string;
+  decision: 'Hire' | 'Temporary staffing / reassign' | 'Training' | 'Retain & monitor';
+  capacityGap: number;
+  loadRatio: number;
+  hasKpiPressure: boolean;
+  sustainedGrowth: boolean;
+  rationale: string;
+}
+
+export interface WorkloadRecommendationsResult {
+  overallDecision: 'Hire' | 'Temporary staffing / reassign' | 'Training' | 'Retain & monitor';
+  overallRationale: string;
+  overallLoadRatio: number;
+  overallMonthlyRate: number;
+  overallHasKpiPressure: boolean;
+  overallSustainedGrowth: boolean;
+  groupRecommendations: WorkloadRecommendation[];
+}
+
+const toDateString = (value: unknown): string => {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : value.toISOString();
+  }
+  if (typeof value === 'number') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed;
+  }
+  return '';
+};
+
+const getTicketDateValue = (ticket: any): unknown => (
+  ticket?.created_date ??
+  ticket?.createdDate ??
+  ticket?.created_at ??
+  ticket?.createdAt ??
+  ticket?.opened_at ??
+  ticket?.openedAt ??
+  ticket?.updated_at ??
+  ticket?.updatedAt
+);
+
+const sanitizeTicket = (ticket: any) => {
+  const primaryDate = getTicketDateValue(ticket);
+  const openedDate = ticket?.opened_at ?? ticket?.openedAt ?? primaryDate;
+
   return {
-    ...ticket,
-    created_date: createdDate,
-    opened_at: ticket.opened_at ?? ticket.openedAt ?? createdDate,
-    reopen_count: ticket.reopen_count ?? ticket.reopenCount ?? 0,
-    duration: ticket.duration ?? ticket.duration_minutes ?? ticket.durationMinutes ?? 0,
-    made_sla: ticket.made_sla ?? ticket.madeSLA ?? false,
-    fcr: ticket.fcr ?? false,
-    status_id: ticket.status_id ?? ticket.statusId ?? 0,
-    priority_id: ticket.priority_id ?? ticket.priorityId ?? 0,
-    category_id: ticket.category_id ?? ticket.categoryId ?? 0,
-    assignment_group_id: ticket.assignment_group_id ?? ticket.assignment_groupId ?? 0,
+    ticket_id: String(ticket.ticket_id ?? ticket.id ?? ticket.ticketId ?? 'unknown'),
+    category_id: Number(ticket.category_id ?? ticket.categoryId ?? 0),
+    priority_id: Number(ticket.priority_id ?? ticket.priorityId ?? 0),
+    assignment_group_id: Number(ticket.assignment_group_id ?? ticket.assignmentGroupId ?? 0),
+    status_id: Number(ticket.status_id ?? ticket.statusId ?? 0),
+    created_date: toDateString(primaryDate),
+    opened_at: toDateString(openedDate),
+    made_sla: ticket.made_sla === true || ticket.madeSla === true,
+    fcr: ticket.fcr === true || ticket.fcr === 'true',
+    reopen_count: Number(ticket.reopen_count ?? ticket.reopenCount ?? 0),
+    duration: typeof ticket.duration === 'number' ? ticket.duration : (typeof ticket.duration === 'string' ? Number(ticket.duration) : undefined),
+    assigned_to_id: Number(ticket.assigned_to_id ?? ticket.assignedToId ?? ticket.assigned_to ?? ticket.assignedTo ?? 0),
+    closed_by_id: Number(ticket.closed_by_id ?? ticket.closedById ?? ticket.closed_by ?? ticket.closedBy ?? 0),
   };
 };
 
-export const calculateKPIs = (ticketData?: any[]): KPIMetrics => {
-  const ticketsToUse = (ticketData !== undefined ? ticketData : seedDataTickets)
-    .map(normalizeTicket);
+const getTicketsToUse = (ticketData?: any[]) => {
+  const source = Array.isArray(ticketData) ? ticketData : seedDataTickets;
+  return source.map(sanitizeTicket);
+};
 
+const parseDate = (value: unknown) => {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === 'number') {
+    const fromNumber = new Date(value);
+    return Number.isNaN(fromNumber.getTime()) ? null : fromNumber;
+  }
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'null' || trimmed.toLowerCase() === 'undefined') {
+    return null;
+  }
+
+  const date = new Date(trimmed);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getWeekStart = (date: Date) => {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  copy.setDate(copy.getDate() - copy.getDay());
+  return copy;
+};
+
+const toLocalDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const calculateKPIs = (ticketData?: any[]): KPIMetrics => {
+  const ticketsToUse = getTicketsToUse(ticketData);
   const totalTickets = ticketsToUse.length;
-  const slaMetCount = ticketsToUse.filter((t) => t.made_sla === true).length;
-  const fcrCount = ticketsToUse.filter((t) => t.fcr === true).length;
-  const reopenedCount = ticketsToUse.filter((t) => Number(t.reopen_count) > 0).length;
-  const resolvedTickets = ticketsToUse.filter((t) => t.status_id === 3 || t.status_id === 4);
+  const slaMetCount = ticketsToUse.filter(t => t.made_sla === true).length;
+  const fcrCount = ticketsToUse.filter(t => t.fcr === true).length;
+  const reopenedCount = ticketsToUse.filter(t => t.reopen_count > 0).length;
+  const resolvedTickets = ticketsToUse.filter(t => t.status_id === 3 || t.status_id === 4);
 
   const resolutionTimes = resolvedTickets
-    .filter((t) => t.duration !== undefined && t.duration !== null)
-    .map((t) => Number(t.duration) / 60)
+    .filter(t => t.duration !== undefined && t.duration !== null)
+    .map(t => t.duration / 60)
     .sort((a, b) => a - b);
 
   const median = resolutionTimes.length > 0
-    ? resolutionTimes[Math.floor(resolutionTimes.length / 2)]
+    ? resolutionTimes[Math.floor((resolutionTimes.length - 1) / 2)]
     : 0;
 
   return {
@@ -86,89 +197,228 @@ export const calculateKPIs = (ticketData?: any[]): KPIMetrics => {
     medianResolutionTime: median,
     reopenRate: totalTickets > 0 ? (reopenedCount / totalTickets) * 100 : 0,
     totalTickets,
-    resolvedTickets: resolvedTickets.length,
+    resolvedTickets: resolvedTickets.length
   };
 };
 
-const getWeekStart = (dateValue: string | Date) => {
-  const d = new Date(dateValue);
-  if (isNaN(d.getTime())) return '';
-  const weekStart = new Date(d);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-  return weekStart.toISOString().slice(0, 10);
-};
+export const getWeeklyTicketSeries = (
+  ticketData?: any[],
+  options?: { weeks?: number; futureWeeks?: number; forecastDaily?: number[]; predictionStartDate?: Date }
+): WorkloadTrendPoint[] => {
+  const ticketsToUse = getTicketsToUse(ticketData);
+  const weeks = options?.weeks ?? 12;
+  const futureWeeks = options?.futureWeeks ?? 0;
+  const forecastDaily = Array.isArray(options?.forecastDaily) ? options?.forecastDaily : undefined;
+  const predictionStartDate = options?.predictionStartDate
+    ? new Date(options.predictionStartDate)
+    : new Date();
 
-export const getWeeklyTicketSeries = (ticketData?: any[], futureWeeks = 4) => {
-  const ticketsToUse = ticketData !== undefined ? ticketData : seedDataTickets;
-  const weekCounts = ticketsToUse
-    .map(normalizeTicket)
-    .map((ticket) => ({
-      weekStart: getWeekStart(ticket.created_date),
-    }))
-    .filter((item) => item.weekStart)
-    .reduce((acc, item) => {
-      acc[item.weekStart] = (acc[item.weekStart] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+  const counts: Record<string, number> = {};
+  const dates = ticketsToUse
+    .map((t) => parseDate(t.created_date) ?? parseDate(t.opened_at))
+    .filter((d): d is Date => d !== null);
 
-  const weekKeys = Object.keys(weekCounts).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-  if (weekKeys.length === 0) {
+  if (dates.length === 0) {
     return [];
   }
 
-  const firstWeek = new Date(weekKeys[0]);
-  const lastActualWeek = new Date(weekKeys[weekKeys.length - 1]);
-  const weeks: { weekStart: string; tickets: number | null }[] = [];
-  let cursor = new Date(firstWeek);
+  dates.forEach((date) => {
+    const weekStart = toLocalDateKey(getWeekStart(date));
+    counts[weekStart] = (counts[weekStart] || 0) + 1;
+  });
 
-  while (cursor <= lastActualWeek) {
-    const key = cursor.toISOString().slice(0, 10);
-    weeks.push({
-      weekStart: key,
-      tickets: weekCounts[key] ?? 0,
+  const sortedWeeks = Object.keys(counts).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  const lastWeek = parseDate(sortedWeeks[sortedWeeks.length - 1])!;
+  const historicalWeeks = sortedWeeks.slice(-weeks);
+  const startWeek = getWeekStart(parseDate(historicalWeeks[0]) ?? parseDate(sortedWeeks[0])!);
+
+  const series: WorkloadTrendPoint[] = [];
+  const forecastMap = new Map<string, number>();
+  if (forecastDaily && forecastDaily.length > 0) {
+    const forecastBase = new Date(predictionStartDate);
+    forecastBase.setHours(0, 0, 0, 0);
+
+    forecastDaily.forEach((value, index) => {
+      const forecastDate = new Date(forecastBase);
+      forecastDate.setDate(forecastDate.getDate() + index + 1);
+      const forecastWeekKey = toLocalDateKey(getWeekStart(forecastDate));
+      forecastMap.set(forecastWeekKey, (forecastMap.get(forecastWeekKey) || 0) + Number(value));
     });
-    cursor.setDate(cursor.getDate() + 7);
   }
 
-  const xValues = weeks.map((_, index) => index);
-  const yValues = weeks.map((item) => item.tickets ?? 0);
-  const n = xValues.length;
-  let slope = 0;
-  let intercept = 0;
+  const endWeek = new Date(startWeek);
+  endWeek.setDate(endWeek.getDate() + 7 * (historicalWeeks.length + (forecastDaily ? futureWeeks : 0) - 1));
 
-  if (n > 1) {
-    const sumX = xValues.reduce((sum, value) => sum + value, 0);
-    const sumY = yValues.reduce((sum, value) => sum + value, 0);
-    const sumXY = xValues.reduce((sum, x, index) => sum + x * yValues[index], 0);
-    const sumX2 = xValues.reduce((sum, x) => sum + x * x, 0);
-    const denominator = n * sumX2 - sumX * sumX;
-    slope = denominator !== 0 ? (n * sumXY - sumX * sumY) / denominator : 0;
-    intercept = (sumY - slope * sumX) / n;
-  } else {
-    intercept = yValues[0] ?? 0;
-  }
+  let pointer = new Date(startWeek);
+  while (pointer <= endWeek) {
+    const weekKey = toLocalDateKey(getWeekStart(pointer));
+    const count = counts[weekKey] || 0;
+    const projected = parseDate(weekKey)!.getTime() > lastWeek.getTime();
+    const predictedTickets = projected && forecastMap.has(weekKey)
+      ? Math.max(0, Math.round(forecastMap.get(weekKey)!))
+      : undefined;
 
-  const series = weeks.map((entry, index) => ({
-    week: new Date(entry.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    tickets: entry.tickets,
-    predictedTickets: Number(Math.max(0, intercept + slope * index).toFixed(1)),
-  }));
-
-  for (let i = 1; i <= futureWeeks; i++) {
-    const nextWeek = new Date(lastActualWeek);
-    nextWeek.setDate(nextWeek.getDate() + 7 * i);
-    const predictedIndex = weeks.length + i - 1;
     series.push({
-      week: nextWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      tickets: null,
-      predictedTickets: Number(Math.max(0, intercept + slope * predictedIndex).toFixed(1)),
+      weekStart: weekKey,
+      weekLabel: pointer.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      ticketCount: Number(count),
+      projected,
+      predictedTickets,
     });
+
+    pointer.setDate(pointer.getDate() + 7);
   }
 
   return series;
 };
 
-export const getTicketsByPriority = (ticketData?: any[]) => {
+export const getMonthlyTicketRate = (ticketData?: any[]): number => {
+  const ticketsToUse = getTicketsToUse(ticketData);
+  if (ticketsToUse.length === 0) return 0;
+
+  const createdDates = ticketsToUse
+    .map(t => parseDate(t.created_date))
+    .filter((d): d is Date => d !== null)
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  if (createdDates.length === 0) return 0;
+
+  const first = createdDates[0].getTime();
+  const last = createdDates[createdDates.length - 1].getTime();
+  const durationDays = Math.max(1, (last - first) / (1000 * 60 * 60 * 24));
+  const ticketsPerDay = ticketsToUse.length / durationDays;
+  return ticketsPerDay * 30;
+};
+
+export const getGroupAssignmentMetrics = (ticketData?: any[], groupId?: number): GroupWorkloadMetrics => {
+  const ticketsToUse = getTicketsToUse(ticketData);
+  const groupTickets = typeof groupId === 'number'
+    ? ticketsToUse.filter(t => t.assignment_group_id === groupId)
+    : ticketsToUse;
+
+  const totalTickets = groupTickets.length;
+  const monthlyTicketRate = getMonthlyTicketRate(groupTickets);
+  const assignedAgents = Array.from(new Set(groupTickets
+    .map(t => t.assigned_to_id)
+    .filter(id => id > 0)));
+  const staffCount = Math.max(assignedAgents.length, 1);
+  const ticketsPerAgent = staffCount > 0 ? monthlyTicketRate / staffCount : monthlyTicketRate;
+  const kpis = calculateKPIs(groupTickets);
+  const loadRatio = ticketsPerAgent / 204;
+  const hasKpiPressure = kpis.slaCompliance < 90 || kpis.fcrRate < 75 || kpis.medianResolutionTime > 1.6 || kpis.reopenRate > 10;
+
+  return {
+    groupId: typeof groupId === 'number' ? groupId : 0,
+    totalTickets,
+    monthlyTicketRate,
+    ticketsPerAgent,
+    staffCount,
+    slaCompliance: kpis.slaCompliance,
+    fcrRate: kpis.fcrRate,
+    medianResolutionTime: kpis.medianResolutionTime,
+    reopenRate: kpis.reopenRate,
+    loadRatio,
+    hasKpiPressure,
+  };
+};
+
+export const getWorkloadRecommendations = (ticketData?: any[], options?: { baselinePerAgent?: number; sustainedGrowthThreshold?: number; workloadThreshold?: number; shortTermThreshold?: number }): WorkloadRecommendationsResult => {
+  const baselinePerAgent = options?.baselinePerAgent ?? 204;
+  const sustainedGrowthThreshold = options?.sustainedGrowthThreshold ?? 10;
+  const workloadThreshold = options?.workloadThreshold ?? 1.1;
+  const shortTermThreshold = options?.shortTermThreshold ?? 1.05;
+
+  const ticketsToUse = getTicketsToUse(ticketData);
+  const overallMonthlyRate = getMonthlyTicketRate(ticketsToUse);
+  const kpis = calculateKPIs(ticketsToUse);
+  const overallLoadRatio = overallMonthlyRate / baselinePerAgent;
+
+  const weeklySeries = getWeeklyTicketSeries(ticketsToUse, { weeks: 12, futureWeeks: 0 });
+  const historical = weeklySeries.filter(point => !point.projected).map(point => point.ticketCount);
+  const sustainedGrowth = historical.length >= 8
+    ? ((historical.slice(-4).reduce((sum, value) => sum + value, 0) / 4) - (historical.slice(-8, -4).reduce((sum, value) => sum + value, 0) / 4)) / Math.max(1, (historical.slice(-8, -4).reduce((sum, value) => sum + value, 0) / 4)) * 100 > sustainedGrowthThreshold
+    : false;
+
+  const overallHasKpiPressure = kpis.slaCompliance < 90 || kpis.fcrRate < 75 || kpis.medianResolutionTime > 1.6 || kpis.reopenRate > 10;
+
+  const overallDecision = (() => {
+    if (overallLoadRatio > workloadThreshold && sustainedGrowth && overallHasKpiPressure) return 'Hire' as const;
+    if (overallLoadRatio > shortTermThreshold && !overallHasKpiPressure) return 'Temporary staffing / reassign' as const;
+    if (overallHasKpiPressure) return 'Training' as const;
+    return 'Retain & monitor' as const;
+  })();
+
+  const overallRationale = (() => {
+    if (overallDecision === 'Hire') {
+      return 'Sustained workload growth plus KPI pressure indicate a permanent staffing need.';
+    }
+    if (overallDecision === 'Temporary staffing / reassign') {
+      return 'Demand is elevated, but KPIs remain healthy; short-term capacity adjustments are preferred.';
+    }
+    if (overallDecision === 'Training') {
+      return 'KPIs are under pressure, so coaching and process improvements are the priority.';
+    }
+    return 'Workload and KPIs are stable; retain current staffing and monitor trends.';
+  })();
+
+  const ticketGroups = ticketsToUse.reduce((acc: Record<number, any[]>, ticket) => {
+    const groupKey = ticket.assignment_group_id || 0;
+    acc[groupKey] = acc[groupKey] || [];
+    acc[groupKey].push(ticket);
+    return acc;
+  }, {} as Record<number, any[]>);
+
+  const groupRecommendations = Object.entries(ticketGroups).map(([groupKey, groupTickets]) => {
+    const groupId = Number(groupKey);
+    const groupMetrics = getGroupAssignmentMetrics(groupTickets, groupId);
+    const groupWeeklySeries = getWeeklyTicketSeries(groupTickets, { weeks: 12, futureWeeks: 0 }).filter(point => !point.projected).map(point => point.ticketCount);
+    const groupSustainedGrowth = groupWeeklySeries.length >= 8
+      ? ((groupWeeklySeries.slice(-4).reduce((sum, value) => sum + value, 0) / 4) - (groupWeeklySeries.slice(-8, -4).reduce((sum, value) => sum + value, 0) / 4)) / Math.max(1, (groupWeeklySeries.slice(-8, -4).reduce((sum, value) => sum + value, 0) / 4)) * 100 > sustainedGrowthThreshold
+      : false;
+
+    const decision = (() => {
+      if (groupMetrics.loadRatio > workloadThreshold && groupSustainedGrowth && groupMetrics.hasKpiPressure) return 'Hire' as const;
+      if (groupMetrics.loadRatio > shortTermThreshold && !groupMetrics.hasKpiPressure) return 'Temporary staffing / reassign' as const;
+      if (groupMetrics.hasKpiPressure) return 'Training' as const;
+      return 'Retain & monitor' as const;
+    })();
+
+    const capacityGap = Math.max(0, Math.ceil((groupMetrics.monthlyTicketRate / baselinePerAgent) - groupMetrics.staffCount));
+    const teamName = `Group ${groupId}`;
+
+    return {
+      groupId,
+      teamName,
+      decision,
+      capacityGap,
+      loadRatio: groupMetrics.loadRatio,
+      hasKpiPressure: groupMetrics.hasKpiPressure,
+      sustainedGrowth: groupSustainedGrowth,
+      rationale: decision === 'Hire'
+        ? 'Sustained group workload growth plus KPI pressure indicate hiring is the proper response.'
+        : decision === 'Temporary staffing / reassign'
+          ? 'Group workload is elevated, but KPI performance is still acceptable; use short-term capacity adjustments.'
+          : decision === 'Training'
+            ? 'Group KPI pressure suggests coaching and process improvements before expanding headcount.'
+            : 'Group workload and KPI performance are currently balanced; monitor the trend.'
+    };
+  });
+
+  return {
+    overallDecision,
+    overallRationale,
+    overallLoadRatio,
+    overallMonthlyRate,
+    overallHasKpiPressure,
+    overallSustainedGrowth: sustainedGrowth,
+    groupRecommendations,
+  };
+};
+
+export const getTicketsByPriority = (
+  ticketData?: any[],
+  getPriorityLabel?: (id: number) => string
+) => {
   const ticketsToUse = ticketData !== undefined ? ticketData : seedDataTickets;
   const priorityCounts = ticketsToUse.reduce((acc, ticket) => {
     acc[ticket.priority_id] = (acc[ticket.priority_id] || 0) + 1;
@@ -177,10 +427,12 @@ export const getTicketsByPriority = (ticketData?: any[]) => {
 
   return Object.entries(priorityCounts).map(([id, count]) => {
     const priorityId = parseInt(id);
-    const priority = seedPriorities.find(p => p.priority_id === priorityId);
+    const priority = getPriorityLabel
+      ? getPriorityLabel(priorityId)
+      : seedPriorities.find(p => p.priority_id === priorityId)?.priority_level || `Priority ${priorityId}`;
     return {
       priorityId,
-      priority: priority?.priority_level || `Priority ${priorityId}`,
+      priority,
       count
     };
   });
@@ -528,49 +780,4 @@ export const getEmployeePerformance = (ticketData?: any[]): EmployeePerformance[
  */
 export const getTopAgents = (ticketData?: any[], topN = 10) => {
   return getEmployeePerformance(ticketData).sort((a, b) => b.ticketsResolved - a.ticketsResolved).slice(0, topN);
-};
-
-/**
- * Calculate the monthly ticket rate based on recent ticket history.
- * Uses the last 30 days of tickets to estimate the monthly rate.
- * If insufficient data, extrapolates from available date range.
- * Returns the total monthly ticket volume for the dataset.
- * 
- * @param ticketData - Array of ticket records
- * @param days - Number of days to analyze (default: 30 for monthly rate)
- * @returns Monthly ticket volume estimate
- */
-export const getMonthlyTicketRate = (ticketData?: any[], days: number = 30): number => {
-  const ticketsToUse = ticketData !== undefined ? ticketData : seedDataTickets;
-  if (ticketsToUse.length === 0) return 0;
-
-  const now = new Date();
-  const cutoffDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-
-  // Filter tickets within the time window
-  const recentTickets = ticketsToUse.filter(t => {
-    const ticketDate = new Date(t.created_date);
-    return ticketDate >= cutoffDate && ticketDate <= now;
-  });
-
-  if (recentTickets.length === 0) {
-    // Fallback: if no recent data, use all tickets and extrapolate
-    if (ticketsToUse.length === 0) return 0;
-    
-    // Find date range in dataset
-    const dates = ticketsToUse
-      .map(t => new Date(t.created_date).getTime())
-      .filter(d => !isNaN(d))
-      .sort((a, b) => a - b);
-    
-    if (dates.length < 2) return ticketsToUse.length; // Can't extrapolate from less than 2 dates
-    
-    const daysDiff = (dates[dates.length - 1] - dates[0]) / (24 * 60 * 60 * 1000);
-    const monthMultiplier = 30 / Math.max(daysDiff, 1);
-    return Math.round(ticketsToUse.length * monthMultiplier);
-  }
-
-  // Calculate daily rate from recent tickets and extrapolate to 30 days
-  const dailyRate = recentTickets.length / days;
-  return Math.round(dailyRate * 30);
 };

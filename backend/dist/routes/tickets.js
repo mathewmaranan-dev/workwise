@@ -6,9 +6,17 @@ const router = Router();
 router.get('/', verifyToken, async (req, res) => {
     try {
         const tickets = await getAllTickets({
+            ticket_id: String(req.query.ticket_id || ''),
+            assigned_to_id: String(req.query.assigned_to_id || req.query.assigned_to || ''),
+            assignment_group_id: String(req.query.assignment_group_id || ''),
+            category_id: String(req.query.category_id || ''),
+            status_id: String(req.query.status_id || ''),
             status: String(req.query.status || ''),
-            assigned_to: String(req.query.assigned_to || ''),
-            priority: String(req.query.priority || ''),
+            priority_id: String(req.query.priority_id || req.query.priority || ''),
+            created_from: String(req.query.created_from || ''),
+            created_to: String(req.query.created_to || ''),
+            limit: String(req.query.limit || ''),
+            offset: String(req.query.offset || ''),
         });
         res.json(tickets);
     }

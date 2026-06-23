@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { testConnection } from './config/database.js';
@@ -10,6 +11,7 @@ import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
 import ticketsRoutes from './routes/tickets.js';
 import kpisRoutes from './routes/kpis.js';
+import lookupsRoutes from './routes/lookups.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,10 +45,14 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/kpis', kpisRoutes);
+app.use('/api/lookups', lookupsRoutes);
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5001';
 app.use('/api/ml', async (req, res) => {
     try {
-        const target = new URL(req.originalUrl, ML_SERVICE_URL);
+        // Forward the original request path to the ML service so that
+        // endpoints defined under `/api/ml/...` on the ML service match.
+        const mlPath = req.originalUrl || '/';
+        const target = new URL(mlPath, ML_SERVICE_URL);
         const headers = new Headers();
         for (const [key, value] of Object.entries(req.headers)) {
             if (typeof value === 'string') {
@@ -78,16 +84,24 @@ app.use('/api/ml', async (req, res) => {
         res.status(502).json({ error: 'Failed to reach ML service' });
     }
 });
-// Serve frontend static assets in production
+// Serve frontend static assets in production if they exist
 if (NODE_ENV === 'production') {
-    const frontendDist = path.resolve(__dirname, '../frontend/dist');
-    app.use(express.static(frontendDist));
-    app.get('*', (req, res, next) => {
-        if (req.path.startsWith('/api/')) {
-            return next();
-        }
-        res.sendFile(path.join(frontendDist, 'index.html'));
-    });
+    // When running compiled code, __dirname is backend/dist.
+    // The frontend build lives at the repo root: frontend/dist.
+    const frontendDist = path.resolve(__dirname, '../../frontend/dist');
+    const frontendIndex = path.join(frontendDist, 'index.html');
+    if (fs.existsSync(frontendIndex)) {
+        app.use(express.static(frontendDist));
+        app.get('*', (req, res, next) => {
+            if (req.path.startsWith('/api/')) {
+                return next();
+            }
+            res.sendFile(frontendIndex);
+        });
+    }
+    else {
+        console.warn(`Frontend build not found at ${frontendIndex}. Static frontend routes are disabled.`);
+    }
 }
 // 404 handler
 app.use((req, res) => {

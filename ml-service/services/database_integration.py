@@ -7,6 +7,10 @@ Handles communication with backend PostgreSQL database
 import logging
 import os
 from typing import List, Dict, Any, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 try:
     import psycopg2
@@ -17,21 +21,47 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / '.env', override=True)
+if not os.getenv('DATABASE_URL') and os.getenv('\ufeffDATABASE_URL'):
+    os.environ['DATABASE_URL'] = os.getenv('\ufeffDATABASE_URL', '')
+
 
 class DatabaseConnector:
     """Manages database connections and queries"""
     
     def __init__(self):
-        self.connection_string = os.getenv(
-            'DATABASE_URL',
-            'postgresql://user:password@localhost:5432/workwise'
-        )
+        self.connection_string = self._resolve_connection_string()
         self.conn = None
         self.available = psycopg2 is not None and RealDictCursor is not None
         if not self.available:
             logger.warning(
                 "psycopg2 is not installed; database-backed ML features will be unavailable until the dependency is fixed."
             )
+
+    def _resolve_connection_string(self) -> str:
+        raw_url = (os.getenv('DATABASE_URL') or os.getenv('\ufeffDATABASE_URL') or '').strip()
+        if not raw_url:
+            # Keep a local default for development if DATABASE_URL is missing.
+            raw_url = 'postgresql://user:password@localhost:5432/workwise_db'
+
+        try:
+            parsed = urlsplit(raw_url)
+            host = (parsed.hostname or '').lower()
+            query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+
+            # Managed Postgres providers typically require SSL.
+            if host and host not in {'localhost', '127.0.0.1'} and 'sslmode' not in query:
+                query['sslmode'] = 'require'
+
+            return urlunsplit((
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                urlencode(query),
+                parsed.fragment,
+            ))
+        except Exception:
+            return raw_url
     
     def connect(self) -> bool:
         """Establish database connection"""
@@ -74,37 +104,30 @@ class DatabaseConnector:
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
                 SELECT 
-                    t.id as ticket_id,
-                    t.title,
-                    t.description,
-                    t.status,
-                    t.priority,
-                    t.category_id,
-                    c.name as category,
+                    t.ticket_id,
                     t.assignment_group_id,
-                    t.assigned_to,
-                    t.created_at,
+                    t.assigned_to_id,
+                    t.category_id,
+                    t.priority_id,
+                    t.status_id,
+                    t.created_date AS created_at,
                     t.updated_at,
-                    t.resolved_at,
-                    t.sla_met,
+                    t.resolved_date AS resolved_at,
+                    t.made_sla AS sla_met,
                     t.fcr,
                     t.reopen_count,
                     t.reassignment_count,
-                    EXTRACT(EPOCH FROM (COALESCE(t.resolved_at, NOW()) - t.created_at))/3600 as duration,
-                    u.name as agent_name,
-                    u.experience_level
+                    t.duration
                 FROM tickets t
-                LEFT JOIN ticket_categories c ON t.category_id = c.id
-                LEFT JOIN users u ON t.assigned_to = u.id
-                WHERE t.created_at >= NOW() - INTERVAL '{days_back} days'
+                WHERE t.created_date >= NOW() - INTERVAL %s
                 """
                 
-                params = []
-                if group_id:
+                params = [f'{days_back} days']
+                if group_id is not None:
                     query += " AND t.assignment_group_id = %s"
                     params.append(group_id)
                 
-                query += " ORDER BY t.created_at DESC"
+                query += " ORDER BY t.created_date DESC"
                 
                 cur.execute(query, params)
                 return cur.fetchall()

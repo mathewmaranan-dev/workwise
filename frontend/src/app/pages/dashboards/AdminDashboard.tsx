@@ -4,7 +4,7 @@ import { TrendingUp, TrendingDown, Clock, RefreshCcw, Download } from 'lucide-re
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { calculateKPIs, getTicketsByPriority, getWeeklyTicketSeries, getAssignmentGroupPerformance } from '../../utils/analytics';
 import { getAssignmentGroupById } from '../../data/seedData';
-import { useLookupData } from '../../hooks/useLookupData';
+import { LookupPriority, useLookupData } from '../../hooks/useLookupData';
 import { Button } from '../../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { exportTicketsToCSV } from '../../utils/csvUtils';
@@ -17,6 +17,12 @@ import HRDashboard from './HRDashboard';
 import AgentDashboard from './AgentDashboard';
 
 const COLORS = ['#4F46E5', '#06B6D4', '#10B981', '#F59E0B', '#EF4444'];
+
+type PriorityChartPoint = {
+  priorityId: number;
+  priority: string;
+  count: number;
+};
 
 export default function AdminDashboard() {
   const [dashboardView, setDashboardView] = useState('admin');
@@ -94,7 +100,7 @@ export default function AdminDashboard() {
   }, [dashboardLoading, dashboardTickets, uploadedData]);
   const hasData = currentTickets.length > 0;
 
-  const { getCategoryName, getPriorityLabel } = useLookupData(apiBase);
+  const { getCategoryName, getPriorityLabel, priorities } = useLookupData(apiBase);
 
   const handleExport = () => {
     exportTicketsToCSV();
@@ -116,10 +122,13 @@ export default function AdminDashboard() {
         <TabsContent value="admin">
           <AdminView
             currentTickets={currentTickets}
+            backendTickets={dashboardTickets}
             hasData={hasData}
             user={user}
+            apiBase={apiBase}
             getCategoryName={getCategoryName}
             getPriorityLabel={getPriorityLabel}
+            priorities={priorities}
             dashboardMetrics={dashboardMetrics}
             dashboardLoading={dashboardLoading}
             dashboardError={dashboardError}
@@ -144,24 +153,44 @@ export default function AdminDashboard() {
 
 function AdminView({
   currentTickets,
+  backendTickets,
   hasData,
   user,
+  apiBase,
   getCategoryName,
   getPriorityLabel,
+  priorities,
   dashboardMetrics,
   dashboardLoading,
   dashboardError,
 }: {
   currentTickets: any[];
+  backendTickets: any[];
   hasData: boolean;
   user: any;
+  apiBase: string;
   getCategoryName: (id: number | string | undefined | null) => string;
   getPriorityLabel: (id: number | string | undefined | null) => string;
+  priorities: LookupPriority[];
   dashboardMetrics: any | null;
   dashboardLoading: boolean;
   dashboardError: string | null;
 }) {
-  const [chartPriorityFilter, setChartPriorityFilter] = useState<'all' | 'Critical' | 'High' | 'Medium' | 'Low'>('all');
+  const [mlForecast, setMlForecast] = useState<{
+    forecast: number[];
+    model: string | null;
+    dataSource: string | null;
+    confidence: number | null;
+    loading: boolean;
+    error: string | null;
+  }>({
+    forecast: [],
+    model: null,
+    dataSource: null,
+    confidence: null,
+    loading: false,
+    error: null,
+  });
 
   const dashboardKpis = useMemo(() => {
     const fallback = calculateKPIs(currentTickets);
@@ -188,18 +217,161 @@ function AdminView({
     };
   }, [dashboardMetrics, currentTickets]);
 
-  const priorityData = getTicketsByPriority(currentTickets);
+  const priorityOrder = useMemo(() => {
+    const order = new Map<string, number>();
+    priorities.forEach((priority, index) => {
+      order.set(String(priority.priority_level), index);
+    });
+    return order;
+  }, [priorities]);
+
+  const priorityData = useMemo<PriorityChartPoint[]>(() => {
+    const lookupPriorityLevels = new Set(priorities.map((priority) => String(priority.priority_level)));
+
+    const baseData = dashboardMetrics?.byPriority && Array.isArray(dashboardMetrics.byPriority)
+      ? dashboardMetrics.byPriority.map((item: any) => ({
+          priorityId: Number(item.priority_id ?? 0),
+          priority: String(item.priority_level ?? item.priority ?? getPriorityLabel(item.priority_id)),
+          count: Number(item.count ?? 0),
+        }))
+      : getTicketsByPriority(currentTickets, (id) => getPriorityLabel(id as number));
+
+    const filteredByLookup = lookupPriorityLevels.size > 0
+      ? baseData.filter((item: { priority: string }) => lookupPriorityLevels.has(String(item.priority)))
+      : baseData;
+
+    return filteredByLookup.sort(
+      (a: { priority: string }, b: { priority: string }) => (priorityOrder.get(a.priority) ?? 999) - (priorityOrder.get(b.priority) ?? 999)
+    );
+  }, [dashboardMetrics, currentTickets, getPriorityLabel, priorities, priorityOrder]);
+
+  const priorityFilterOptions = useMemo(() => priorities.map((priority) => priority.priority_level), [priorities]);
   const groupPerformance = getAssignmentGroupPerformance(currentTickets);
 
-  const filteredChartTickets = useMemo(() => {
-    if (chartPriorityFilter === 'all') return currentTickets;
-    return currentTickets.filter((ticket: any) => {
-      const label = getPriorityLabel(ticket.priority_id);
-      return label === chartPriorityFilter;
-    });
-  }, [chartPriorityFilter, currentTickets, getPriorityLabel]);
+  const trendTickets = useMemo(() => {
+    if (Array.isArray(backendTickets) && backendTickets.length > 0) {
+      return backendTickets;
+    }
+    return currentTickets;
+  }, [backendTickets, currentTickets]);
 
-  const weeklySeries = useMemo(() => getWeeklyTicketSeries(filteredChartTickets, 4), [filteredChartTickets]);
+  const trendSource = backendTickets.length > 0 ? 'tickets table' : 'fallback dataset';
+
+  const latestCreatedDate = useMemo(() => {
+    const parsedDates = trendTickets
+      .map((ticket: any) => new Date(
+        ticket.created_date ??
+        ticket.createdDate ??
+        ticket.created_at ??
+        ticket.createdAt ??
+        ticket.opened_at ??
+        ticket.openedAt ??
+        ticket.updated_at ??
+        ticket.updatedAt ??
+        ''
+      ))
+      .filter((date: Date) => !Number.isNaN(date.getTime()));
+    if (parsedDates.length === 0) return null;
+    return new Date(Math.max(...parsedDates.map((date: Date) => date.getTime())));
+  }, [trendTickets]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadMlForecast = async () => {
+      setMlForecast((current) => ({ ...current, loading: true, error: null }));
+      try {
+        const token = localStorage.getItem('workwise_token');
+        if (!token) {
+          throw new Error('ML forecast request skipped: missing auth token');
+        }
+
+        const response = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/forecast/tickets`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ days_ahead: 56 }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`ML forecast request failed with status ${response.status}`);
+        }
+
+        const payload = await response.json();
+        if (!isMounted) return;
+
+        setMlForecast({
+          forecast: Array.isArray(payload?.forecast) ? payload.forecast.map((value: any) => Number(value) || 0) : [],
+          model: payload?.model ? String(payload.model) : null,
+          dataSource: payload?.data_source ? String(payload.data_source) : null,
+          confidence: payload?.confidence !== undefined ? Number(payload.confidence) : null,
+          loading: false,
+          error: null,
+        });
+      } catch (error) {
+        if (!isMounted) return;
+        setMlForecast({
+          forecast: [],
+          model: null,
+          dataSource: null,
+          confidence: null,
+          loading: false,
+          error: String(error),
+        });
+      }
+    };
+
+    loadMlForecast();
+    return () => {
+      isMounted = false;
+    };
+  }, [apiBase]);
+
+  const actualWeeklySeries = useMemo(() => {
+    const historical = getWeeklyTicketSeries(trendTickets, {
+      weeks: 12,
+      futureWeeks: 0,
+    });
+
+    return historical.map((point) => ({
+      ...point,
+      actualTickets: point.ticketCount,
+    }));
+  }, [trendTickets]);
+
+  const weeklySeries = useMemo(() => {
+    const canUseMlForecast = mlForecast.forecast.length > 0;
+    if (!canUseMlForecast) {
+      return actualWeeklySeries.map((point) => ({
+        ...point,
+        forecastTickets: null as number | null,
+      }));
+    }
+
+    const forecastSeries = getWeeklyTicketSeries(trendTickets, {
+      weeks: 12,
+      futureWeeks: 8,
+      forecastDaily: mlForecast.forecast,
+      predictionStartDate: latestCreatedDate ?? undefined,
+    });
+
+    const actualByWeek = new Map(actualWeeklySeries.map((point) => [point.weekStart, point.ticketCount]));
+    const latestActualWeekStart = actualWeeklySeries.length > 0
+      ? actualWeeklySeries[actualWeeklySeries.length - 1].weekStart
+      : null;
+
+    return forecastSeries.map((point) => ({
+      ...point,
+      actualTickets: actualByWeek.has(point.weekStart) ? actualByWeek.get(point.weekStart)! : null,
+      forecastTickets: latestActualWeekStart && point.weekStart === latestActualWeekStart
+        ? (actualByWeek.get(point.weekStart) ?? null)
+        : point.projected
+          ? (point.predictedTickets ?? null)
+          : null,
+    }));
+  }, [trendTickets, mlForecast.forecast, latestCreatedDate, actualWeeklySeries]);
 
   const groupPerformanceData = groupPerformance.map(g => ({
     name: getAssignmentGroupById(g.groupId)?.group_name || `Group ${g.groupId}`,
@@ -276,44 +448,33 @@ function AdminView({
 
       <div className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
         <div>
-          <span className="font-semibold text-slate-700">Priority-based chart filter:</span> Volume trend and non-FCR tickets update to the selected priority.
+          <span className="font-semibold text-slate-700">Trend source:</span> Weekly Ticket Volume uses {trendSource} ({trendTickets.length} rows).
         </div>
-        <label className="flex items-center gap-2">
-          <span className="font-medium text-slate-700">Priority</span>
-          <select
-            value={chartPriorityFilter}
-            onChange={(event) => setChartPriorityFilter(event.target.value as 'all' | 'Critical' | 'High' | 'Medium' | 'Low')}
-            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
-          >
-            <option value="all">All priorities</option>
-            <option value="Critical">Critical</option>
-            <option value="High">High</option>
-            <option value="Medium">Medium</option>
-            <option value="Low">Low</option>
-          </select>
-        </label>
+        {dashboardError && <span className="text-rose-600">Backend dashboard fetch warning</span>}
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
         <Card>
           <CardHeader className="pt-2 px-2 pb-1">
-            <CardTitle className="text-xs">Weekly Ticket Volume {chartPriorityFilter === 'all' ? '' : `(${chartPriorityFilter})`}</CardTitle>
+            <CardTitle className="text-xs">Weekly Ticket Volume</CardTitle>
           </CardHeader>
           <CardContent className="px-2 pb-2">
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={weeklySeries}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="week" />
+                <XAxis dataKey="weekLabel" />
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="tickets" stroke="#4F46E5" strokeWidth={2} name="Actual tickets" />
-                <Line type="monotone" dataKey="predictedTickets" stroke="#10B981" strokeWidth={2} strokeDasharray="4 4" name="Predicted trend" />
+                <Line type="monotone" dataKey="forecastTickets" stroke="#10B981" strokeWidth={2} strokeDasharray="4 4" connectNulls={false} name="ML forecast" />
+                <Line type="monotone" dataKey="actualTickets" stroke="#4F46E5" strokeWidth={3} dot={{ r: 2 }} connectNulls={false} name="Actual tickets" />
               </LineChart>
             </ResponsiveContainer>
             <p className="mt-2 text-[10px] text-slate-500">
-              Predicted trend uses a rolling linear fit over the filtered history so you can compare actual volume to projected workload.
+              {mlForecast.error
+                ? 'ML forecast unavailable; showing historical volume only.'
+                : `Forecast is ML-generated${mlForecast.model ? ` (${mlForecast.model})` : ''}${mlForecast.dataSource ? ` using ${mlForecast.dataSource} data` : ''}${mlForecast.confidence !== null ? ` at ${Math.round(mlForecast.confidence * 100)}% confidence` : ''}.`}
             </p>
           </CardContent>
         </Card>
@@ -335,7 +496,7 @@ function AdminView({
                   fill="#8884d8"
                   dataKey="count"
                 >
-                  {priorityData.map((entry, index) => (
+                  {priorityData.map((entry: PriorityChartPoint, index: number) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>

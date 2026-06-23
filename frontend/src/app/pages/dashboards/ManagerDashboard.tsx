@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Users, Activity, AlertTriangle, Target, Filter } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
-import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance, getMonthlyTicketRate } from '../../utils/analytics';
+import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance, getWeeklyTicketSeries } from '../../utils/analytics';
 import { predictNonFCRRisk, NonFCRRiskScore } from '../../utils/mlAlgorithms';
 import NonFCRRiskPanel from '../../components/NonFCRRiskPanel';
 import { 
@@ -435,35 +435,44 @@ export default function ManagerDashboard() {
     return values.reduce((sum, value) => sum + value, 0) / values.length;
   }, [groupNonFCRTickets, riskScoreMap]);
 
-  // Weekly workload for this group (from uploaded data)
-  const weeklyGroupData = (() => {
-    if (!hasData) return [] as { week: string; tickets: number }[];
-    const map: Record<string, number> = {};
-    currentTickets.forEach((t: any) => {
-      if (t.assignment_group_id !== displayGroupId) return;
-      const d = new Date(t.created_date);
-      const wk = new Date(d);
-      wk.setDate(wk.getDate() - wk.getDay());
-      const key = wk.toISOString().split('T')[0];
-      map[key] = (map[key] || 0) + 1;
-    });
-    return Object.entries(map)
-      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
-      .map(([week, count]) => ({ week: new Date(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tickets: count }));
-  })();
+  // Calculate workload metrics for group-specific analysis
+  // Monthly rate normalization: baseline is 204 tickets/agent/month
+  const monthlyBaseline = 204;
+  const monthlyTicketCount = Math.round((selectedGroupTickets.length / Math.max(currentStaffCount, 1)) * (30 / Math.max(1, selectedGroupTickets.length / 30 || 1)));
+  const monthlyWorkloadRate = {
+    monthlyRate: monthlyTicketCount > 0 ? monthlyTicketCount : selectedGroupTickets.length,
+    loadRatio: monthlyTicketCount > 0 ? monthlyTicketCount / monthlyBaseline : (selectedGroupTickets.length / monthlyBaseline)
+  };
 
-  const forecastDemand = mlInsights.forecastMean ?? (groupTickets.length > 0 ? getMonthlyTicketRate(selectedGroupTickets) : 0);
-  const agentCapacityTarget = 204; // Monthly ticket capacity per agent baseline
+  // Calculate KPI pressure indicators (SLA < 90%, FCR < 75%, etc.)
+  const groupKpiPressure = {
+    lowSla: groupKPIs.slaCompliance < 90,
+    lowFcr: groupKPIs.fcrRate < 75,
+    highResolution: false, // Would need resolution time data
+    highReopen: false // Would need reopen rate data
+  };
+  const hasKpiPressure = Object.values(groupKpiPressure).some(v => v);
+
+  const forecastDemand = mlInsights.forecastMean ?? (groupTickets.length > 0 ? groupTickets.length : 0);
+  const agentCapacityTarget = 10;
   const currentCapacity = currentStaffCount * agentCapacityTarget;
   const requiredStaff = Math.ceil(forecastDemand / agentCapacityTarget);
   const staffingGap = requiredStaff - currentStaffCount;
-  const demandCapacityRatio = forecastDemand / Math.max(currentCapacity, 1);
+  
+  // Use monthly rate normalized to 204 baseline for workload calculations
+  const normalizedWorkload = monthlyWorkloadRate.monthlyRate;
+  const workloadRatio = monthlyWorkloadRate.loadRatio; // loadRatio from calculation
   const workloadPerAgent = forecastDemand / Math.max(currentStaffCount, 1);
   const overloadDelta = Math.max(0, forecastDemand - currentCapacity);
   const capacityUtilization = (forecastDemand / Math.max(currentCapacity, 1)) * 100;
-  const staffingDecision = demandCapacityRatio > 1.1 ? 'Hire' : demandCapacityRatio >= 0.9 ? 'Redistribute' : 'Maintain';
-  const staffingReason = `${workloadPerAgent > agentCapacityTarget ? 'Workload overload is driving SLA risk.' : 'Workload remains within target capacity.'} ${averageRiskScore >= 70 ? 'High repeat-ticket risk is lowering FCR performance.' : 'FCR risk is moderate and monitorable.'} ${demandCapacityRatio > 1.1 ? 'Capacity mismatch warrants staffing action.' : 'Current capacity is broadly aligned with demand.'}`;
-
+  
+  // Strict hiring trigger: workload spike AND KPI pressure (NOT workload-only)
+  const shouldHire = workloadRatio > 1.1 && hasKpiPressure;
+  const staffingDecision = shouldHire ? 'Hire' : workloadRatio >= 0.9 ? 'Redistribute' : 'Maintain';
+  const staffingReason = `${workloadRatio > 1.0 ? `Group workload normalized to ${normalizedWorkload.toFixed(0)} tickets/agent/month.` : 'Workload remains within target capacity.'} ${hasKpiPressure ? 'KPI pressure detected - hiring may be warranted.' : 'KPIs are stable - monitor before adding staff.'} ${shouldHire ? 'Strict hiring requirements met: workload spike + KPI pressure.' : 'Current status does not trigger immediate hiring.'}`;
+  
+  // Store old demand-based calculation for scenario planning
+  const demandCapacityRatio = forecastDemand / Math.max(currentCapacity, 1);
   // Determine if current group is imbalanced and should show redistribution recommendations
   const isGroupImbalanced = useMemo(() => {
     return demandCapacityRatio > 1.1 || (workloadPerAgent > agentCapacityTarget && currentStaffCount > 1);
@@ -494,7 +503,7 @@ export default function ManagerDashboard() {
 
     const currentLoads = teamMemberMetrics.map((member) => Number(member.current_tickets ?? 0));
     const totalCurrentLoad = currentLoads.reduce((sum, load) => sum + load, 0);
-    const forecastLoad = Math.round(mlInsights.forecastMean ?? (groupTickets.length > 0 ? getMonthlyTicketRate(selectedGroupTickets) : 0));
+    const forecastLoad = Math.round(mlInsights.forecastMean ?? groupTickets.length ?? 0);
     const totalWorkload = totalCurrentLoad + Math.max(0, forecastLoad);
     const agentCount = Math.max(1, teamMemberMetrics.length);
     const targetLoad = Math.round(totalWorkload / agentCount);
@@ -664,51 +673,71 @@ export default function ManagerDashboard() {
       workloadPerAgent: Number((count / Math.max(currentStaffCount, 1)).toFixed(1))
     }));
 
+  const latestGroupCreatedDate = useMemo(() => {
+    const parsedDates = groupTickets
+      .map((ticket: any) => new Date(
+        ticket.created_date ??
+        ticket.createdDate ??
+        ticket.created_at ??
+        ticket.createdAt ??
+        ticket.opened_at ??
+        ticket.openedAt ??
+        ticket.updated_at ??
+        ticket.updatedAt ??
+        ''
+      ))
+      .filter((date: Date) => !Number.isNaN(date.getTime()));
+
+    if (parsedDates.length === 0) return null;
+    return new Date(Math.max(...parsedDates.map((date: Date) => date.getTime())));
+  }, [groupTickets]);
+
   const weightedForecastData = useMemo(() => {
-    if (weeklyGroupData.length === 0) return [];
-    
-    // Historical data from actual tickets
-    const historicalData = weeklyGroupData.map((entry) => ({
-      week: entry.week,
-      actualTickets: entry.tickets,
+    const canUseMlForecast = mlInsights.forecastArray.length > 0;
+    const historicalSeries = getWeeklyTicketSeries(groupTickets, {
+      weeks: 12,
+      futureWeeks: 0,
+    });
+
+    const actualWeeklySeries = historicalSeries.map((point) => ({
+      ...point,
+      week: point.weekLabel,
+      actualTickets: point.ticketCount,
       forecastTarget: null as number | null,
       capacityThreshold: currentStaffCount * agentCapacityTarget,
       isHistorical: true,
     }));
 
-    // Forecast data from ML
-    if (mlInsights.forecastArray.length === 0) return historicalData;
+    if (!canUseMlForecast) {
+      return actualWeeklySeries;
+    }
 
-    const forecastData: any[] = [];
-    const now = new Date();
-    
-    // Group forecast data by week for cleaner visualization
-    let weekAccum = 0;
-    let dayCount = 0;
-    
-    mlInsights.forecastArray.forEach((dailyForecast, index) => {
-      const forecastDate = new Date(now.getTime() + (index + 1) * 24 * 60 * 60 * 1000);
-      const weekKey = forecastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      
-      weekAccum += dailyForecast;
-      dayCount += 1;
-      
-      // Every 7 days or at the end, add a weekly summary
-      if (dayCount === 7 || index === mlInsights.forecastArray.length - 1) {
-        forecastData.push({
-          week: weekKey,
-          actualTickets: null as number | null,
-          forecastTarget: Math.round(weekAccum / dayCount),
-          capacityThreshold: currentStaffCount * agentCapacityTarget,
-          isHistorical: false,
-        });
-        weekAccum = 0;
-        dayCount = 0;
-      }
+    const futureWeeks = Math.max(1, Math.ceil(mlInsights.forecastArray.length / 7));
+    const forecastSeries = getWeeklyTicketSeries(groupTickets, {
+      weeks: 12,
+      futureWeeks,
+      forecastDaily: mlInsights.forecastArray,
+      predictionStartDate: latestGroupCreatedDate ?? undefined,
     });
 
-    return [...historicalData, ...forecastData];
-  }, [weeklyGroupData, mlInsights.forecastArray, currentStaffCount, agentCapacityTarget]);
+    const actualByWeek = new Map(actualWeeklySeries.map((point) => [point.weekStart, point.actualTickets]));
+    const latestActualWeekStart = actualWeeklySeries.length > 0
+      ? actualWeeklySeries[actualWeeklySeries.length - 1].weekStart
+      : null;
+
+    return forecastSeries.map((point) => ({
+      ...point,
+      week: point.weekLabel,
+      actualTickets: actualByWeek.has(point.weekStart) ? actualByWeek.get(point.weekStart)! : null,
+      forecastTarget: latestActualWeekStart && point.weekStart === latestActualWeekStart
+        ? (actualByWeek.get(point.weekStart) ?? null)
+        : point.projected
+          ? (point.predictedTickets ?? null)
+          : null,
+      capacityThreshold: currentStaffCount * agentCapacityTarget,
+      isHistorical: !point.projected,
+    }));
+  }, [groupTickets, mlInsights.forecastArray, latestGroupCreatedDate, currentStaffCount, agentCapacityTarget]);
 
   const teamStaffingAnalysis = useMemo(() => {
     return assignmentGroups

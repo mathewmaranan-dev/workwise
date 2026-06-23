@@ -19,7 +19,9 @@ from services.forecasting import TicketForecast
 from services.model_training import ModelTrainer
 from services.workload_optimization import WorkloadOptimizer
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / '.env', override=True)
+if not os.getenv('DATABASE_URL') and os.getenv('\ufeffDATABASE_URL'):
+    os.environ['DATABASE_URL'] = os.getenv('\ufeffDATABASE_URL', '')
 
 app = Flask(__name__)
 CORS(app)
@@ -57,29 +59,31 @@ def health():
 def forecast_tickets():
     try:
         data = request.get_json(force=True, silent=True) or {}
-        group_id = data.get('assignment_group_id')
-        days_ahead = int(data.get('days_ahead', 90))  # Default to 90 days (3 months) instead of 7
+        raw_group_id = data.get('assignment_group_id', data.get('group_id'))
+        group_id = None
+        if raw_group_id not in (None, '', 'null', 'None'):
+            group_id = int(raw_group_id)
 
-        if group_id is None:
-            return jsonify({'error': 'Missing assignment_group_id'}), 400
+        days_ahead = max(1, int(data.get('days_ahead', 90)))  # Default to 90 days (3 months) instead of 7
 
-        forecast_result = forecast_service.forecast(int(group_id), days_ahead=days_ahead)
+        forecast_result = forecast_service.forecast(group_id, days_ahead=days_ahead)
+
         if 'error' in forecast_result:
             return jsonify({'error': forecast_result['error']}), 500
 
         forecast_values = forecast_result['forecast']
-        forecast_summary = {
-            'mean': round(float(sum(forecast_values) / len(forecast_values)), 2),
-            'upper_bound': round(float(max(forecast_result['upper_bound'])), 2),
-            'lower_bound': round(float(min(forecast_result['lower_bound'])), 2),
-        }
+        forecast_mean = round(float(sum(forecast_values) / len(forecast_values)), 2) if forecast_values else None
 
         return jsonify({
-            'group_id': int(group_id),
+            'group_id': group_id,
             'days_ahead': days_ahead,
-            'forecast': forecast_summary,
-            'confidence': round(min(0.98, max(0.55, float(forecast_result['rsquared']))), 2),
-            'model': forecast_result['model'],
+            'forecast': forecast_values,
+            'forecast_mean': forecast_mean,
+            'upper_bound': forecast_result.get('upper_bound', []),
+            'lower_bound': forecast_result.get('lower_bound', []),
+            'confidence': round(min(0.98, max(0.55, float(forecast_result.get('rsquared', 0)))), 2),
+            'model': forecast_result.get('model'),
+            'data_source': forecast_result.get('data_source'),
         }), 200
 
     except Exception as exc:

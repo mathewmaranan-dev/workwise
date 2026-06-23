@@ -1,8 +1,24 @@
-export declare function getAllTickets(filters: {
+interface TicketFilterOptions {
+    ticket_id?: string;
+    assigned_to_id?: string;
+    assignment_group_id?: string;
+    category_id?: string;
+    status_id?: string;
     status?: string;
-    assigned_to?: string;
+    priority_id?: string;
     priority?: string;
-}): Promise<any[]>;
+    created_from?: string;
+    created_to?: string;
+    limit?: string;
+    offset?: string;
+}
+export declare function getAllTicketsAnalyticsWithSummary(filters: TicketFilterOptions): Promise<{
+    tickets: any[];
+    summary: any;
+}>;
+export declare function getAllTickets(filters: TicketFilterOptions): Promise<any[]>;
+export declare function getAllTicketsAnalytics(filters: TicketFilterOptions): Promise<any[]>;
+export declare function getAllTicketsDetailed(filters: TicketFilterOptions): Promise<any[]>;
 export declare function getTicketById(id: string): Promise<any>;
 export declare function createTicket(payload: {
     assigned_to: unknown;
@@ -15,4 +31,5 @@ export declare function updateTicket(id: string, payload: {
     assigned_to_id?: unknown;
     notes?: string;
 }): Promise<any>;
+export {};
 //# sourceMappingURL=ticketService.d.ts.map

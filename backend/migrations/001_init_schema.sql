@@ -256,12 +256,9 @@ INSERT INTO status (status_name) VALUES
   ('Closed')
 ON CONFLICT (status_name) DO NOTHING;
 
--- Sub Status (from sample data: Pending reasons)
+-- Sub Status (from sample data: empty, Pending Customer Response)
 INSERT INTO sub_status (sub_status_name, status_id) VALUES 
-  ('Pending Customer Response', (SELECT status_id FROM status WHERE status_name = 'Pending')),
-  ('Awaiting Tool', (SELECT status_id FROM status WHERE status_name = 'Pending')),
-  ('Awaiting Vendor', (SELECT status_id FROM status WHERE status_name = 'Pending')),
-  ('Awaiting Customer', (SELECT status_id FROM status WHERE status_name = 'Pending'))
+  ('Pending Customer Response', (SELECT status_id FROM status WHERE status_name = 'Pending'))
 ON CONFLICT (sub_status_name, status_id) DO NOTHING;
 
 -- Category (from sample data: Password, Server, Network, Software, Hardware)
