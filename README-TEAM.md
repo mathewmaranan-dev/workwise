@@ -48,6 +48,7 @@ This document describes the shared workflow, ownership, and dashboard objectives
 - Avoid duplicate business logic inside dashboard components.
 - Keep dashboard files responsible only for rendering and data wiring.
 - Keep helper files responsible only for computation and data transformation.
+- Use real database data for all KPI and workload calculations, not sample data.
 - Agree on helper names before changing their signatures.
 - Use comments in helpers to document expected input/output shapes and units.
 
