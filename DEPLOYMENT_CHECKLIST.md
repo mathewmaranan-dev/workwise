@@ -45,7 +45,7 @@
   - Root Directory: `ml-service`
   - Runtime: Python 3
   - Build Command: `pip install -r requirements.txt`
-  - Start Command: `gunicorn --bind 0.0.0.0:$PORT app:app`
+  - Start Command: `python -m gunicorn --bind 0.0.0.0:$PORT app:app`
 - [ ] Add environment variables:
   - `DATABASE_URL` (from PostgreSQL)
   - `FLASK_ENV=production`
