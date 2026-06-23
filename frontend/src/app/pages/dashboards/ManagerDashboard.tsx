@@ -78,11 +78,22 @@ export default function ManagerDashboard() {
     return backendTickets.map(normalizeTicket);
   }, [backendTickets]);
 
-  const [selectedGroupId, setSelectedGroupId] = useState<number>(user?.assignment_group_id ?? 1);
-  const selectedGroup = getAssignmentGroupById(selectedGroupId);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(user?.assignment_group_id ?? null);
+  const selectedGroup = selectedGroupId !== null ? getAssignmentGroupById(selectedGroupId) : null;
 
   useEffect(() => {
     if (!user) return;
+
+    if (selectedGroupId === null) {
+      if (user.role === 'manager' && user.assignment_group_id) {
+        setSelectedGroupId(user.assignment_group_id);
+        return;
+      }
+      if (user.role === 'admin') {
+        setSelectedGroupId(1);
+        return;
+      }
+    }
 
     const token = localStorage.getItem('workwise_token');
     if (!token) {
@@ -160,11 +171,19 @@ export default function ManagerDashboard() {
 
   const { getCategoryName, getStatusName, getPriorityLabel } = useLookupData(apiBase);
 
+  const safeUploadedData = Array.isArray(uploadedData) ? uploadedData : [];
+
   const currentTickets = useMemo(() => {
-    if (backendTicketsLoaded) return normalizedBackendTickets;
-    if (uploadedData && uploadedData.length > 0) return uploadedData;
+    if (backendTicketsLoaded) {
+      return normalizedBackendTickets.length > 0 ? normalizedBackendTickets : safeUploadedData;
+    }
+
+    if (!loadingTickets && safeUploadedData.length > 0) {
+      return safeUploadedData;
+    }
+
     return [];
-  }, [normalizedBackendTickets, backendTicketsLoaded, uploadedData]);
+  }, [normalizedBackendTickets, backendTicketsLoaded, loadingTickets, safeUploadedData]);
 
   const hasData = currentTickets.length > 0 || backendTicketSummary !== null;
 
@@ -176,8 +195,8 @@ export default function ManagerDashboard() {
     () => getNonFCRTickets(selectedGroupTickets),
     [selectedGroupTickets]
   );
-  const displayGroupId = selectedGroupId;
-  const displayGroup = getAssignmentGroupById(displayGroupId);
+  const displayGroupId = selectedGroupId ?? 0;
+  const displayGroup = selectedGroupId !== null ? getAssignmentGroupById(selectedGroupId) : null;
   const groupTickets = selectedGroupTickets;
   const groupNonFCRTickets = selectedGroupNonFCRTickets;
   const groupNonFCRTicketRecords = useMemo(() => groupTickets.filter(t => !t.fcr), [groupTickets]);
