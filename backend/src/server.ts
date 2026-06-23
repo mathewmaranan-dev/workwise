@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { testConnection } from './config/database.js';
@@ -96,25 +95,17 @@ app.use('/api/ml', async (req, res) => {
   }
 });
 
-// Serve frontend static assets in production if they exist
+// Serve frontend static assets in production
 if (NODE_ENV === 'production') {
-  // When running compiled code, __dirname is backend/dist.
-  // The frontend build lives at the repo root: frontend/dist.
-  const frontendDist = path.resolve(__dirname, '../../frontend/dist');
-  const frontendIndex = path.join(frontendDist, 'index.html');
+  const frontendDist = path.resolve(__dirname, '../frontend/dist');
+  app.use(express.static(frontendDist));
 
-  if (fs.existsSync(frontendIndex)) {
-    app.use(express.static(frontendDist));
-
-    app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api/')) {
-        return next();
-      }
-      res.sendFile(frontendIndex);
-    });
-  } else {
-    console.warn(`Frontend build not found at ${frontendIndex}. Static frontend routes are disabled.`);
-  }
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
 }
 
 // 404 handler

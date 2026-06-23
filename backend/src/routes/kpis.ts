@@ -45,11 +45,10 @@ router.get('/dashboard', verifyToken, async (req, res) => {
 
     // Tickets by priority
     const byPriority = await query(
-      `SELECT p.priority_id, p.priority_level, COUNT(*) as count 
+      `SELECT p.priority_level, COUNT(*) as count 
        FROM tickets t
        JOIN priority p ON t.priority_id = p.priority_id
-       GROUP BY p.priority_id, p.priority_level
-       ORDER BY p.priority_id`
+       GROUP BY p.priority_level`
     );
 
     // Team performance (by assignment group)
