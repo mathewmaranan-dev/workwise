@@ -5,7 +5,6 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance } from '../../utils/analytics';
 import { predictNonFCRRisk, NonFCRRiskScore } from '../../utils/mlAlgorithms';
 import NonFCRRiskPanel from '../../components/NonFCRRiskPanel';
-import ScenarioTester from '../../components/ScenarioTester';
 import { 
   tickets as seedDataTickets, 
   weeklyCounts, 
@@ -1064,12 +1063,6 @@ export default function ManagerDashboard() {
               className={`px-3 py-1 text-sm font-medium rounded ${selectedTab === 'overview' ? 'bg-white text-slate-900 shadow' : 'text-slate-700'}`}>
               Overview
             </button>
-            <button
-              type="button"
-              onClick={() => setSelectedTab('recommendations')}
-              className={`ml-1 px-3 py-1 text-sm font-medium rounded ${selectedTab === 'recommendations' ? 'bg-white text-slate-900 shadow' : 'text-slate-700'}`}>
-              Recommended Allocation
-            </button>
           </div>
         </div>
       </div>
@@ -1246,158 +1239,32 @@ export default function ManagerDashboard() {
         </DialogContent>
       </Dialog>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Live ML Insights</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">
-            Backend ML service signals for {displayGroup?.group_name || `Group ${displayGroupId}`}
-            {mlInsights.error ? ` · ${mlInsights.error}` : mlInsights.loading ? ' · Loading ML insights…' : ''}
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Forecasted volume</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">{mlInsights.forecastMean !== null ? `${mlInsights.forecastMean.toFixed(1)}` : 'N/A'}</p>
-              <p className="mt-1 text-xs text-slate-600">Forecast mean (7-day horizon)</p>
-              <p className="mt-2 text-xs text-slate-500">
-                Range {mlInsights.forecastLower !== null ? mlInsights.forecastLower.toFixed(1) : 'N/A'} to {mlInsights.forecastUpper !== null ? mlInsights.forecastUpper.toFixed(1) : 'N/A'}
-              </p>
-            </div>
+      {/* Live ML Insights card removed (UI only). ML data loading retained for other features. */}
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Anomaly detections</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">{mlInsights.anomalyCount}</p>
-              <p className="mt-1 text-xs text-slate-600">Backend anomaly count</p>
-              <p className="mt-2 text-xs text-slate-500">
-                Peak signal: {mlInsights.anomalyPeak !== null ? mlInsights.anomalyPeak.toFixed(1) : 'N/A'}
-              </p>
-            </div>
+      {/* Staffing Decision Center removed UI-only. Keeping hardware category workload below when applicable. */}
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Average FCR risk</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">{groupNonFCRTickets.length > 0 ? `${averageRiskScore.toFixed(1)}%` : 'N/A'}</p>
-              <p className="mt-1 text-xs text-slate-600">Derived from backend FCR scoring</p>
-              <p className="mt-2 text-xs text-slate-500">
-                {groupNonFCRTickets.length} monitored tickets in this view
-              </p>
+      {/* Hardware-only: keep category workload chart for Hardware team (group 4) */}
+      {selectedGroupId === 4 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{displayGroup?.group_name || `Group ${displayGroupId}`} category workload</CardTitle>
+            <p className="text-xs text-gray-500 mt-1">Category workload visualization for Hardware team</p>
+          </CardHeader>
+          <CardContent>
+            <div className="mt-3 h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart layout="vertical" data={categoryLoadData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" />
+                  <YAxis dataKey="category" type="category" width={140} />
+                  <Tooltip />
+                  <Bar dataKey="tickets" fill="#4F46E5" radius={[0, 6, 6, 0]} name="Tickets" />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Predicted KPI impact</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">+{predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%</p>
-              <p className="mt-1 text-xs text-slate-600">Estimated SLA gain from workload balancing</p>
-              <p className="mt-2 text-xs text-slate-500 truncate">{predictedKpiImprovements.summary}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Staffing Decision Center</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Prescriptive staffing actions for {displayGroup?.group_name || `Group ${displayGroupId}`}: forecast demand, capacity, workload overload, and simulated staffing outcomes.</p>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Forecasted demand</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">{forecastDemand.toFixed(1)}</p>
-              <p className="mt-1 text-xs text-slate-600">Projected tickets in the horizon</p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current capacity</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">{currentCapacity}</p>
-              <p className="mt-1 text-xs text-slate-600">Tickets handled with current staff</p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Required staff</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">{requiredStaff}</p>
-              <p className="mt-1 text-xs text-slate-600">Minimum agents needed</p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Staffing gap</p>
-              <p className={`mt-2 text-3xl font-bold ${staffingGap > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{staffingGap >= 0 ? `+${staffingGap}` : staffingGap}</p>
-              <p className="mt-1 text-xs text-slate-600">Current {currentStaffCount} vs required {requiredStaff}</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-gray-800">Decision summary</h2>
-                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${staffingDecision === 'Hire' ? 'bg-rose-100 text-rose-700' : staffingDecision === 'Redistribute' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                  {staffingDecision}
-                </span>
-              </div>
-              <p className="mt-3 text-sm text-gray-600">Forecasted demand of <span className="font-semibold text-gray-900">{forecastDemand.toFixed(1)} tickets</span> versus current capacity of <span className="font-semibold text-gray-900">{currentCapacity} tickets</span> creates a <span className="font-semibold text-gray-900">{overloadDelta.toFixed(1)}-ticket overload</span>.</p>
-              <p className="mt-2 text-sm text-gray-600">Capacity utilization: <span className="font-semibold text-gray-900">{capacityUtilization.toFixed(1)}%</span> of target capacity.</p>
-              <p className="mt-2 text-sm text-gray-600">Workload per agent: <span className="font-semibold text-gray-900">{workloadPerAgent.toFixed(1)} tickets/agent</span>.</p>
-              <p className="mt-2 text-sm text-gray-600">Root cause: <span className="font-semibold text-gray-900">{staffingReason}</span>.</p>
-              <p className="mt-2 text-sm text-gray-600">Recommended action: <span className="font-semibold text-gray-900">{staffingDecision === 'Hire' ? `Add ${Math.max(staffingGap, 1)} agent(s)` : staffingDecision === 'Redistribute' ? 'Redistribute work across the current team' : 'Maintain current staffing and monitor weekly trends'}</span>.</p>
-              <p className="mt-2 text-sm text-gray-600">Best simulated outcome: <span className="font-semibold text-gray-900">{recommendedScenario.scenario} reaches {recommendedScenario.projectedSla.toFixed(1)}% SLA</span>.</p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-gray-800">Decision rules</h2>
-              <ul className="mt-3 space-y-2 text-sm text-gray-600">
-                <li className="rounded-lg bg-rose-50 px-3 py-2">If demand exceeds 110% of team capacity, apply <span className="font-semibold text-rose-700">Hire</span>.</li>
-                <li className="rounded-lg bg-amber-50 px-3 py-2">If demand stays between 90% and 110%, apply <span className="font-semibold text-amber-700">Redistribute</span>.</li>
-                <li className="rounded-lg bg-emerald-50 px-3 py-2">If demand is under 90% of capacity, <span className="font-semibold text-emerald-700">Maintain</span> staffing.</li>
-              </ul>
-              <p className="mt-3 text-xs text-gray-500">Rule outcome for this team: {staffingDecision} because demand-capacity ratio is {demandCapacityRatio.toFixed(2)}x.</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-gray-800">What-if staffing scenarios</h2>
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr>
-                      <th className="text-left">Scenario</th>
-                      <th className="text-left">Staff</th>
-                      <th className="text-left">Load/agent</th>
-                      <th className="text-left">Projected SLA</th>
-                      <th className="text-left">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {staffingScenarioData.map((scenario) => (
-                      <tr key={scenario.scenario} className={scenario.scenario === recommendedScenario.scenario ? 'bg-indigo-50' : undefined}>
-                        <td className="font-medium">{scenario.scenario}</td>
-                        <td>{scenario.staff}</td>
-                        <td>{scenario.projectedLoadPerAgent.toFixed(1)} tickets</td>
-                        <td>{scenario.projectedSla.toFixed(1)}%</td>
-                        <td>{scenario.action}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-gray-800">{displayGroup?.group_name || `Group ${displayGroupId}`} category workload</h2>
-              <div className="mt-3 h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart layout="vertical" data={categoryLoadData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis dataKey="category" type="category" width={140} />
-                    <Tooltip />
-                    <Bar dataKey="tickets" fill="#4F46E5" radius={[0, 6, 6, 0]} name="Tickets" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -1438,149 +1305,7 @@ export default function ManagerDashboard() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>ML workload diagnostics</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Machine learning detects workload imbalance and prescribes redistribution while honoring threshold ratios.</p>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mean load</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">{workloadAnalysis?.analysis?.mean ?? 'N/A'}</p>
-              <p className="mt-1 text-xs text-slate-600">Average tickets per employee</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Imbalance ratio</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">{imbalanceAnalysis?.imbalance_analysis?.imbalance_ratio?.toFixed(2) ?? 'N/A'}</p>
-              <p className="mt-1 text-xs text-slate-600">Max / min load deviation</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Fairness score</p>
-              <p className="mt-2 text-3xl font-bold text-slate-900">{workloadBalance?.fairness_score?.toFixed(2) ?? 'N/A'}</p>
-              <p className="mt-1 text-xs text-slate-600">Higher is more balanced</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Balanced?</p>
-              <p className={`mt-2 text-3xl font-bold ${workloadBalance?.is_balanced ? 'text-emerald-600' : 'text-rose-600'}`}>{workloadBalance?.is_balanced ? 'Yes' : 'Review'}</p>
-              <p className="mt-1 text-xs text-slate-600">ML redistribution readiness</p>
-            </div>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-gray-800">Estimated KPI impact</h2>
-              <>
-                <div className="grid grid-cols-3 gap-3 mt-4">
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">SLA improvement</p>
-                    <p className="mt-2 text-2xl font-bold text-slate-900">+{predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Resolution time</p>
-                    <p className="mt-2 text-2xl font-bold text-slate-900">-{predictedKpiImprovements.avg_resolution_time_reduction_pct ?? 0}%</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">FCR lift</p>
-                    <p className="mt-2 text-2xl font-bold text-slate-900">+{predictedKpiImprovements.fcr_rate_gain_pct ?? 0}%</p>
-                  </div>
-                </div>
-                <p className="mt-4 text-sm text-gray-600">{predictedKpiImprovements.summary}</p>
-              </>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-gray-800">Threshold ratios</h2>
-              <p className="mt-3 text-sm text-gray-600">Acceptable workload variance is ±{(imbalanceAnalysis?.imbalance_analysis?.fairness_threshold ?? 0.1) * 100}% around mean load.</p>
-              <p className="mt-2 text-sm text-gray-600">Current mean: <span className="font-semibold text-gray-900">{imbalanceAnalysis?.imbalance_analysis?.mean_workload ?? 'N/A'}</span></p>
-              <p className="mt-1 text-sm text-gray-600">Overloaded: <span className="font-semibold text-gray-900">{imbalanceAnalysis?.imbalance_analysis?.overloaded_employees?.length ?? 0}</span></p>
-              <p className="mt-1 text-sm text-gray-600">Underloaded: <span className="font-semibold text-gray-900">{imbalanceAnalysis?.imbalance_analysis?.underloaded_employees?.length ?? 0}</span></p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-gray-800">Redistribution recommendation</h2>
-              <p className="mt-3 text-sm text-gray-600">{imbalanceAnalysis?.imbalance_analysis?.recommendation ?? 'No imbalance data available.'}</p>
-              <p className="mt-2 text-xs text-slate-500">{workloadMlError ?? workloadBalance?.optimization_status ? `Status: ${workloadBalance?.optimization_status}` : ''}</p>
-            </div>
-          </div>
-
-          <>
-            <div className="mt-6 overflow-x-auto border rounded-lg border-slate-200 bg-white">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-gray-50">
-                    <th className="text-left p-3 font-medium">Agent</th>
-                    <th className="text-left p-3 font-medium">Current</th>
-                    <th className="text-left p-3 font-medium">Recommended</th>
-                    <th className="text-left p-3 font-medium">Adjustment</th>
-                    <th className="text-left p-3 font-medium">Utilization</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workloadBalanceRecommendations.length > 0 ? (
-                    workloadBalanceRecommendations.map((rec: any) => (
-                      <tr key={rec.user_id} className="border-b hover:bg-gray-50">
-                        <td className="p-3 font-medium">{rec.employee_name || `Agent ${rec.user_id}`}</td>
-                        <td className="p-3">{rec.current_load}</td>
-                        <td className="p-3">{Number(rec.recommended_load).toFixed(1)}</td>
-                        <td className={`p-3 font-semibold ${rec.adjustment > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{rec.adjustment >= 0 ? `+${Number(rec.adjustment).toFixed(1)}` : Number(rec.adjustment).toFixed(1)}</td>
-                        <td className="p-3">{rec.utilization_rate ? `${(rec.utilization_rate * 100).toFixed(0)}%` : 'N/A'}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={5} className="p-4 text-sm text-gray-500">
-                        {workloadBalance ? 'No agent-level redistribution recommendations available yet.' : 'No workload balance data available yet.'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-6 overflow-x-auto border rounded-lg border-slate-200 bg-white">
-              <div className="px-4 py-3 border-b border-slate-200">
-                <h2 className="text-sm font-semibold text-gray-800">Master recommendation summary</h2>
-                <p className="text-xs text-gray-500 mt-1">Actionable flags and expected SLA/FCR impact if the recommended redistribution plan is followed.</p>
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-gray-50">
-                    <th className="text-left p-3 font-medium">Flag</th>
-                    <th className="text-left p-3 font-medium">% Redirect</th>
-                    <th className="text-left p-3 font-medium">Suggested Team</th>
-                    <th className="text-left p-3 font-medium">Expected SLA Gain</th>
-                    <th className="text-left p-3 font-medium">Expected FCR Gain</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workloadRecommendationSummary.length > 0 ? (
-                    workloadRecommendationSummary.map((summary) => (
-                      <tr key={summary.user_id} className="border-b hover:bg-gray-50">
-                        <td className="p-3">
-                          <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${summary.flag === 'Overloaded' ? 'bg-rose-100 text-rose-700' : summary.flag === 'Underloaded' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {summary.flag}
-                          </span>
-                        </td>
-                        <td className="p-3">{summary.redirectPct}%</td>
-                        <td className="p-3 font-medium">{summary.suggestedTeam}</td>
-                        <td className="p-3">{summary.expectedSla}</td>
-                        <td className="p-3">{summary.expectedFcr}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={5} className="p-4 text-sm text-gray-500">
-                        {workloadBalance ? 'Master recommendation summary is unavailable until agent-level recommendations are generated.' : 'Master recommendation summary is unavailable because workload balance data has not loaded.'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </>
-        </CardContent>
-      </Card>
+      {/* ML workload diagnostics removed (UI-only). Workload ML calls remain for backend logic. */}
 
       {/* Task Allocation & Workload */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1649,12 +1374,9 @@ export default function ManagerDashboard() {
       </div>
 
       {/* Non-FCR Detection List */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <NonFCRRiskPanel tickets={currentTickets} riskScoreMap={riskScoreMap} />
-        </div>
+      <div className="grid grid-cols-1 gap-6">
         <div>
-          <ScenarioTester apiBase={apiBase} />
+          <NonFCRRiskPanel tickets={currentTickets} riskScoreMap={riskScoreMap} />
         </div>
       </div>
 
@@ -1876,68 +1598,7 @@ export default function ManagerDashboard() {
       </Card>
       </>
     )}
-    {selectedTab === 'recommendations' ? (
-      <Card>
-        <CardHeader>
-          <CardTitle>Recommended Task Allocation - Start Here</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Tasks ordered by priority and age. We recommend starting with P1 critical issues.</p>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left p-3 font-medium">Ticket ID</th>
-                  <th className="text-left p-3 font-medium">Priority</th>
-                  <th className="text-left p-3 font-medium">Category</th>
-                  <th className="text-left p-3 font-medium">Status</th>
-                  <th className="text-left p-3 font-medium">Age (days)</th>
-                  <th className="text-left p-3 font-medium">SLA Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recLoading ? (
-                  <tr>
-                    <td colSpan={6} className="p-4 text-sm text-gray-500">Loading recommendations…</td>
-                  </tr>
-                ) : recommendations.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-4 text-sm text-gray-500">No recommendations available for this team.</td>
-                  </tr>
-                ) : (
-                  recommendations.map((ticket) => {
-                    const age = Math.floor((Date.now() - new Date(ticket.created_date).getTime()) / (1000 * 60 * 60 * 24));
-                    const categoryName = getCategoryName(ticket.category_id);
-                    const statusText = getStatusName(ticket.status_id);
-                    const slaText = ticket.made_sla ? 'Met' : 'At Risk';
-                    return (
-                      <tr key={ticket.ticket_id} className="border-b hover:bg-gray-50">
-                        <td className="p-3 font-mono text-xs font-medium">{ticket.ticket_id}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            ticket.priority_id === 1 ? 'bg-red-100 text-red-800' :
-                            ticket.priority_id === 2 ? 'bg-orange-100 text-orange-800' :
-                            ticket.priority_id === 3 ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {getPriorityLabel(ticket.priority_id)}
-                          </span>
-                        </td>
-                        <td className="p-3">{categoryName}</td>
-                        <td className="p-3 text-xs">{statusText}</td>
-                        <td className="p-3">{age}d</td>
-                        <td className="p-3">{slaText}</td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-          {recError && <p className="mt-2 text-xs text-amber-700">{recError}</p>}
-        </CardContent>
-      </Card>
-    ) : null}
+    {/* Recommended Allocation view removed per request. Recommendation logic and ML calls remain active. */}
     </div>
   );
 }

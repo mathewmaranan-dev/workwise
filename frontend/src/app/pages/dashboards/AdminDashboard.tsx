@@ -448,59 +448,7 @@ function AdminView({
         </CardContent>
       </Card>
 
-      {/* Non-FCR Tickets Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Non-FCR Tickets (Priority Order)</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Showing {filteredNonFCRTickets.length} ticket{filteredNonFCRTickets.length === 1 ? '' : 's'} after the current priority filter.</p>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left p-2 font-medium">Ticket ID</th>
-                  <th className="text-left p-2 font-medium">Priority</th>
-                  <th className="text-left p-2 font-medium">Category</th>
-                  <th className="text-left p-2 font-medium">Opened</th>
-                  <th className="text-left p-2 font-medium">Age (days)</th>
-                  <th className="text-left p-2 font-medium">Reopens</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredNonFCRTickets.slice(0, 10).map(ticket => {
-                  const openedAt = ticket.opened_at ? new Date(ticket.opened_at) : null;
-                  const age = openedAt && !isNaN(openedAt.getTime())
-                    ? Math.floor((Date.now() - openedAt.getTime()) / (1000 * 60 * 60 * 24))
-                    : 'N/A';
-                  const priorityLabel = getPriorityLabel(ticket.priority_id);
-                  const categoryLabel = getCategoryName(ticket.category_id) || 'Uncategorized';
-                  const reopenCount = (currentTickets.find(item => item.ticket_id === ticket.ticket_id)?.reopen_count ?? 0);
-                  return (
-                    <tr key={ticket.ticket_id} className="border-b hover:bg-gray-50">
-                      <td className="p-2 font-mono text-xs">{ticket.ticket_id}</td>
-                      <td className="p-2">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          ticket.priority_id === 1 ? 'bg-red-100 text-red-800' :
-                          ticket.priority_id === 2 ? 'bg-orange-100 text-orange-800' :
-                          ticket.priority_id === 3 ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {priorityLabel}
-                        </span>
-                      </td>
-                      <td className="p-2">{categoryLabel}</td>
-                      <td className="p-2">{openedAt && !isNaN(openedAt.getTime()) ? openedAt.toLocaleDateString() : 'Unknown'}</td>
-                      <td className="p-2">{age}</td>
-                      <td className="p-2 text-center">{reopenCount}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Non-FCR Tickets table removed per request */}
     </div>
   );
 }
