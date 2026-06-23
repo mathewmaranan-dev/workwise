@@ -37,6 +37,7 @@ interface EmployeeWorkloadPayload {
 }
 
 const env = (import.meta as any).env as Record<string, string | undefined>;
+const enableMasterRecommendationDecisionTree = String(env.VITE_ENABLE_MASTER_REC_DT ?? 'true').toLowerCase() !== 'false';
 
 // Mapping of assignment group -> ticket categories they handle
 const GROUP_CATEGORY_MAPPING: Record<number, number[]> = {
@@ -190,6 +191,17 @@ export default function ManagerDashboard() {
     () => currentTickets.filter(t => Number(t.assignment_group_id) === Number(selectedGroupId)),
     [currentTickets, selectedGroupId]
   );
+  const activeGroupTicketsForRedistribution = useMemo(() => {
+    return selectedGroupTickets.filter((ticket: any) => {
+      const normalizedStatus = String(getStatusName(ticket.status_id) ?? '').trim().toLowerCase();
+      if (normalizedStatus) {
+        return normalizedStatus === 'new' || normalizedStatus === 'in progress' || normalizedStatus === 'pending';
+      }
+
+      const statusId = Number(ticket.status_id);
+      return statusId !== 3 && statusId !== 4;
+    });
+  }, [selectedGroupTickets, getStatusName]);
   const selectedGroupNonFCRTickets = useMemo(
     () => getNonFCRTickets(selectedGroupTickets),
     [selectedGroupTickets]
@@ -426,6 +438,58 @@ export default function ManagerDashboard() {
     }));
   }, [groupTickets]);
 
+  const activeTeamMemberMetrics = useMemo(() => {
+    const agentMap: Record<number, {
+      user_id: number;
+      employee_name: string;
+      current_tickets: number;
+      sla_compliance: number;
+      fcr_rate: number;
+      capacity: number;
+      experience_level: number;
+      assignment_group_id?: number;
+    }> = {};
+
+    activeGroupTicketsForRedistribution.forEach(ticket => {
+      const userId = ticket.assigned_to_id;
+      if (typeof userId !== 'number') return;
+
+      if (!agentMap[userId]) {
+        const userRecord = usersList.find((u: any) => Number(u.user_id) === userId);
+        const fallbackUser = getUserById(userId);
+        const firstName = userRecord?.first_name ?? fallbackUser?.first_name ?? 'Agent';
+        const lastName = userRecord?.last_name ?? fallbackUser?.last_name ?? String(userId);
+        const assignmentGroupId = userRecord?.assignment_group_id != null
+          ? Number(userRecord.assignment_group_id)
+          : fallbackUser?.assignment_group_id;
+
+        agentMap[userId] = {
+          user_id: userId,
+          employee_name: `${firstName} ${lastName}`,
+          current_tickets: 0,
+          sla_compliance: 0,
+          fcr_rate: 0,
+          capacity: 10,
+          experience_level: 1,
+          assignment_group_id: assignmentGroupId,
+        };
+      }
+
+      const agent = agentMap[userId];
+      agent.current_tickets += 1;
+      if (ticket.made_sla) agent.sla_compliance += 1;
+      if (ticket.fcr) agent.fcr_rate += 1;
+    });
+
+    return Object.values(agentMap).map((agent) => ({
+      ...agent,
+      sla_compliance: agent.current_tickets > 0 ? Number((agent.sla_compliance / agent.current_tickets * 100).toFixed(1)) : 0,
+      fcr_rate: agent.current_tickets > 0 ? Number((agent.fcr_rate / agent.current_tickets * 100).toFixed(1)) : 0,
+    }));
+  }, [activeGroupTicketsForRedistribution, usersList]);
+
+  const redistributionTeamMetrics = activeTeamMemberMetrics.length > 0 ? activeTeamMemberMetrics : teamMemberMetrics;
+
   const averageRiskScore = useMemo(() => {
     const values = groupNonFCRTickets
       .map(ticket => riskScoreMap[ticket.ticket_id]?.riskScore)
@@ -482,14 +546,15 @@ export default function ManagerDashboard() {
   const acceptingGroupsForOffload = useMemo(() => {
     if (!isGroupImbalanced) return [];
     
-    const currentGroupCategories = GROUP_CATEGORY_MAPPING[selectedGroupId] || [];
+    const safeSelectedGroupId = Number(selectedGroupId ?? 0);
+    const currentGroupCategories = GROUP_CATEGORY_MAPPING[safeSelectedGroupId] || [];
     const potentialReceivers: number[] = [];
     
     Object.entries(GROUP_CATEGORY_MAPPING).forEach(([groupIdStr, categories]) => {
       const groupId = Number(groupIdStr);
-      if (groupId === selectedGroupId) return; // Don't offload to self
+      if (groupId === safeSelectedGroupId) return; // Don't offload to self
       // Check if this group handles any of the current group's categories
-      if (currentGroupCategories.some(cat => categories.includes(cat))) {
+      if (currentGroupCategories.some((cat: number) => categories.includes(cat))) {
         potentialReceivers.push(groupId);
       }
     });
@@ -498,14 +563,14 @@ export default function ManagerDashboard() {
   }, [isGroupImbalanced, selectedGroupId]);
 
   const fallbackWorkloadBalance = useMemo(() => {
-    if (!teamMemberMetrics || teamMemberMetrics.length === 0) return null;
+    if (!redistributionTeamMetrics || redistributionTeamMetrics.length === 0) return null;
     if (!isGroupImbalanced) return null; // Only show recommendations if imbalanced
 
-    const currentLoads = teamMemberMetrics.map((member) => Number(member.current_tickets ?? 0));
+    const currentLoads = redistributionTeamMetrics.map((member) => Number(member.current_tickets ?? 0));
     const totalCurrentLoad = currentLoads.reduce((sum, load) => sum + load, 0);
     const forecastLoad = Math.round(mlInsights.forecastMean ?? groupTickets.length ?? 0);
     const totalWorkload = totalCurrentLoad + Math.max(0, forecastLoad);
-    const agentCount = Math.max(1, teamMemberMetrics.length);
+    const agentCount = Math.max(1, redistributionTeamMetrics.length);
     const targetLoad = Math.round(totalWorkload / agentCount);
     const minLoad = Math.min(...currentLoads);
     const maxLoad = Math.max(...currentLoads);
@@ -515,7 +580,7 @@ export default function ManagerDashboard() {
     const stdDev = Math.sqrt(currentLoads.reduce((sum, load) => sum + Math.pow(load - meanLoad, 2), 0) / agentCount);
 
     // For overloaded members, suggest offloading to accepting groups
-    const recommendations = teamMemberMetrics.map((member) => {
+    const recommendations = redistributionTeamMetrics.map((member) => {
       const currentLoad = Number(member.current_tickets ?? 0);
       const adjustment = targetLoad - currentLoad;
       
@@ -574,7 +639,7 @@ export default function ManagerDashboard() {
       fairness_score: Number(fairnessScore.toFixed(2)),
       business_impact: { note: 'Group-specific fallback estimate' },
     };
-  }, [teamMemberMetrics, mlInsights.forecastMean, groupTickets.length, isGroupImbalanced, selectedGroupId, selectedGroup, acceptingGroupsForOffload]);
+  }, [redistributionTeamMetrics, mlInsights.forecastMean, groupTickets.length, isGroupImbalanced, selectedGroupId, selectedGroup, acceptingGroupsForOffload]);
 
 
   const effectiveWorkloadBalance = workloadBalance ?? fallbackWorkloadBalance;
@@ -603,14 +668,52 @@ export default function ManagerDashboard() {
 
   const isServiceDeskGroup = selectedGroup?.group_name === 'Service Desk';
 
+  const masterRecommendationDecision = useMemo(() => {
+    if (!enableMasterRecommendationDecisionTree) {
+      return {
+        state: 'triggered' as const,
+        reason: 'Decision gate is disabled by feature flag.',
+      };
+    }
+
+    if (!isServiceDeskGroup) {
+      return {
+        state: 'normal' as const,
+        reason: 'Master recommendation summary is scoped to Service Desk.',
+      };
+    }
+
+    const activeCount = activeGroupTicketsForRedistribution.length;
+    if (!isGroupImbalanced) {
+      return {
+        state: 'normal' as const,
+        reason: 'Workload is currently balanced, no redistribution needed.',
+      };
+    }
+
+    if (activeCount < 3) {
+      return {
+        state: 'watch' as const,
+        reason: 'Workload imbalance detected but active ticket count is still low. Continue monitoring.',
+      };
+    }
+
+    return {
+      state: 'triggered' as const,
+      reason: 'Imbalance with sufficient active tickets detected. Redistribution is recommended.',
+    };
+  }, [enableMasterRecommendationDecisionTree, isServiceDeskGroup, isGroupImbalanced, activeGroupTicketsForRedistribution.length]);
+
   const workloadBalanceRecommendations = useMemo(() => {
     if (!effectiveWorkloadBalance) return [];
     if (!isGroupImbalanced || !isServiceDeskGroup) return [];
+    if (masterRecommendationDecision.state !== 'triggered') return [];
     return Array.isArray(effectiveWorkloadBalance.recommendations) ? effectiveWorkloadBalance.recommendations as any[] : [];
-  }, [effectiveWorkloadBalance, effectiveWorkloadBalance?.recommendations, isGroupImbalanced, isServiceDeskGroup]);
+  }, [effectiveWorkloadBalance, effectiveWorkloadBalance?.recommendations, isGroupImbalanced, isServiceDeskGroup, masterRecommendationDecision.state]);
 
   const workloadRecommendationSummary = useMemo(() => {
     if (!isGroupImbalanced || !isServiceDeskGroup || workloadBalanceRecommendations.length === 0) return [];
+    if (!predictedKpiImprovements) return [];
     return workloadBalanceRecommendations.map((rec) => {
       const currentLoad = Number(rec.current_load ?? 0);
       const adjustment = Number(rec.adjustment ?? 0);
@@ -641,7 +744,7 @@ export default function ManagerDashboard() {
         expectedFcr,
       };
     });
-  }, [workloadBalanceRecommendations, predictedKpiImprovements, acceptingGroupsForOffload, selectedGroupId, selectedGroup]);
+  }, [workloadBalanceRecommendations, predictedKpiImprovements, acceptingGroupsForOffload, selectedGroupId, selectedGroup, isGroupImbalanced, isServiceDeskGroup]);
 
   const staffingScenarioData = [0, 1, 2, 3].map((extraAgents) => {
     const scenarioStaff = currentStaffCount + extraAgents;
@@ -818,9 +921,9 @@ export default function ManagerDashboard() {
       try {
         const payload = {
           assignment_group_id: selectedGroupId,
-          incoming_tickets: Math.round(mlInsights.forecastMean ?? groupTickets.length),
+          incoming_tickets: Math.round(mlInsights.forecastMean ?? activeGroupTicketsForRedistribution.length),
           target_date: new Date().toISOString(),
-          team_members: teamMemberMetrics
+          team_members: redistributionTeamMetrics
         };
 
         const resp = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/workload/balance`, {
@@ -870,7 +973,7 @@ export default function ManagerDashboard() {
 
     fetchRecommendations();
     return () => { isMounted = false; };
-  }, [apiBase, selectedGroupId, mlInsights.forecastMean, groupTickets]);
+  }, [apiBase, selectedGroupId, mlInsights.forecastMean, activeGroupTicketsForRedistribution.length, groupTickets, redistributionTeamMetrics]);
 
   useEffect(() => {
     let isMounted = true;
@@ -941,7 +1044,7 @@ export default function ManagerDashboard() {
   }, [apiBase, selectedGroupId]);
 
   useEffect(() => {
-    if (teamMemberMetrics.length === 0) return;
+    if (redistributionTeamMetrics.length === 0) return;
     let isMounted = true;
 
     const loadWorkloadAnalysis = async () => {
@@ -952,7 +1055,7 @@ export default function ManagerDashboard() {
         const resp = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/workload/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team_members: teamMemberMetrics })
+          body: JSON.stringify({ team_members: redistributionTeamMetrics })
         });
 
         if (!resp.ok) throw new Error('Failed to load workload analysis');
@@ -976,7 +1079,7 @@ export default function ManagerDashboard() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            employee_workloads: teamMemberMetrics.map((agent) => ({
+            employee_workloads: redistributionTeamMetrics.map((agent) => ({
               employee_id: agent.user_id,
               employee_name: agent.employee_name,
               current_workload: agent.current_tickets,
@@ -1001,7 +1104,7 @@ export default function ManagerDashboard() {
     loadImbalanceAnalysis();
 
     return () => { isMounted = false; };
-  }, [apiBase, selectedGroupId, teamMemberMetrics]);
+  }, [apiBase, selectedGroupId, redistributionTeamMetrics]);
 
   const computeAgentFcrHistory = (agentId?: number): number => {
     const agentTickets = currentTickets.filter(t => t.assigned_to_id === agentId);
@@ -1331,6 +1434,47 @@ export default function ManagerDashboard() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Master recommendation summary</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">Actionable flags and expected SLA/FCR impact if the recommended redistribution plan is followed.</p>
+        </CardHeader>
+        <CardContent>
+          {workloadRecommendationSummary.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Flag</th>
+                    <th className="px-3 py-3 text-left font-semibold text-slate-700">% Redirect</th>
+                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Suggested Team</th>
+                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Expected SLA Gain</th>
+                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Expected FCR Gain</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white">
+                  {workloadRecommendationSummary.map((row: any) => (
+                    <tr key={`summary-${row.user_id}-${row.suggestedTeam}`}>
+                      <td className="px-3 py-3 text-slate-700">{row.flag}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.redirectPct}%</td>
+                      <td className="px-3 py-3 text-slate-700">{row.suggestedTeam}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.expectedSla}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.expectedFcr}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : masterRecommendationDecision.state === 'watch' ? (
+            <p className="text-sm text-amber-700">{masterRecommendationDecision.reason}</p>
+          ) : masterRecommendationDecision.state === 'normal' ? (
+            <p className="text-sm text-slate-600">{masterRecommendationDecision.reason}</p>
+          ) : (
+            <p className="text-sm text-slate-600">No redistribution recommendations are currently required.</p>
+          )}
         </CardContent>
       </Card>
 
