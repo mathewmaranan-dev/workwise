@@ -433,3 +433,48 @@ export const getEmployeePerformance = (ticketData?: any[]): EmployeePerformance[
 export const getTopAgents = (ticketData?: any[], topN = 10) => {
   return getEmployeePerformance(ticketData).sort((a, b) => b.ticketsResolved - a.ticketsResolved).slice(0, topN);
 };
+
+/**
+ * Calculate the monthly ticket rate based on recent ticket history.
+ * Uses the last 30 days of tickets to estimate the monthly rate.
+ * If insufficient data, extrapolates from available date range.
+ * Returns the total monthly ticket volume for the dataset.
+ * 
+ * @param ticketData - Array of ticket records
+ * @param days - Number of days to analyze (default: 30 for monthly rate)
+ * @returns Monthly ticket volume estimate
+ */
+export const getMonthlyTicketRate = (ticketData?: any[], days: number = 30): number => {
+  const ticketsToUse = ticketData !== undefined ? ticketData : seedDataTickets;
+  if (ticketsToUse.length === 0) return 0;
+
+  const now = new Date();
+  const cutoffDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+  // Filter tickets within the time window
+  const recentTickets = ticketsToUse.filter(t => {
+    const ticketDate = new Date(t.created_date);
+    return ticketDate >= cutoffDate && ticketDate <= now;
+  });
+
+  if (recentTickets.length === 0) {
+    // Fallback: if no recent data, use all tickets and extrapolate
+    if (ticketsToUse.length === 0) return 0;
+    
+    // Find date range in dataset
+    const dates = ticketsToUse
+      .map(t => new Date(t.created_date).getTime())
+      .filter(d => !isNaN(d))
+      .sort((a, b) => a - b);
+    
+    if (dates.length < 2) return ticketsToUse.length; // Can't extrapolate from less than 2 dates
+    
+    const daysDiff = (dates[dates.length - 1] - dates[0]) / (24 * 60 * 60 * 1000);
+    const monthMultiplier = 30 / Math.max(daysDiff, 1);
+    return Math.round(ticketsToUse.length * monthMultiplier);
+  }
+
+  // Calculate daily rate from recent tickets and extrapolate to 30 days
+  const dailyRate = recentTickets.length / days;
+  return Math.round(dailyRate * 30);
+};
