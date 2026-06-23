@@ -44,20 +44,38 @@ export interface ProductivityTrend {
   avgResolutionTime: number;
 }
 
+export const normalizeTicket = (ticket: any) => {
+  const createdDate = ticket.created_date ?? ticket.opened_at ?? ticket.openedAt ?? ticket.date_created ?? ticket.dateOpened ?? ticket.open_date ?? '';
+  return {
+    ...ticket,
+    created_date: createdDate,
+    opened_at: ticket.opened_at ?? ticket.openedAt ?? createdDate,
+    reopen_count: ticket.reopen_count ?? ticket.reopenCount ?? 0,
+    duration: ticket.duration ?? ticket.duration_minutes ?? ticket.durationMinutes ?? 0,
+    made_sla: ticket.made_sla ?? ticket.madeSLA ?? false,
+    fcr: ticket.fcr ?? false,
+    status_id: ticket.status_id ?? ticket.statusId ?? 0,
+    priority_id: ticket.priority_id ?? ticket.priorityId ?? 0,
+    category_id: ticket.category_id ?? ticket.categoryId ?? 0,
+    assignment_group_id: ticket.assignment_group_id ?? ticket.assignment_groupId ?? 0,
+  };
+};
+
 export const calculateKPIs = (ticketData?: any[]): KPIMetrics => {
-  const ticketsToUse = ticketData !== undefined ? ticketData : seedDataTickets;
+  const ticketsToUse = (ticketData !== undefined ? ticketData : seedDataTickets)
+    .map(normalizeTicket);
+
   const totalTickets = ticketsToUse.length;
-  const slaMetCount = ticketsToUse.filter(t => t.made_sla === true).length;
-  const fcrCount = ticketsToUse.filter(t => t.fcr === true).length;
-  const reopenedCount = ticketsToUse.filter(t => t.reopen_count > 0).length;
-  const resolvedTickets = ticketsToUse.filter(t => t.status_id === 3 || t.status_id === 4);
-  
-  // Calculate median resolution time in hours
+  const slaMetCount = ticketsToUse.filter((t) => t.made_sla === true).length;
+  const fcrCount = ticketsToUse.filter((t) => t.fcr === true).length;
+  const reopenedCount = ticketsToUse.filter((t) => Number(t.reopen_count) > 0).length;
+  const resolvedTickets = ticketsToUse.filter((t) => t.status_id === 3 || t.status_id === 4);
+
   const resolutionTimes = resolvedTickets
-    .filter(t => t.duration !== undefined && t.duration !== null)
-    .map(t => (t.duration as number) / 60) // Convert minutes to hours
+    .filter((t) => t.duration !== undefined && t.duration !== null)
+    .map((t) => Number(t.duration) / 60)
     .sort((a, b) => a - b);
-  
+
   const median = resolutionTimes.length > 0
     ? resolutionTimes[Math.floor(resolutionTimes.length / 2)]
     : 0;
@@ -68,8 +86,86 @@ export const calculateKPIs = (ticketData?: any[]): KPIMetrics => {
     medianResolutionTime: median,
     reopenRate: totalTickets > 0 ? (reopenedCount / totalTickets) * 100 : 0,
     totalTickets,
-    resolvedTickets: resolvedTickets.length
+    resolvedTickets: resolvedTickets.length,
   };
+};
+
+const getWeekStart = (dateValue: string | Date) => {
+  const d = new Date(dateValue);
+  if (isNaN(d.getTime())) return '';
+  const weekStart = new Date(d);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  return weekStart.toISOString().slice(0, 10);
+};
+
+export const getWeeklyTicketSeries = (ticketData?: any[], futureWeeks = 4) => {
+  const ticketsToUse = ticketData !== undefined ? ticketData : seedDataTickets;
+  const weekCounts = ticketsToUse
+    .map(normalizeTicket)
+    .map((ticket) => ({
+      weekStart: getWeekStart(ticket.created_date),
+    }))
+    .filter((item) => item.weekStart)
+    .reduce((acc, item) => {
+      acc[item.weekStart] = (acc[item.weekStart] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+  const weekKeys = Object.keys(weekCounts).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  if (weekKeys.length === 0) {
+    return [];
+  }
+
+  const firstWeek = new Date(weekKeys[0]);
+  const lastActualWeek = new Date(weekKeys[weekKeys.length - 1]);
+  const weeks: { weekStart: string; tickets: number | null }[] = [];
+  let cursor = new Date(firstWeek);
+
+  while (cursor <= lastActualWeek) {
+    const key = cursor.toISOString().slice(0, 10);
+    weeks.push({
+      weekStart: key,
+      tickets: weekCounts[key] ?? 0,
+    });
+    cursor.setDate(cursor.getDate() + 7);
+  }
+
+  const xValues = weeks.map((_, index) => index);
+  const yValues = weeks.map((item) => item.tickets ?? 0);
+  const n = xValues.length;
+  let slope = 0;
+  let intercept = 0;
+
+  if (n > 1) {
+    const sumX = xValues.reduce((sum, value) => sum + value, 0);
+    const sumY = yValues.reduce((sum, value) => sum + value, 0);
+    const sumXY = xValues.reduce((sum, x, index) => sum + x * yValues[index], 0);
+    const sumX2 = xValues.reduce((sum, x) => sum + x * x, 0);
+    const denominator = n * sumX2 - sumX * sumX;
+    slope = denominator !== 0 ? (n * sumXY - sumX * sumY) / denominator : 0;
+    intercept = (sumY - slope * sumX) / n;
+  } else {
+    intercept = yValues[0] ?? 0;
+  }
+
+  const series = weeks.map((entry, index) => ({
+    week: new Date(entry.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    tickets: entry.tickets,
+    predictedTickets: Number(Math.max(0, intercept + slope * index).toFixed(1)),
+  }));
+
+  for (let i = 1; i <= futureWeeks; i++) {
+    const nextWeek = new Date(lastActualWeek);
+    nextWeek.setDate(nextWeek.getDate() + 7 * i);
+    const predictedIndex = weeks.length + i - 1;
+    series.push({
+      week: nextWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      tickets: null,
+      predictedTickets: Number(Math.max(0, intercept + slope * predictedIndex).toFixed(1)),
+    });
+  }
+
+  return series;
 };
 
 export const getTicketsByPriority = (ticketData?: any[]) => {

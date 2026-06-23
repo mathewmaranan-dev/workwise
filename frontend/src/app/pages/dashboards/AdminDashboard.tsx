@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { TrendingUp, TrendingDown, Clock, RefreshCcw, Download } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { calculateKPIs, getTicketsByPriority, getNonFCRTickets, getAssignmentGroupPerformance } from '../../utils/analytics';
+import { calculateKPIs, getTicketsByPriority, getWeeklyTicketSeries, getAssignmentGroupPerformance } from '../../utils/analytics';
 import { getAssignmentGroupById } from '../../data/seedData';
 import { useLookupData } from '../../hooks/useLookupData';
 import { Button } from '../../components/ui/button';
@@ -96,52 +96,6 @@ export default function AdminDashboard() {
 
   const { getCategoryName, getPriorityLabel } = useLookupData(apiBase);
 
-  const kpis = useMemo(() => {
-    if (dashboardMetrics) {
-      return {
-        slaCompliance: Number(dashboardMetrics.slaCompliance?.percentage ?? 0),
-        fcrRate: Number(dashboardMetrics.fcrRate?.percentage ?? 0),
-        medianResolutionTime: Number(dashboardMetrics.avgResolutionTime?.hours ?? 0),
-        reopenRate: 0,
-        totalTickets: Number(dashboardMetrics.totalTickets?.count ?? 0),
-        resolvedTickets: Number(dashboardMetrics.resolvedTickets?.count ?? 0),
-      };
-    }
-    return calculateKPIs(currentTickets);
-  }, [dashboardMetrics, currentTickets]);
-
-  const priorityData = getTicketsByPriority(currentTickets);
-  const nonFCRTickets = getNonFCRTickets(currentTickets);
-  const groupPerformance = getAssignmentGroupPerformance(currentTickets);
-
-  // Aggregate tickets into weekly counts for the chart
-  const ticketsToUse = currentTickets;
-  const weeklyMap: Record<string, number> = {};
-  ticketsToUse.forEach((t: any) => {
-    const dateField = t.created_date || t.opened_at;
-    if (!dateField) return;
-    const d = new Date(dateField);
-    if (isNaN(d.getTime())) return;
-    const weekStart = new Date(d);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    const key = weekStart.toISOString().split('T')[0];
-    weeklyMap[key] = (weeklyMap[key] || 0) + 1;
-  });
-
-  const weeklyData = Object.entries(weeklyMap)
-    .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
-    .map(([week, count]) => ({
-      week: new Date(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      tickets: count
-    }));
-
-  const groupPerformanceData = groupPerformance.map(g => ({
-    name: getAssignmentGroupById(g.groupId)?.group_name || `Group ${g.groupId}`,
-    sla: Math.round(g.slaCompliance),
-    fcr: Math.round(g.fcrRate),
-    tickets: g.totalTickets
-  }));
-
   const handleExport = () => {
     exportTicketsToCSV();
     toast.success('Ticket data exported successfully');
@@ -209,22 +163,32 @@ function AdminView({
 }) {
   const [chartPriorityFilter, setChartPriorityFilter] = useState<'all' | 'Critical' | 'High' | 'Medium' | 'Low'>('all');
 
-  const kpis = useMemo(() => {
-    if (dashboardMetrics) {
-      return {
-        slaCompliance: Number(dashboardMetrics.slaCompliance?.percentage ?? 0),
-        fcrRate: Number(dashboardMetrics.fcrRate?.percentage ?? 0),
-        medianResolutionTime: Number(dashboardMetrics.avgResolutionTime?.hours ?? 0),
-        reopenRate: 0,
-        totalTickets: Number(dashboardMetrics.totalTickets?.count ?? 0),
-        resolvedTickets: Number(dashboardMetrics.resolvedTickets?.count ?? 0),
-      };
-    }
-    return calculateKPIs(currentTickets);
+  const dashboardKpis = useMemo(() => {
+    const fallback = calculateKPIs(currentTickets);
+    if (!dashboardMetrics) return fallback;
+
+    const asNumber = (value: any, fallbackValue: number) => {
+      if (value === undefined || value === null) return fallbackValue;
+      return Number(value);
+    };
+
+    return {
+      slaCompliance: asNumber(dashboardMetrics.slaCompliance?.percentage ?? dashboardMetrics.slaCompliance, fallback.slaCompliance),
+      fcrRate: asNumber(dashboardMetrics.fcrRate?.percentage ?? dashboardMetrics.fcrRate, fallback.fcrRate),
+      medianResolutionTime: asNumber(
+        dashboardMetrics.avgResolutionTime?.hours ?? dashboardMetrics.medianResolutionTime ?? dashboardMetrics.avg_resolution_time?.hours,
+        fallback.medianResolutionTime
+      ),
+      reopenRate: asNumber(
+        dashboardMetrics.reopenRate?.percentage ?? dashboardMetrics.reopenRate ?? dashboardMetrics.reopen_rate?.percentage ?? dashboardMetrics.reopen_rate,
+        fallback.reopenRate
+      ),
+      totalTickets: asNumber(dashboardMetrics.totalTickets?.count ?? dashboardMetrics.totalTickets, fallback.totalTickets),
+      resolvedTickets: asNumber(dashboardMetrics.resolvedTickets?.count ?? dashboardMetrics.resolvedTickets, fallback.resolvedTickets),
+    };
   }, [dashboardMetrics, currentTickets]);
 
   const priorityData = getTicketsByPriority(currentTickets);
-  const nonFCRTickets = useMemo(() => getNonFCRTickets(currentTickets), [currentTickets]);
   const groupPerformance = getAssignmentGroupPerformance(currentTickets);
 
   const filteredChartTickets = useMemo(() => {
@@ -235,53 +199,7 @@ function AdminView({
     });
   }, [chartPriorityFilter, currentTickets, getPriorityLabel]);
 
-  const filteredNonFCRTickets = useMemo(() => {
-    if (chartPriorityFilter === 'all') return nonFCRTickets;
-    return nonFCRTickets.filter((ticket) => {
-      const label = getPriorityLabel(ticket.priority_id);
-      return label === chartPriorityFilter;
-    });
-  }, [chartPriorityFilter, nonFCRTickets, getPriorityLabel]);
-
-  // Aggregate tickets into weekly counts for the chart
-  const weeklyMap: Record<string, number> = {};
-  filteredChartTickets.forEach((t: any) => {
-    const dateField = t.created_date || t.opened_at;
-    if (!dateField) return;
-    const d = new Date(dateField);
-    if (isNaN(d.getTime())) return;
-    const weekStart = new Date(d);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    const key = weekStart.toISOString().split('T')[0];
-    weeklyMap[key] = (weeklyMap[key] || 0) + 1;
-  });
-
-  const weeklyData = useMemo(() => Object.entries(weeklyMap)
-    .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
-    .map(([week, count]) => ({
-      week: new Date(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      tickets: count
-    })), [weeklyMap]);
-
-  const trendForecastData = useMemo(() => {
-    if (weeklyData.length === 0) return [];
-
-    const xValues = weeklyData.map((_, index) => index);
-    const yValues = weeklyData.map(item => item.tickets);
-    const n = xValues.length;
-    const sumX = xValues.reduce((sum, value) => sum + value, 0);
-    const sumY = yValues.reduce((sum, value) => sum + value, 0);
-    const sumXY = xValues.reduce((sum, x, index) => sum + (x * yValues[index]), 0);
-    const sumX2 = xValues.reduce((sum, x) => sum + (x * x), 0);
-
-    const slope = (n * sumXY - sumX * sumY) / Math.max((n * sumX2 - sumX * sumX), 1);
-    const intercept = (sumY - slope * sumX) / n;
-
-    return weeklyData.map((entry, index) => ({
-      ...entry,
-      predictedTickets: Math.max(0, Number((intercept + slope * index).toFixed(1)))
-    }));
-  }, [weeklyData]);
+  const weeklySeries = useMemo(() => getWeeklyTicketSeries(filteredChartTickets, 4), [filteredChartTickets]);
 
   const groupPerformanceData = groupPerformance.map(g => ({
     name: getAssignmentGroupById(g.groupId)?.group_name || `Group ${g.groupId}`,
@@ -317,8 +235,8 @@ function AdminView({
             <TrendingUp className="w-4 h-4 text-green-600" />
           </CardHeader>
           <CardContent className="pt-2 px-4 pb-4">
-              <div className="text-2xl font-bold text-gray-900">{hasData ? `${kpis.slaCompliance.toFixed(1)}%` : 'N/A'}</div>
-              <p className="text-xs text-gray-500 mt-1">{hasData ? `${kpis.totalTickets} total tickets` : 'No data'}</p>
+              <div className="text-2xl font-bold text-gray-900">{hasData ? `${dashboardKpis.slaCompliance.toFixed(1)}%` : 'N/A'}</div>
+              <p className="text-xs text-gray-500 mt-1">{hasData ? `${dashboardKpis.totalTickets} total tickets` : 'No data'}</p>
           </CardContent>
         </Card>
 
@@ -328,7 +246,7 @@ function AdminView({
             <TrendingUp className="w-4 h-4 text-blue-600" />
           </CardHeader>
           <CardContent className="pt-2 px-4 pb-4">
-            <div className="text-2xl font-bold text-gray-900">{hasData ? `${kpis.fcrRate.toFixed(1)}%` : 'N/A'}</div>
+            <div className="text-2xl font-bold text-gray-900">{hasData ? `${dashboardKpis.fcrRate.toFixed(1)}%` : 'N/A'}</div>
             <p className="text-xs text-gray-500 mt-1">First Contact Resolution</p>
           </CardContent>
         </Card>
@@ -339,8 +257,8 @@ function AdminView({
             <Clock className="w-4 h-4 text-indigo-600" />
           </CardHeader>
           <CardContent className="pt-2 px-4 pb-4">
-            <div className="text-2xl font-bold text-gray-900">{hasData ? `${kpis.medianResolutionTime.toFixed(1)}h` : 'N/A'}</div>
-            <p className="text-xs text-gray-500 mt-1">{hasData ? `${kpis.resolvedTickets} resolved tickets` : 'No data'}</p>
+            <div className="text-2xl font-bold text-gray-900">{hasData ? `${dashboardKpis.medianResolutionTime.toFixed(1)}h` : 'N/A'}</div>
+            <p className="text-xs text-gray-500 mt-1">{hasData ? `${dashboardKpis.resolvedTickets} resolved tickets` : 'No data'}</p>
           </CardContent>
         </Card>
 
@@ -350,7 +268,7 @@ function AdminView({
             <RefreshCcw className="w-4 h-4 text-orange-600" />
           </CardHeader>
           <CardContent className="pt-2 px-4 pb-4">
-            <div className="text-2xl font-bold text-gray-900">{hasData ? `${kpis.reopenRate.toFixed(1)}%` : 'N/A'}</div>
+            <div className="text-2xl font-bold text-gray-900">{hasData ? `${dashboardKpis.reopenRate.toFixed(1)}%` : 'N/A'}</div>
             <p className="text-xs text-gray-500 mt-1">{hasData ? 'Tickets reopened' : 'No data'}</p>
           </CardContent>
         </Card>
@@ -384,7 +302,7 @@ function AdminView({
           </CardHeader>
           <CardContent className="px-2 pb-2">
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={trendForecastData}>
+              <LineChart data={weeklySeries}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="week" />
                 <YAxis />
