@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Users, Activity, AlertTriangle, Target, Filter } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
-import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance } from '../../utils/analytics';
+import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance, getMonthlyTicketRate } from '../../utils/analytics';
 import { predictNonFCRRisk, NonFCRRiskScore } from '../../utils/mlAlgorithms';
 import NonFCRRiskPanel from '../../components/NonFCRRiskPanel';
 import { 
@@ -452,8 +452,8 @@ export default function ManagerDashboard() {
       .map(([week, count]) => ({ week: new Date(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tickets: count }));
   })();
 
-  const forecastDemand = mlInsights.forecastMean ?? (groupTickets.length > 0 ? groupTickets.length : 0);
-  const agentCapacityTarget = 10;
+  const forecastDemand = mlInsights.forecastMean ?? (groupTickets.length > 0 ? getMonthlyTicketRate(selectedGroupTickets) : 0);
+  const agentCapacityTarget = 204; // Monthly ticket capacity per agent baseline
   const currentCapacity = currentStaffCount * agentCapacityTarget;
   const requiredStaff = Math.ceil(forecastDemand / agentCapacityTarget);
   const staffingGap = requiredStaff - currentStaffCount;
@@ -494,7 +494,7 @@ export default function ManagerDashboard() {
 
     const currentLoads = teamMemberMetrics.map((member) => Number(member.current_tickets ?? 0));
     const totalCurrentLoad = currentLoads.reduce((sum, load) => sum + load, 0);
-    const forecastLoad = Math.round(mlInsights.forecastMean ?? groupTickets.length ?? 0);
+    const forecastLoad = Math.round(mlInsights.forecastMean ?? (groupTickets.length > 0 ? getMonthlyTicketRate(selectedGroupTickets) : 0));
     const totalWorkload = totalCurrentLoad + Math.max(0, forecastLoad);
     const agentCount = Math.max(1, teamMemberMetrics.length);
     const targetLoad = Math.round(totalWorkload / agentCount);
