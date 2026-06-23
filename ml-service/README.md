@@ -2,120 +2,167 @@
 
 Machine learning microservice for the Work-Wise ITSM Decision Support System.
 
-Provides predictive analytics for:
-- Ticket volume forecasting
-- Workload balancing optimization
-- Performance diagnostics
-- Anomaly detection
-- First-Contact Resolution (FCR) risk prediction
+This service provides forecast, workload optimization, diagnostics, and FCR risk prediction APIs consumed by the backend.
 
 ## Quick Start
 
-### Setup
+### 1. Setup
 
 ```bash
 cd ml-service
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# macOS / Linux
+source venv/bin/activate
+# Windows
+venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Configuration
+### 2. Configure environment
 
-1. Copy `.env.example` to `.env`:
+Copy the template and update it for your live database:
+
 ```bash
 cp .env.example .env
 ```
 
-2. Update `.env` with your database credentials:
-```
+Example `.env`:
+
+```env
 DATABASE_URL=postgresql://user:password@localhost:5432/workwise_db
 ML_PORT=5001
+NODE_ENV=development
 ```
 
-### Development
+### 3. Run the service
 
 ```bash
 python app.py
 ```
 
-ML Service will run on `http://localhost:5001`
+The service will listen on `http://0.0.0.0:5001` by default.
+
+## Environment variables
+
+- `DATABASE_URL` - PostgreSQL connection string for the ML service
+- `ML_PORT` - Port for the ML API (default `5001`)
+- `NODE_ENV` - `development` or `production`
 
 ## API Endpoints
 
+### Health
+
+- `GET /health`
+  - Returns service health status.
+
 ### Forecasting
-- `POST /api/ml/forecast/tickets` - Forecast ticket volume
-  ```json
-  {
-    "assignment_group_id": 1,
-    "days_ahead": 7
-  }
-  ```
+
+- `POST /api/ml/forecast/tickets`
+  - Forecast ticket volume and return a daily forecast plus summary.
+  - Example request:
+
+```json
+{
+  "assignment_group_id": 1,
+  "days_ahead": 90
+}
+```
 
 ### Workload Optimization
-- `POST /api/ml/workload/balance` - Recommend workload balancing
-  ```json
-  {
-    "assignment_group_id": 1,
-    "target_date": "2026-05-10"
-  }
-  ```
 
-### Performance Analytics
-- `GET /api/ml/diagnostics/performance?group_id=1&period_days=30` - Team diagnostics
-- `GET /api/ml/anomalies/detect?group_id=1` - Detect anomalies
+- `POST /api/ml/workload/balance`
+  - Returns workload redistribution recommendations.
 
-### Risk Prediction
-- `POST /api/ml/fcr/predict` - Predict FCR risk
-  ```json
-  {
-    "ticket_category": "Hardware",
-    "priority": "High",
-    "assigned_group": 1
-  }
-  ```
+- `POST /api/ml/workload/analyze`
+  - Analyzes current workload distribution.
 
-## Project Structure
+- `POST /api/ml/workload/staffing`
+  - Predicts staffing needs from forecasted volume.
 
+### Diagnostics
+
+- `GET /api/ml/diagnostics/performance?group_id=1&period_days=30`
+  - Returns KPI diagnostics for a team.
+
+- `GET /api/ml/anomalies/detect?group_id=1`
+  - Detects anomalies from sample historical workload data.
+
+- `POST /api/ml/diagnostics/kpis`
+  - Calculates KPIs for submitted ticket data.
+
+- `POST /api/ml/diagnostics/imbalance`
+  - Detects workload imbalance from employee workload input.
+
+- `POST /api/ml/diagnostics/bottlenecks`
+  - Identifies team performance bottlenecks.
+
+- `POST /api/ml/diagnostics/fcr-drivers`
+  - Analyzes non-FCR drivers from ticket data.
+
+- `POST /api/ml/diagnostics/anomalies`
+  - Detects anomalies from submitted historical measurements.
+
+### FCR Risk Prediction
+
+- `POST /api/ml/fcr/predict`
+  - Predicts FCR risk for a single ticket.
+  - Example request:
+
+```json
+{
+  "ticket_category": "software",
+  "priority": 3,
+  "assigned_group": 1,
+  "duration": 120,
+  "reopen_count": 0,
+  "reassignment_count": 0
+}
 ```
+
+- `POST /api/ml/fcr/batch-predict`
+  - Batch predicts FCR risk for multiple tickets.
+
+### Training and status
+
+- `POST /api/ml/training/retrain`
+  - Retrains the current model pipeline and returns training output.
+
+- `GET /api/ml/training/summary`
+  - Returns status for trained models.
+
+- `GET /api/ml/status`
+  - Returns service readiness and model load state.
+
+## Project structure
+
+```text
 ml-service/
-├── app.py                  # Flask app and main routes
-├── requirements.txt        # Python dependencies
-├── .env.example           # Environment template
-├── services/              # ML service modules
-│   ├── forecasting.py     # Ticket volume forecasting
-│   ├── workload_optimization.py  # Load balancing
-│   ├── diagnostics.py     # Performance analysis
-│   └── fcr_prediction.py  # FCR risk prediction
-└── models/                # Trained model files
+├── app.py
+├── requirements.txt
+├── .env.example
+├── services/
+│   ├── data_preprocessing.py
+│   ├── database_integration.py
+│   ├── diagnostics.py
+│   ├── fcr_prediction.py
+│   ├── forecasting.py
+│   ├── model_training.py
+│   └── workload_optimization.py
+├── models/
+│   ├── fcr_model.joblib
+│   └── workload_model.joblib
+└── train_fcr_model.py
 ```
 
-## Models Implemented
+## Notes
 
-1. **ARIMA** - Time series forecasting for ticket volumes
-2. **K-Means Clustering** - Workload distribution analysis
-3. **Random Forest** - FCR risk classification
-4. **Isolation Forest** - Anomaly detection
+- The backend expects this service at `http://localhost:5001` by default.
+- Use `GET /api/ml/status` to verify the service and model readiness.
+- The service is stateless apart from saved model files in `models/`.
 
-## Integration with Backend
+## Integration
 
-The ML service communicates with the Node.js backend via REST APIs.
-Backend calls ML service endpoints for predictions and sends results back to the frontend.
-
-## Deployment
-
-Deploy on Render or similar platform with:
-- Python 3.11+
-- PostgreSQL connection
-- Environment variables configured
-
-## Next Steps
-
-1. Implement model training pipeline with real data
-2. Add model persistence and versioning
-3. Create performance benchmarking
-4. Integrate real-time predictions
-5. Add model monitoring and retraining schedule
+The Work-Wise backend proxies ML calls under `/api/ml/*`, and the frontend reads forecast and diagnostics data through the backend.
 
 ---
 
