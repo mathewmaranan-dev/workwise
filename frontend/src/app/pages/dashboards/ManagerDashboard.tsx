@@ -36,6 +36,15 @@ interface EmployeeWorkloadPayload {
   current_workload: number;
 }
 
+interface MasterRecommendationSummaryRow {
+  flag: string;
+  categories: string;
+  redirectPct: number;
+  suggestedTeam: string;
+  expectedSla: string;
+  expectedFcr: string;
+}
+
 const env = (import.meta as any).env as Record<string, string | undefined>;
 const enableMasterRecommendationDecisionTree = String(env.VITE_ENABLE_MASTER_REC_DT ?? 'true').toLowerCase() !== 'false';
 
@@ -667,6 +676,41 @@ export default function ManagerDashboard() {
   }, [effectiveWorkloadBalance, workloadAnalysis]);
 
   const isServiceDeskGroup = selectedGroup?.group_name === 'Service Desk';
+  const activeTicketCount = activeGroupTicketsForRedistribution.length;
+  const activeLoadPerAgent = activeTicketCount / Math.max(currentStaffCount, 1);
+  const activeCapacityRatio = activeLoadPerAgent / Math.max(agentCapacityTarget, 1);
+  const modeledSlaGain = Number(predictedKpiImprovements?.sla_compliance_gain_pct ?? 0);
+  const modeledFcrGain = Number(predictedKpiImprovements?.fcr_rate_gain_pct ?? 0);
+  const heuristicSlaGain = Math.max(
+    0,
+    Math.min(
+      6,
+      (activeCapacityRatio - 1) * 6 +
+      Math.max(0, 90 - groupKPIs.slaCompliance) * 0.22 +
+      Math.max(0, 75 - groupKPIs.fcrRate) * 0.08
+    )
+  );
+  const heuristicFcrGain = Math.max(
+    0,
+    Math.min(
+      5,
+      (activeCapacityRatio - 1) * 4 +
+      Math.max(0, 75 - groupKPIs.fcrRate) * 0.18 +
+      Math.max(0, 90 - groupKPIs.slaCompliance) * 0.05
+    )
+  );
+  const effectiveProjectedSlaGain = Number(Math.max(modeledSlaGain, heuristicSlaGain).toFixed(1));
+  const effectiveProjectedFcrGain = Number(Math.max(modeledFcrGain, heuristicFcrGain).toFixed(1));
+  const substantialKpiDecay =
+    groupKPIs.slaCompliance < 91 ||
+    groupKPIs.fcrRate < 73 ||
+    (groupKPIs.slaCompliance < 93 && groupKPIs.fcrRate < 78);
+  const meaningfulPredictedKpiImprovement =
+    effectiveProjectedSlaGain >= 0.6 ||
+    effectiveProjectedFcrGain >= 0.6;
+  const severeServiceDeskOverload =
+    activeCapacityRatio >= 1.2 ||
+    activeTicketCount >= Math.ceil(currentStaffCount * agentCapacityTarget * 1.2);
 
   const masterRecommendationDecision = useMemo(() => {
     if (!enableMasterRecommendationDecisionTree) {
@@ -683,68 +727,111 @@ export default function ManagerDashboard() {
       };
     }
 
-    const activeCount = activeGroupTicketsForRedistribution.length;
-    if (!isGroupImbalanced) {
+    if (!severeServiceDeskOverload) {
       return {
         state: 'normal' as const,
-        reason: 'Workload is currently balanced, no redistribution needed.',
+        reason: 'Service Desk active workload is not yet substantially above capacity.',
       };
     }
 
-    if (activeCount < 3) {
+    if (activeTicketCount < 3) {
       return {
         state: 'watch' as const,
-        reason: 'Workload imbalance detected but active ticket count is still low. Continue monitoring.',
+        reason: 'Overload signal detected, but active ticket sample is still too small.',
+      };
+    }
+
+    if (!substantialKpiDecay) {
+      return {
+        state: 'watch' as const,
+        reason: 'Overload detected, but KPI decay is not yet substantial enough for redistribution.',
+      };
+    }
+
+    if (!meaningfulPredictedKpiImprovement) {
+      return {
+        state: 'watch' as const,
+        reason: 'KPI decay detected, but projected KPI uplift from redistribution is still marginal.',
       };
     }
 
     return {
       state: 'triggered' as const,
-      reason: 'Imbalance with sufficient active tickets detected. Redistribution is recommended.',
+      reason: 'Service Desk is severely overloaded on active tickets with substantial KPI decay and meaningful projected KPI recovery from redistribution.',
     };
-  }, [enableMasterRecommendationDecisionTree, isServiceDeskGroup, isGroupImbalanced, activeGroupTicketsForRedistribution.length]);
-
-  const workloadBalanceRecommendations = useMemo(() => {
-    if (!effectiveWorkloadBalance) return [];
-    if (!isGroupImbalanced || !isServiceDeskGroup) return [];
-    if (masterRecommendationDecision.state !== 'triggered') return [];
-    return Array.isArray(effectiveWorkloadBalance.recommendations) ? effectiveWorkloadBalance.recommendations as any[] : [];
-  }, [effectiveWorkloadBalance, effectiveWorkloadBalance?.recommendations, isGroupImbalanced, isServiceDeskGroup, masterRecommendationDecision.state]);
+  }, [
+    enableMasterRecommendationDecisionTree,
+    isServiceDeskGroup,
+    severeServiceDeskOverload,
+    activeTicketCount,
+    substantialKpiDecay,
+    meaningfulPredictedKpiImprovement,
+  ]);
 
   const workloadRecommendationSummary = useMemo(() => {
-    if (!isGroupImbalanced || !isServiceDeskGroup || workloadBalanceRecommendations.length === 0) return [];
-    if (!predictedKpiImprovements) return [];
-    return workloadBalanceRecommendations.map((rec) => {
-      const currentLoad = Number(rec.current_load ?? 0);
-      const adjustment = Number(rec.adjustment ?? 0);
-      const redirectPct = currentLoad > 0 ? Math.round(Math.abs(adjustment) / currentLoad * 100) : 0;
-      const flag = adjustment > 1 ? 'Overloaded' : adjustment < -1 ? 'Underloaded' : 'Balanced';
-      const expectedSla = `+${predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%`;
-      const expectedFcr = `+${predictedKpiImprovements.fcr_rate_gain_pct ?? 0}%`;
+    if (!isServiceDeskGroup) return [];
+    if (masterRecommendationDecision.state !== 'triggered') return [];
 
-      const targetGroupId = Number(rec.assignment_group_id ?? 0);
-      let suggestedTeam = targetGroupId && targetGroupId !== selectedGroupId
-        ? getAssignmentGroupById(targetGroupId)?.group_name
-        : null;
+    const sourceGroupId = Number(selectedGroupId ?? 0);
+    const targetGroupsByCategory = new Map<number, number>();
+    Object.entries(GROUP_CATEGORY_MAPPING).forEach(([groupIdStr, categories]) => {
+      const groupId = Number(groupIdStr);
+      if (groupId === sourceGroupId) return;
+      categories.forEach((categoryId) => {
+        if (!targetGroupsByCategory.has(categoryId)) {
+          targetGroupsByCategory.set(categoryId, groupId);
+        }
+      });
+    });
 
-      if (!suggestedTeam && flag === 'Overloaded' && acceptingGroupsForOffload.length > 0) {
-        suggestedTeam = getAssignmentGroupById(acceptingGroupsForOffload[0])?.group_name ?? null;
+    const fallbackTargetGroupId = acceptingGroupsForOffload.find((groupId) => groupId !== sourceGroupId);
+
+    const aggregate = new Map<number, { ticketCount: number; categoryIds: Set<number> }>();
+
+    activeGroupTicketsForRedistribution.forEach((ticket: any) => {
+      const categoryId = Number(ticket.category_id ?? 0);
+      if (!categoryId) return;
+      const targetGroupId = targetGroupsByCategory.get(categoryId) ?? fallbackTargetGroupId;
+      if (!targetGroupId || targetGroupId === sourceGroupId) return;
+
+      if (!aggregate.has(targetGroupId)) {
+        aggregate.set(targetGroupId, { ticketCount: 0, categoryIds: new Set<number>() });
       }
 
-      if (!suggestedTeam) {
-        suggestedTeam = selectedGroup?.group_name ?? 'Current Group';
-      }
+      const entry = aggregate.get(targetGroupId)!;
+      entry.ticketCount += 1;
+      entry.categoryIds.add(categoryId);
+    });
+
+    const totalActive = Math.max(1, activeTicketCount);
+    const rows: MasterRecommendationSummaryRow[] = Array.from(aggregate.entries()).map(([targetGroupId, entry]) => {
+      const categories = Array.from(entry.categoryIds)
+        .map((categoryId) => getCategoryName(categoryId))
+        .join(', ');
 
       return {
-        user_id: rec.user_id,
-        flag,
-        redirectPct,
-        suggestedTeam,
-        expectedSla,
-        expectedFcr,
+        flag: 'Overloaded (Active)',
+        categories,
+        redirectPct: Math.round((entry.ticketCount / totalActive) * 100),
+        suggestedTeam: getAssignmentGroupById(targetGroupId)?.group_name ?? `Group ${targetGroupId}`,
+        expectedSla: `+${effectiveProjectedSlaGain}%`,
+        expectedFcr: `+${effectiveProjectedFcrGain}%`,
       };
     });
-  }, [workloadBalanceRecommendations, predictedKpiImprovements, acceptingGroupsForOffload, selectedGroupId, selectedGroup, isGroupImbalanced, isServiceDeskGroup]);
+
+    return rows.sort((a, b) => b.redirectPct - a.redirectPct);
+  }, [
+    isServiceDeskGroup,
+    masterRecommendationDecision.state,
+    predictedKpiImprovements,
+    selectedGroupId,
+    activeGroupTicketsForRedistribution,
+    activeTicketCount,
+    acceptingGroupsForOffload,
+    getCategoryName,
+    effectiveProjectedSlaGain,
+    effectiveProjectedFcrGain,
+  ]);
 
   const staffingScenarioData = [0, 1, 2, 3].map((extraAgents) => {
     const scenarioStaff = currentStaffCount + extraAgents;
@@ -1449,6 +1536,7 @@ export default function ManagerDashboard() {
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-3 py-3 text-left font-semibold text-slate-700">Flag</th>
+                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Categories</th>
                     <th className="px-3 py-3 text-left font-semibold text-slate-700">% Redirect</th>
                     <th className="px-3 py-3 text-left font-semibold text-slate-700">Suggested Team</th>
                     <th className="px-3 py-3 text-left font-semibold text-slate-700">Expected SLA Gain</th>
@@ -1456,9 +1544,10 @@ export default function ManagerDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
-                  {workloadRecommendationSummary.map((row: any) => (
-                    <tr key={`summary-${row.user_id}-${row.suggestedTeam}`}>
+                  {workloadRecommendationSummary.map((row: MasterRecommendationSummaryRow) => (
+                    <tr key={`summary-${row.suggestedTeam}-${row.categories}`}>
                       <td className="px-3 py-3 text-slate-700">{row.flag}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.categories}</td>
                       <td className="px-3 py-3 text-slate-700">{row.redirectPct}%</td>
                       <td className="px-3 py-3 text-slate-700">{row.suggestedTeam}</td>
                       <td className="px-3 py-3 text-slate-700">{row.expectedSla}</td>
