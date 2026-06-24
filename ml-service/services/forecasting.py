@@ -49,6 +49,12 @@ class TicketForecast:
         if self.db_connector.available:
             try:
                 tickets = self.db_connector.get_tickets(days_back=days, group_id=assignment_group_id)
+                if not tickets:
+                    # Retry with broader history window for sparse datasets.
+                    tickets = self.db_connector.get_tickets(days_back=max(days, 3650), group_id=assignment_group_id)
+                if not tickets and assignment_group_id is not None:
+                    # Fallback to all groups when a specific group has no ticket history.
+                    tickets = self.db_connector.get_tickets(days_back=max(days, 3650), group_id=None)
                 logger.info(f"DB query returned {len(tickets) if tickets else 0} tickets for group {assignment_group_id}")
                 if tickets:
                     df = pd.DataFrame(tickets)
