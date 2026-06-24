@@ -170,7 +170,7 @@ def balance_workload():
         requested_team_members = data.get('team_members', [])
 
         if not isinstance(requested_team_members, list) or len(requested_team_members) == 0:
-            return jsonify({'error': 'team_members required'}), 400
+            return jsonify({'error': 'team_members required', 'code': 'MISSING_TEAM_MEMBERS'}), 400
 
         team_members = requested_team_members
 

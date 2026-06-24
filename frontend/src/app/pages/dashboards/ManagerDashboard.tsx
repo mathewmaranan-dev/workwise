@@ -1005,6 +1005,14 @@ export default function ManagerDashboard() {
     const fetchRecommendations = async () => {
       setRecLoading(true);
       setRecError(null);
+      if (
+        selectedGroupId == null ||
+        !Array.isArray(redistributionTeamMetrics) ||
+        redistributionTeamMetrics.length === 0
+      ) {
+        setRecLoading(false);
+        return;
+      }
       try {
         const payload = {
           assignment_group_id: selectedGroupId,

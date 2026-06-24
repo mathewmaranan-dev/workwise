@@ -22,7 +22,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const ML_PROXY_TIMEOUT_MS = Number(process.env.ML_PROXY_TIMEOUT_MS || 25000);
-const ML_PROXY_MAX_RETRIES = Number(process.env.ML_PROXY_MAX_RETRIES || 1);
+const ML_PROXY_MAX_RETRIES = Number(process.env.ML_PROXY_MAX_RETRIES || 2);
 
 // Middleware
 app.use(helmet());
