@@ -929,40 +929,6 @@ export default function ManagerDashboard() {
     }));
   }, [groupTickets, mlInsights.forecastArray, latestGroupCreatedDate, currentStaffCount, agentCapacityTarget]);
 
-  const teamStaffingAnalysis = useMemo(() => {
-    return assignmentGroups
-      .map((group) => {
-        const groupTicketsForTeam = currentTickets.filter((ticket: any) => ticket.assignment_group_id === group.assignment_group_id);
-        const groupNonFCR = groupTicketsForTeam.filter((ticket: any) => !ticket.fcr);
-        const assignedAgentIds = new Set(groupTicketsForTeam
-          .map((ticket: any) => ticket.assigned_to_id)
-          .filter((value): value is number => typeof value === 'number'));
-        const currentStaff = assignedAgentIds.size > 0 ? assignedAgentIds.size : 1;
-        const forecastVolume = groupTicketsForTeam.length > 0 ? groupTicketsForTeam.length : 0;
-        const required = Math.ceil(forecastVolume / agentCapacityTarget);
-        const gap = required - currentStaff;
-        const demandRatio = forecastVolume / Math.max(currentStaff * agentCapacityTarget, 1);
-        const loadPerAgent = forecastVolume / Math.max(currentStaff, 1);
-        const avgRisk = groupNonFCR.length > 0
-          ? groupNonFCR.reduce((sum, ticket: any) => sum + (riskScoreMap[ticket.ticket_id]?.riskScore ?? 0), 0) / groupNonFCR.length
-          : 0;
-
-        return {
-          groupId: group.assignment_group_id,
-          groupName: group.group_name,
-          forecastVolume,
-          currentStaff,
-          requiredStaff: required,
-          staffingGap: gap,
-          demandCapacityRatio: Number(demandRatio.toFixed(2)),
-          workloadPerAgent: Number(loadPerAgent.toFixed(1)),
-          avgRisk: Number(avgRisk.toFixed(1)),
-          recommendation: demandRatio > 1.1 ? `Hire ${Math.max(gap, 1)} agent${Math.max(gap, 1) === 1 ? '' : 's'}` : demandRatio >= 0.9 ? 'Redistribute workload' : 'Maintain staffing',
-        };
-      })
-      .sort((a, b) => b.staffingGap - a.staffingGap);
-  }, [assignmentGroups, currentTickets, riskScoreMap, agentCapacityTarget]);
-
   useEffect(() => {
     let isMounted = true;
 
@@ -1492,45 +1458,6 @@ export default function ManagerDashboard() {
           </CardContent>
         </Card>
       )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Team staffing gap analysis</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Cross-team staffing needs by forecast volume, capacity utilization, and workload risk.</p>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr>
-                  <th className="text-left">Team</th>
-                  <th className="text-left">Forecast volume</th>
-                  <th className="text-left">Current staff</th>
-                  <th className="text-left">Required staff</th>
-                  <th className="text-left">Gap</th>
-                  <th className="text-left">Load / agent</th>
-                  <th className="text-left">Avg risk</th>
-                  <th className="text-left">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teamStaffingAnalysis.map((entry) => (
-                  <tr key={entry.groupId} className={entry.groupId === displayGroupId ? 'bg-indigo-50' : undefined}>
-                    <td className="font-medium">{entry.groupName}</td>
-                    <td>{entry.forecastVolume}</td>
-                    <td>{entry.currentStaff}</td>
-                    <td>{entry.requiredStaff}</td>
-                    <td className={entry.staffingGap > 0 ? 'font-semibold text-rose-600' : 'font-semibold text-emerald-600'}>{entry.staffingGap >= 0 ? `+${entry.staffingGap}` : entry.staffingGap}</td>
-                    <td>{entry.workloadPerAgent.toFixed(1)} tickets</td>
-                    <td>{entry.avgRisk.toFixed(1)}%</td>
-                    <td>{entry.recommendation}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
