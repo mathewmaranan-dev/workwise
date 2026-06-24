@@ -119,10 +119,10 @@ class DatabaseConnector:
                     t.reassignment_count,
                     t.duration
                 FROM tickets t
-                WHERE t.created_date >= NOW() - INTERVAL %s
+                WHERE t.created_date >= NOW() - (%s * INTERVAL '1 day')
                 """
                 
-                params = [f'{days_back} days']
+                params = [int(days_back)]
                 if group_id is not None:
                     query += " AND t.assignment_group_id = %s"
                     params.append(group_id)
