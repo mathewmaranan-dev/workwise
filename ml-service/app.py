@@ -3,8 +3,10 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
+from time import monotonic
 
 import numpy as np
 from dotenv import load_dotenv
@@ -37,6 +39,11 @@ data_preprocessor = DataPreprocessor()
 db_connector = DatabaseConnector()
 model_trainer = ModelTrainer()
 
+FORECAST_CACHE_TTL_SECONDS = max(0, int(os.getenv('FORECAST_CACHE_TTL_SECONDS', '300')))
+_forecast_cache = {}
+_forecast_locks = {}
+_forecast_locks_guard = threading.Lock()
+
 CATEGORY_ID_MAP = {
     'software': 2,
     'hardware': 3,
@@ -46,6 +53,13 @@ CATEGORY_ID_MAP = {
     'access': 7,
     'service': 8,
 }
+
+
+def _get_forecast_lock(cache_key):
+    with _forecast_locks_guard:
+        if cache_key not in _forecast_locks:
+            _forecast_locks[cache_key] = threading.Lock()
+        return _forecast_locks[cache_key]
 
 
 def _build_ticket_dataset(group_id: int, count: int = 30):
@@ -94,27 +108,48 @@ def forecast_tickets():
             group_id = int(raw_group_id)
 
         days_ahead = max(1, int(data.get('days_ahead', 90)))  # Default to 90 days (3 months) instead of 7
+        cache_key = (group_id, days_ahead)
+        now = monotonic()
 
-        forecast_result = forecast_service.forecast(group_id, days_ahead=days_ahead)
+        cached = _forecast_cache.get(cache_key)
+        if cached and cached.get('expires_at', 0) > now:
+            return jsonify(cached['payload']), 200
 
-        if 'error' in forecast_result:
-            status_code = 404 if forecast_result.get('code') == 'NO_DB_HISTORY' else 500
-            return jsonify({'error': forecast_result['error'], 'code': forecast_result.get('code')}), status_code
+        lock = _get_forecast_lock(cache_key)
+        with lock:
+            # Another concurrent request may have populated the cache while we waited.
+            cached = _forecast_cache.get(cache_key)
+            if cached and cached.get('expires_at', 0) > monotonic():
+                return jsonify(cached['payload']), 200
 
-        forecast_values = forecast_result['forecast']
-        forecast_mean = round(float(sum(forecast_values) / len(forecast_values)), 2) if forecast_values else None
+            forecast_result = forecast_service.forecast(group_id, days_ahead=days_ahead)
 
-        return jsonify({
-            'group_id': group_id,
-            'days_ahead': days_ahead,
-            'forecast': forecast_values,
-            'forecast_mean': forecast_mean,
-            'upper_bound': forecast_result.get('upper_bound', []),
-            'lower_bound': forecast_result.get('lower_bound', []),
-            'confidence': round(min(0.98, max(0.55, float(forecast_result.get('rsquared', 0)))), 2),
-            'model': forecast_result.get('model'),
-            'data_source': forecast_result.get('data_source'),
-        }), 200
+            if 'error' in forecast_result:
+                status_code = 404 if forecast_result.get('code') == 'NO_DB_HISTORY' else 500
+                return jsonify({'error': forecast_result['error'], 'code': forecast_result.get('code')}), status_code
+
+            forecast_values = forecast_result['forecast']
+            forecast_mean = round(float(sum(forecast_values) / len(forecast_values)), 2) if forecast_values else None
+
+            payload = {
+                'group_id': group_id,
+                'days_ahead': days_ahead,
+                'forecast': forecast_values,
+                'forecast_mean': forecast_mean,
+                'upper_bound': forecast_result.get('upper_bound', []),
+                'lower_bound': forecast_result.get('lower_bound', []),
+                'confidence': round(min(0.98, max(0.55, float(forecast_result.get('rsquared', 0)))), 2),
+                'model': forecast_result.get('model'),
+                'data_source': forecast_result.get('data_source'),
+            }
+
+            if FORECAST_CACHE_TTL_SECONDS > 0:
+                _forecast_cache[cache_key] = {
+                    'expires_at': monotonic() + FORECAST_CACHE_TTL_SECONDS,
+                    'payload': payload,
+                }
+
+            return jsonify(payload), 200
 
     except Exception as exc:
         logger.error(f"Forecasting error: {exc}")
