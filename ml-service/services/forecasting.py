@@ -5,8 +5,6 @@ Uses ARIMA with auto-parameter selection to predict future ticket volumes.
 """
 
 import logging
-import os
-from datetime import datetime
 import warnings
 from itertools import product
 
@@ -40,7 +38,6 @@ class TicketForecast:
         self.model = None
         self.best_order = None
         self.trend = None
-        self.allow_synthetic_fallback = os.getenv('ALLOW_SYNTHETIC_FALLBACK', 'false').strip().lower() in {'1', 'true', 'yes'}
         self.db_connector = DatabaseConnector()
         if self.db_connector.available:
             self.db_connector.connect()
@@ -48,13 +45,13 @@ class TicketForecast:
     def _build_historical_series(self, assignment_group_id, days=90):
         if self.db_connector.available:
             try:
-                tickets = self.db_connector.get_tickets(days_back=days, group_id=assignment_group_id)
+                tickets = self.db_connector.get_tickets(days_back=days, group_id=assignment_group_id, strict=True)
                 if not tickets:
                     # Retry with broader history window for sparse datasets.
-                    tickets = self.db_connector.get_tickets(days_back=max(days, 3650), group_id=assignment_group_id)
+                    tickets = self.db_connector.get_tickets(days_back=max(days, 3650), group_id=assignment_group_id, strict=True)
                 if not tickets and assignment_group_id is not None:
                     # Fallback to all groups when a specific group has no ticket history.
-                    tickets = self.db_connector.get_tickets(days_back=max(days, 3650), group_id=None)
+                    tickets = self.db_connector.get_tickets(days_back=max(days, 3650), group_id=None, strict=True)
                 logger.info(f"DB query returned {len(tickets) if tickets else 0} tickets for group {assignment_group_id}")
                 if tickets:
                     df = pd.DataFrame(tickets)
@@ -81,30 +78,13 @@ class TicketForecast:
                 else:
                     logger.info(f"No DB tickets found for group {assignment_group_id}")
             except Exception as e:
-                logger.warning(f"DB query failed for group {assignment_group_id}: {e}")
-                pass
+                logger.error(f"DB query failed for group {assignment_group_id}: {e}")
+                raise RuntimeError(f"Database query failed: {e}") from e
 
-        if not self.allow_synthetic_fallback:
-            logger.error("No DB historical ticket data available and synthetic fallback is disabled")
+        if not self.db_connector.available:
+            logger.error("No DB historical ticket data available because database connector is unavailable")
             return None
-
-        dates = pd.date_range(end=datetime.now(), periods=days, freq='D')
-        index = np.arange(days)
-
-        safe_group_id = int(assignment_group_id) if assignment_group_id is not None else 0
-        group_factor = (safe_group_id % 5) * 3.5
-        trend = 25 + (index * 0.18) + group_factor
-        seasonality = 6 * np.sin(index / 7.0) + 3 * np.cos(index / 14.0)
-        weekly_spike = np.where((index % 7) == 0, 8, 0)
-        noise = np.sin(index / 4.0) * 1.8
-
-        volumes = np.round(trend + seasonality + weekly_spike + noise).astype(int)
-        volumes = np.clip(volumes, 10, 120)
-
-        return pd.DataFrame({
-            'date': dates,
-            'ticket_volume': volumes,
-        })
+        return None
 
     def get_historical_data(self, assignment_group_id, days=90):
         return self._build_historical_series(assignment_group_id, days=days)
@@ -322,11 +302,11 @@ class TicketForecast:
             data = self.get_historical_data(assignment_group_id)
             if data is None or data.empty:
                 return {
-                    'error': 'No DB ticket history available for forecasting. Ensure ML service DATABASE_URL points to the active WorkWise database.'
+                    'error': 'No DB ticket history available for forecasting. Ensure ML service DATABASE_URL points to the active WorkWise database.',
+                    'code': 'NO_DB_HISTORY',
                 }
             series = data['ticket_volume'].values
-            # Check data_source AFTER get_historical_data() is called, so get_tickets() has a chance to connect
-            data_source = 'db' if getattr(self.db_connector, 'conn', None) else 'synthetic'
+            data_source = 'db'
             
             # Detect trend
             self.trend = self._detect_trend(series)
@@ -434,7 +414,7 @@ class TicketForecast:
                     'data_source': data_source,
                 }
 
-            # Fall back to ARIMA if available; otherwise use deterministic baseline.
+            # Fall back to ARIMA if available.
             if ARIMA is not None:
                 self.best_order = self._find_optimal_arima_order(series)
                 model = ARIMA(series, order=self.best_order)
@@ -487,34 +467,13 @@ class TicketForecast:
                     'data_source': data_source,
                 }
 
-        except Exception as e:
-            # Fallback with better error handling
-            data = self.get_historical_data(assignment_group_id)
-            baseline = float(np.mean(data['ticket_volume']))
-            history_mean = float(np.mean(data['ticket_volume']))
-            history_std = float(np.std(data['ticket_volume']))
-            projected = np.linspace(baseline, baseline + 6, days_ahead)
-            lower = np.maximum(projected - 3.5, 10)
-            upper = projected + 3.5
-            
             return {
-                'forecast': projected.astype(float).tolist(),
-                'lower_bound': lower.astype(float).tolist(),
-                'upper_bound': upper.astype(float).tolist(),
-                'model': 'Deterministic fallback',
-                'rsquared': 0.0,
-                'trend': 'unknown',
-                'quality': 'low',
-                'quality_score': 0.35,
-                'confidence': 0.55,
-                'forecast_error_std': float(history_std),
-                'mae': float(history_std),
-                'history_stats': {
-                    'mean': history_mean,
-                    'std': history_std,
-                    'min': float(np.min(data['ticket_volume'])),
-                    'max': float(np.max(data['ticket_volume'])),
-                    'last': float(data['ticket_volume'].iloc[-1]),
-                },
-                'error': str(e),
+                'error': 'Forecasting models are unavailable in the ML runtime.',
+                'code': 'MODEL_UNAVAILABLE',
+            }
+
+        except Exception as e:
+            return {
+                'error': f'Forecasting pipeline failed: {e}',
+                'code': 'FORECAST_PIPELINE_FAILED',
             }
