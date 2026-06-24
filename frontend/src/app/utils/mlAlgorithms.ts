@@ -97,18 +97,23 @@ interface FcrPredictionPayload {
 
 const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const toFiniteNumber = (value: any, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 const buildFcrPredictionPayload = (ticket: Ticket, tickets: Ticket[] = seedDataTickets): FcrPredictionPayload => {
-  const assignment_group_id = ticket.assignment_group_id ?? 1;
-  const assigned_to_id = ticket.assigned_to_id ?? 1;
-  const category_id = ticket.category_id ?? 1;
-  const priority_id = ticket.priority_id ?? 3;
-  const impact_id = ticket.impact_id ?? 3;
-  const urgency_id = ticket.urgency_id ?? 2;
-  const channel_id = ticket.channel_id ?? 1;
-  const source_id = ticket.source_id ?? 1;
-  const duration = ticket.duration ?? 120;
-  const reopen_count = ticket.reopen_count ?? 0;
-  const reassignment_count = ticket.reassignment_count ?? 0;
+  const assignment_group_id = toFiniteNumber(ticket.assignment_group_id, 1);
+  const assigned_to_id = toFiniteNumber(ticket.assigned_to_id, 1);
+  const category_id = toFiniteNumber(ticket.category_id, 1);
+  const priority_id = toFiniteNumber(ticket.priority_id, 3);
+  const impact_id = toFiniteNumber(ticket.impact_id, 3);
+  const urgency_id = toFiniteNumber(ticket.urgency_id, 2);
+  const channel_id = toFiniteNumber(ticket.channel_id, 1);
+  const source_id = toFiniteNumber(ticket.source_id, 1);
+  const duration = toFiniteNumber(ticket.duration, 120);
+  const reopen_count = toFiniteNumber(ticket.reopen_count, 0);
+  const reassignment_count = toFiniteNumber(ticket.reassignment_count, 0);
 
   const agentTickets = tickets.filter(t => t.assigned_to_id === assigned_to_id && t.ticket_id !== ticket.ticket_id);
   const agentFcrHistory = agentTickets.length > 0
@@ -297,8 +302,13 @@ export const predictNonFCRRisk = async (tickets: Ticket[], allTickets: Ticket[] 
             recommendation: Array.isArray(fallbackRiskData.recommendations) ? fallbackRiskData.recommendations.join(' • ') : 'Monitor ticket'
           };
         } catch (fallbackError) {
-          console.warn('Direct ML service fallback failed, using local heuristic:', fallbackError);
-          return predictNonFCRRiskLocal([ticket])[0];
+          console.warn('Direct ML service fallback failed; returning unavailable ML risk result:', fallbackError);
+          return {
+            ticket_id: ticket.ticket_id,
+            riskScore: 0,
+            factors: ['ML prediction unavailable'],
+            recommendation: 'ML prediction unavailable',
+          };
         }
       }
     })

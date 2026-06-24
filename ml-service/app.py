@@ -3,8 +3,10 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
+from time import monotonic
 
 import numpy as np
 from dotenv import load_dotenv
@@ -37,6 +39,11 @@ data_preprocessor = DataPreprocessor()
 db_connector = DatabaseConnector()
 model_trainer = ModelTrainer()
 
+FORECAST_CACHE_TTL_SECONDS = max(0, int(os.getenv('FORECAST_CACHE_TTL_SECONDS', '300')))
+_forecast_cache = {}
+_forecast_locks = {}
+_forecast_locks_guard = threading.Lock()
+
 CATEGORY_ID_MAP = {
     'software': 2,
     'hardware': 3,
@@ -48,15 +55,21 @@ CATEGORY_ID_MAP = {
 }
 
 
+def _get_forecast_lock(cache_key):
+    with _forecast_locks_guard:
+        if cache_key not in _forecast_locks:
+            _forecast_locks[cache_key] = threading.Lock()
+        return _forecast_locks[cache_key]
+
+
 def _build_ticket_dataset(group_id: int, count: int = 30):
-    """Build KPI-ready ticket rows from DB data, with a synthetic fallback."""
+    """Build KPI-ready ticket rows from DB data only."""
     days_back = max(int(count), 30)
 
     try:
-        tickets = db_connector.get_tickets(days_back=days_back, group_id=group_id)
+        tickets = db_connector.get_tickets(days_back=days_back, group_id=group_id, strict=True)
     except Exception as exc:
-        logger.warning(f"Could not load DB tickets for diagnostics: {exc}")
-        tickets = []
+        raise RuntimeError(f"Could not load DB tickets for diagnostics: {exc}") from exc
 
     dataset = []
     for ticket in tickets or []:
@@ -72,24 +85,10 @@ def _build_ticket_dataset(group_id: int, count: int = 30):
             'fcr': bool(ticket.get('fcr', False)),
             'reopen_count': int(ticket.get('reopen_count', 0) or 0),
             'duration': float(ticket.get('duration', 120) or 120),
+            'created_at': ticket.get('created_at'),
         })
 
-    if dataset:
-        return dataset
-
-    rng = np.random.default_rng(seed=(group_id or 0) * 97 + days_back)
-    synthetic = []
-    for index in range(days_back):
-        resolved = bool(rng.random() > 0.18)
-        synthetic.append({
-            'status': 'resolved' if resolved else 'open',
-            'sla_met': bool(rng.random() > 0.11),
-            'fcr': bool(rng.random() > 0.24),
-            'reopen_count': int(rng.integers(0, 3)),
-            'duration': float(max(20, rng.normal(180, 70))),
-        })
-
-    return synthetic
+    return dataset
 
 
 # ============ HEALTH & STATUS ============
@@ -109,26 +108,48 @@ def forecast_tickets():
             group_id = int(raw_group_id)
 
         days_ahead = max(1, int(data.get('days_ahead', 90)))  # Default to 90 days (3 months) instead of 7
+        cache_key = (group_id, days_ahead)
+        now = monotonic()
 
-        forecast_result = forecast_service.forecast(group_id, days_ahead=days_ahead)
+        cached = _forecast_cache.get(cache_key)
+        if cached and cached.get('expires_at', 0) > now:
+            return jsonify(cached['payload']), 200
 
-        if 'error' in forecast_result:
-            return jsonify({'error': forecast_result['error']}), 500
+        lock = _get_forecast_lock(cache_key)
+        with lock:
+            # Another concurrent request may have populated the cache while we waited.
+            cached = _forecast_cache.get(cache_key)
+            if cached and cached.get('expires_at', 0) > monotonic():
+                return jsonify(cached['payload']), 200
 
-        forecast_values = forecast_result['forecast']
-        forecast_mean = round(float(sum(forecast_values) / len(forecast_values)), 2) if forecast_values else None
+            forecast_result = forecast_service.forecast(group_id, days_ahead=days_ahead)
 
-        return jsonify({
-            'group_id': group_id,
-            'days_ahead': days_ahead,
-            'forecast': forecast_values,
-            'forecast_mean': forecast_mean,
-            'upper_bound': forecast_result.get('upper_bound', []),
-            'lower_bound': forecast_result.get('lower_bound', []),
-            'confidence': round(min(0.98, max(0.55, float(forecast_result.get('rsquared', 0)))), 2),
-            'model': forecast_result.get('model'),
-            'data_source': forecast_result.get('data_source'),
-        }), 200
+            if 'error' in forecast_result:
+                status_code = 404 if forecast_result.get('code') == 'NO_DB_HISTORY' else 500
+                return jsonify({'error': forecast_result['error'], 'code': forecast_result.get('code')}), status_code
+
+            forecast_values = forecast_result['forecast']
+            forecast_mean = round(float(sum(forecast_values) / len(forecast_values)), 2) if forecast_values else None
+
+            payload = {
+                'group_id': group_id,
+                'days_ahead': days_ahead,
+                'forecast': forecast_values,
+                'forecast_mean': forecast_mean,
+                'upper_bound': forecast_result.get('upper_bound', []),
+                'lower_bound': forecast_result.get('lower_bound', []),
+                'confidence': round(min(0.98, max(0.55, float(forecast_result.get('rsquared', 0)))), 2),
+                'model': forecast_result.get('model'),
+                'data_source': forecast_result.get('data_source'),
+            }
+
+            if FORECAST_CACHE_TTL_SECONDS > 0:
+                _forecast_cache[cache_key] = {
+                    'expires_at': monotonic() + FORECAST_CACHE_TTL_SECONDS,
+                    'payload': payload,
+                }
+
+            return jsonify(payload), 200
 
     except Exception as exc:
         logger.error(f"Forecasting error: {exc}")
@@ -148,13 +169,10 @@ def balance_workload():
         incoming_tickets = int(data.get('incoming_tickets', 8))
         requested_team_members = data.get('team_members', [])
 
-        if isinstance(requested_team_members, list) and len(requested_team_members) > 0:
-            team_members = requested_team_members
-        else:
-            team_members = [
-                {'user_id': int(group_id * 100 + offset), 'current_tickets': int((group_id + offset) * 2 + 5)}
-                for offset in range(5)
-            ]
+        if not isinstance(requested_team_members, list) or len(requested_team_members) == 0:
+            return jsonify({'error': 'team_members required', 'code': 'MISSING_TEAM_MEMBERS'}), 400
+
+        team_members = requested_team_members
 
         allocation = workload_optimizer.recommend_distribution(team_members, incoming_tickets)
 
@@ -190,23 +208,33 @@ def performance_diagnostics():
             return jsonify({'error': 'Missing group_id'}), 400
 
         tickets_data = _build_ticket_dataset(group_id, count=max(period_days, 30))
+        if not tickets_data:
+            return jsonify({'error': 'No DB ticket history available for diagnostics', 'code': 'NO_DB_HISTORY'}), 404
         diagnostics = diagnostics_service.calculate_kpis(tickets_data)
 
         team_performance = [
             {
                 'name': f'Group {group_id} Core Team',
-                'resolution_rate': max(65, diagnostics['resolution_rate'] - 5),
-                'sla_compliance': max(80, diagnostics['sla_compliance'] - 2),
+                'resolution_rate': diagnostics['resolution_rate'],
+                'sla_compliance': diagnostics['sla_compliance'],
+                'fcr_rate': diagnostics['fcr_rate'],
+                'reopen_rate': diagnostics['reopen_rate'],
             }
         ]
         bottlenecks = diagnostics_service.identify_bottlenecks(team_performance)
 
-        daily_values = []
-        for index in range(14):
-            daily_values.append({
-                'date': (datetime.utcnow() - timedelta(days=index)).strftime('%Y-%m-%d'),
-                'value': 25 + (index % 5) * 5 + (5 if index == 0 else 0),
-            })
+        daily_counts = {}
+        for item in tickets_data:
+            created_at = item.get('created_at')
+            if created_at is None:
+                continue
+            day_key = str(created_at)[:10]
+            daily_counts[day_key] = daily_counts.get(day_key, 0) + 1
+
+        daily_values = [
+            {'date': day, 'value': value}
+            for day, value in sorted(daily_counts.items())
+        ]
         anomalies = diagnostics_service.detect_performance_anomalies(daily_values)
 
         return jsonify({
@@ -231,14 +259,25 @@ def performance_diagnostics():
 def detect_anomalies():
     try:
         group_id = request.args.get('group_id', type=int)
-        base = 40 + (group_id or 1) * 3
-        historical_data = []
-        for index in range(14):
-            spike = 20 if index == 4 else 0
-            historical_data.append({
-                'date': (datetime.utcnow() - timedelta(days=index)).strftime('%Y-%m-%d'),
-                'value': base + index * 2 + spike,
-            })
+        if not group_id:
+            return jsonify({'error': 'Missing group_id'}), 400
+
+        tickets = db_connector.get_tickets(days_back=180, group_id=group_id, strict=True)
+        if not tickets:
+            return jsonify({'error': 'No DB ticket history available for anomaly detection', 'code': 'NO_DB_HISTORY'}), 404
+
+        daily_counts = {}
+        for ticket in tickets:
+            created_at = ticket.get('created_at')
+            if created_at is None:
+                continue
+            day_key = str(created_at)[:10]
+            daily_counts[day_key] = daily_counts.get(day_key, 0) + 1
+
+        historical_data = [
+            {'date': day, 'value': value}
+            for day, value in sorted(daily_counts.items())
+        ]
 
         anomalies = diagnostics_service.detect_performance_anomalies(historical_data)
         return jsonify({

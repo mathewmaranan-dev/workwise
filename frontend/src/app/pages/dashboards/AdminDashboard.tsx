@@ -136,15 +136,15 @@ export default function AdminDashboard() {
         </TabsContent>
 
         <TabsContent value="manager">
-          <ManagerDashboard />
+          {dashboardView === 'manager' ? <ManagerDashboard /> : null}
         </TabsContent>
 
         <TabsContent value="hr">
-          <HRDashboard />
+          {dashboardView === 'hr' ? <HRDashboard /> : null}
         </TabsContent>
 
         <TabsContent value="agent">
-          <AgentDashboard showAgentSelector />
+          {dashboardView === 'agent' ? <AgentDashboard showAgentSelector /> : null}
         </TabsContent>
       </Tabs>
     </div>
@@ -286,20 +286,49 @@ function AdminView({
           throw new Error('ML forecast request skipped: missing auth token');
         }
 
-        const response = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/forecast/tickets`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ days_ahead: 56 }),
-        });
+        const endpoint = `${apiBase.replace(/\/$/, '')}/api/ml/forecast/tickets`;
+        const retryableStatuses = new Set([429, 502, 503, 504]);
+        const maxRetries = 2;
+        let payload: any = null;
+        let lastError: unknown = null;
 
-        if (!response.ok) {
-          throw new Error(`ML forecast request failed with status ${response.status}`);
+        for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+          try {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ days_ahead: 56 }),
+            });
+
+            if (!response.ok) {
+              const shouldRetry = retryableStatuses.has(response.status) && attempt < maxRetries;
+              if (!shouldRetry) {
+                throw new Error(`ML forecast request failed with status ${response.status}`);
+              }
+              await new Promise((resolve) => setTimeout(resolve, 250 + attempt * 500));
+              continue;
+            }
+
+            payload = await response.json();
+            lastError = null;
+            break;
+          } catch (error) {
+            lastError = error;
+            const isFinalAttempt = attempt >= maxRetries;
+            if (isFinalAttempt) {
+              throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250 + attempt * 500));
+          }
         }
 
-        const payload = await response.json();
+        if (!payload && lastError) {
+          throw lastError;
+        }
+
         if (!isMounted) return;
 
         setMlForecast({
