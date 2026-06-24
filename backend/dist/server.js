@@ -18,6 +18,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const ML_PROXY_TIMEOUT_MS = Number(process.env.ML_PROXY_TIMEOUT_MS || 25000);
+const ML_PROXY_MAX_RETRIES = Number(process.env.ML_PROXY_MAX_RETRIES || 2);
 // Middleware
 app.use(helmet());
 app.use(cors({
@@ -47,32 +49,86 @@ app.use('/api/tickets', ticketsRoutes);
 app.use('/api/kpis', kpisRoutes);
 app.use('/api/lookups', lookupsRoutes);
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:5001';
+const HOP_BY_HOP_HEADERS = new Set([
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'te',
+    'trailer',
+    'transfer-encoding',
+    'upgrade',
+    'host',
+    'content-length',
+]);
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+function isTransientProxyError(error) {
+    const directCode = String(error?.code || '').toUpperCase();
+    const causeCode = String(error?.cause?.code || '').toUpperCase();
+    const message = String(error?.message || '').toLowerCase();
+    return (directCode === 'ECONNRESET' ||
+        directCode === 'ETIMEDOUT' ||
+        causeCode === 'UND_ERR_SOCKET' ||
+        causeCode === 'ECONNRESET' ||
+        causeCode === 'ETIMEDOUT' ||
+        message.includes('terminated') ||
+        message.includes('socket') ||
+        message.includes('aborted'));
+}
 app.use('/api/ml', async (req, res) => {
     try {
         // Forward the original request path to the ML service so that
         // endpoints defined under `/api/ml/...` on the ML service match.
         const mlPath = req.originalUrl || '/';
         const target = new URL(mlPath, ML_SERVICE_URL);
-        const headers = new Headers();
-        for (const [key, value] of Object.entries(req.headers)) {
-            if (typeof value === 'string') {
-                headers.set(key, value);
+        const requestBody = (req.method === 'GET' || req.method === 'HEAD') ? undefined : JSON.stringify(req.body ?? {});
+        let response = null;
+        let lastError = null;
+        for (let attempt = 0; attempt <= ML_PROXY_MAX_RETRIES; attempt += 1) {
+            const headers = new Headers();
+            for (const [key, value] of Object.entries(req.headers)) {
+                const normalized = key.toLowerCase();
+                if (HOP_BY_HOP_HEADERS.has(normalized)) {
+                    continue;
+                }
+                if (typeof value === 'string') {
+                    headers.set(key, value);
+                }
+                else if (Array.isArray(value)) {
+                    value.forEach(entry => headers.append(key, entry));
+                }
             }
-            else if (Array.isArray(value)) {
-                value.forEach(entry => headers.append(key, entry));
+            const controller = new AbortController();
+            const timeoutHandle = setTimeout(() => controller.abort(), ML_PROXY_TIMEOUT_MS);
+            try {
+                response = await fetch(target.toString(), {
+                    method: req.method,
+                    headers,
+                    body: requestBody,
+                    signal: controller.signal,
+                });
+                clearTimeout(timeoutHandle);
+                lastError = null;
+                break;
+            }
+            catch (error) {
+                clearTimeout(timeoutHandle);
+                lastError = error;
+                const shouldRetry = attempt < ML_PROXY_MAX_RETRIES && isTransientProxyError(error);
+                if (!shouldRetry) {
+                    break;
+                }
+                await delay(150 * (attempt + 1));
             }
         }
-        headers.delete('host');
-        headers.delete('connection');
-        headers.delete('content-length');
-        const response = await fetch(target.toString(), {
-            method: req.method,
-            headers,
-            body: (req.method === 'GET' || req.method === 'HEAD') ? undefined : JSON.stringify(req.body ?? {}),
-        });
+        if (!response) {
+            throw lastError || new Error('ML proxy request failed with no response');
+        }
         res.status(response.status);
         response.headers.forEach((value, key) => {
-            if (key.toLowerCase() !== 'content-length') {
+            if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
                 res.setHeader(key, value);
             }
         });
@@ -81,7 +137,11 @@ app.use('/api/ml', async (req, res) => {
     }
     catch (error) {
         console.error('ML service proxy error:', error);
-        res.status(502).json({ error: 'Failed to reach ML service' });
+        res.status(502).json({
+            error: 'Failed to reach ML service',
+            code: 'ML_UPSTREAM_UNREACHABLE',
+            detail: String(error?.cause?.code || error?.message || error),
+        });
     }
 });
 // Serve frontend static assets in production only when a built frontend exists

@@ -84,6 +84,25 @@ router.get('/dashboard/tickets', verifyToken, async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch dashboard ticket analytics' });
     }
 });
+// Get current staff counts by assignment group directly from users table.
+router.get('/staffing/group-counts', verifyToken, async (_req, res) => {
+    try {
+        const result = await query(`SELECT
+         u.assignment_group_id,
+         ag.group_name,
+         COUNT(*)::int AS user_count
+       FROM users u
+       LEFT JOIN assignment_groups ag ON ag.assignment_group_id = u.assignment_group_id
+       WHERE u.assignment_group_id IS NOT NULL
+       GROUP BY u.assignment_group_id, ag.group_name
+       ORDER BY u.assignment_group_id`);
+        res.json(result.rows);
+    }
+    catch (error) {
+        console.error('Get staffing group counts error:', error);
+        res.status(500).json({ error: 'Failed to fetch staffing group counts' });
+    }
+});
 // Get team performance metrics
 router.get('/team/:groupId', verifyToken, async (req, res) => {
     try {

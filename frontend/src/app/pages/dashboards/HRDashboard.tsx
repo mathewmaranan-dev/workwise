@@ -37,10 +37,20 @@ export default function HRDashboard() {
     return ticketsPerDay * 30;
   };
 
-  const { isAuthReady } = useAuth();
+  const DECISION_TREE_POLICY = {
+    hireGrowthRateMin: 15,
+    hireLoadRatioMin: 1.18,
+    hireCapacityGapMin: 2,
+    hireSlaMax: 88,
+    hireFcrMax: 72,
+    hireAvgResolutionMin: 1.8,
+  };
+
+  const { isAuthReady, users } = useAuth();
   const { data: uploadedData } = useData();
   const [backendTickets, setBackendTickets] = useState<any[]>([]);
   const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
+  const [staffCountByGroup, setStaffCountByGroup] = useState<Record<number, number>>({});
   const [mlStrategicRecommendations, setMlStrategicRecommendations] = useState<any[] | null>(null);
   const [mlStrategicModelName, setMlStrategicModelName] = useState<string | null>(null);
   const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
@@ -77,6 +87,44 @@ export default function HRDashboard() {
       })
       .finally(() => {
         setBackendTicketsLoaded(true);
+      });
+  }, [apiBase, isAuthReady]);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+
+    const token = localStorage.getItem('workwise_token');
+    if (!token) {
+      setStaffCountByGroup({});
+      return;
+    }
+
+    fetch(`${apiBase.replace(/\/$/, '')}/api/kpis/staffing/group-counts?t=${Date.now()}`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error('Failed to load staffing group counts');
+        return response.json();
+      })
+      .then((rows) => {
+        const nextMap: Record<number, number> = {};
+        (Array.isArray(rows) ? rows : []).forEach((row: any) => {
+          const groupId = Number(row.assignment_group_id);
+          const count = Number(row.user_count);
+          if (Number.isFinite(groupId) && groupId > 0) {
+            nextMap[groupId] = Number.isFinite(count) ? count : 0;
+          }
+        });
+        setStaffCountByGroup(nextMap);
+      })
+      .catch((error) => {
+        console.warn('Failed to load DB staffing group counts for HR dashboard', error);
+        setStaffCountByGroup({});
       });
   }, [apiBase, isAuthReady]);
 
@@ -120,15 +168,44 @@ export default function HRDashboard() {
     overallScore: (g.slaCompliance + g.fcrRate) / 2
   }));
 
+  const getCurrentStaffCount = (groupId: number, groupTickets: any[]) => {
+    const dbUsersTableCount = Number(staffCountByGroup[groupId]);
+    if (Number.isFinite(dbUsersTableCount) && dbUsersTableCount > 0) {
+      return dbUsersTableCount;
+    }
+
+    const authContextUserCount = users.filter((user) => user.assignment_group_id === groupId).length;
+    if (authContextUserCount > 0) {
+      return authContextUserCount;
+    }
+
+    const assignedAgentIds = new Set(groupTickets
+      .map((ticket: any) => Number(ticket.assigned_to_id))
+      .filter((value: number) => Number.isFinite(value) && value > 0));
+    return Math.max(assignedAgentIds.size, 1);
+  };
+
   const staffingSummary = performanceScores.map(group => {
     const groupTickets = currentTickets.filter((ticket: any) => ticket.assignment_group_id === group.groupId);
-    const assignedAgentIds = new Set(groupTickets
-      .map((ticket: any) => ticket.assigned_to_id)
-      .filter((value): value is number => typeof value === 'number'));
+    const currentStaff = getCurrentStaffCount(group.groupId, groupTickets);
 
-    const currentStaff = Math.max(assignedAgentIds.size, 1);
     const groupMonthlyTicketRate = getMonthlyTicketRateForGroup(groupTickets);
-    const recommendedStaff = Math.max(Math.ceil(groupMonthlyTicketRate / MONTHLY_AGENT_CAPACITY_TARGET), currentStaff);
+    const currentLoadPerAgent = groupMonthlyTicketRate / Math.max(currentStaff, 1);
+    const loadRatio = currentLoadPerAgent / MONTHLY_AGENT_CAPACITY_TARGET;
+    const qualityPressure =
+      group.slaCompliance < DECISION_TREE_POLICY.hireSlaMax ||
+      group.fcrRate < DECISION_TREE_POLICY.hireFcrMax ||
+      group.avgResolutionTime > DECISION_TREE_POLICY.hireAvgResolutionMin;
+    const projectedMonthlyLoad = groupMonthlyTicketRate;
+    const minimumRequiredStaff = Math.ceil(projectedMonthlyLoad / MONTHLY_AGENT_CAPACITY_TARGET);
+    const projectedCapacityGap = Math.max(minimumRequiredStaff - currentStaff, 0);
+    const shouldRecommendHire =
+      loadRatio >= DECISION_TREE_POLICY.hireLoadRatioMin &&
+      projectedCapacityGap >= DECISION_TREE_POLICY.hireCapacityGapMin &&
+      qualityPressure;
+    const recommendedStaff = shouldRecommendHire
+      ? Math.max(currentStaff, minimumRequiredStaff)
+      : currentStaff;
     const staffingGap = Math.max(recommendedStaff - currentStaff, 0);
 
     return {
@@ -186,18 +263,25 @@ export default function HRDashboard() {
       const groupGrowthRate = groupPreviousCount > 0
         ? ((groupRecentCount - groupPreviousCount) / groupPreviousCount) * 100
         : 0;
-      const assignedAgentIds = new Set(groupTickets
-        .map((ticket: any) => ticket.assigned_to_id)
-        .filter((value): value is number => typeof value === 'number'));
-      const currentStaff = Math.max(assignedAgentIds.size, 1);
+      const currentStaff = getCurrentStaffCount(group.groupId, groupTickets);
       const targetLoadPerAgent = MONTHLY_AGENT_CAPACITY_TARGET;
       const groupMonthlyTicketRate = getMonthlyTicketRateForGroup(groupTickets);
       const currentLoadPerAgent = groupMonthlyTicketRate / Math.max(currentStaff, 1);
       const projectedLoadPerAgent = currentLoadPerAgent * (1 + Math.max(groupGrowthRate, 0) / 100);
-      const recommendedStaff = Math.max(
-        currentStaff,
-        Math.ceil(Math.max(groupMonthlyTicketRate / targetLoadPerAgent, projectedLoadPerAgent / targetLoadPerAgent))
-      );
+      const minimumRequiredStaff = Math.ceil(Math.max(groupMonthlyTicketRate / targetLoadPerAgent, projectedLoadPerAgent / targetLoadPerAgent));
+      const projectedCapacityGap = Math.max(minimumRequiredStaff - currentStaff, 0);
+      const hasHireQualityPressure =
+        group.slaCompliance < DECISION_TREE_POLICY.hireSlaMax ||
+        group.fcrRate < DECISION_TREE_POLICY.hireFcrMax ||
+        group.avgResolutionTime > DECISION_TREE_POLICY.hireAvgResolutionMin;
+      const shouldRecommendHire =
+        groupGrowthRate >= DECISION_TREE_POLICY.hireGrowthRateMin &&
+        (currentLoadPerAgent / targetLoadPerAgent) >= DECISION_TREE_POLICY.hireLoadRatioMin &&
+        projectedCapacityGap >= DECISION_TREE_POLICY.hireCapacityGapMin &&
+        hasHireQualityPressure;
+      const recommendedStaff = shouldRecommendHire
+        ? Math.max(currentStaff, minimumRequiredStaff)
+        : currentStaff;
       const capacityGap = Math.max(recommendedStaff - currentStaff, 0);
       const loadRatio = currentLoadPerAgent / targetLoadPerAgent;
       const fairnessScore = Math.max(0, Math.min(100, Math.round(100 - Math.abs(loadRatio - 1) * 40)));
@@ -358,7 +442,7 @@ export default function HRDashboard() {
       isShortTermSpike,
       isSustainedGrowth,
     };
-  }, [currentTickets, kpis, performanceScores, groupPerformance]);
+  }, [currentTickets, kpis, performanceScores, groupPerformance, staffCountByGroup, users]);
 
   const {
     groupSummary,
