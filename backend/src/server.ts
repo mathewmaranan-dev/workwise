@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { testConnection } from './config/database.js';
@@ -95,17 +96,27 @@ app.use('/api/ml', async (req, res) => {
   }
 });
 
-// Serve frontend static assets in production
-if (NODE_ENV === 'production') {
-  const frontendDist = path.resolve(__dirname, '../frontend/dist');
+// Serve frontend static assets in production only when a built frontend exists
+// or when explicitly enabled with SERVE_FRONTEND=true.
+const frontendDist = path.resolve(__dirname, '../frontend/dist');
+const frontendIndex = path.join(frontendDist, 'index.html');
+const hasFrontendBuild = existsSync(frontendIndex);
+const serveFrontendEnv = (process.env.SERVE_FRONTEND || '').trim().toLowerCase();
+const shouldServeFrontend =
+  NODE_ENV === 'production' &&
+  (serveFrontendEnv === 'true' || (serveFrontendEnv !== 'false' && hasFrontendBuild));
+
+if (shouldServeFrontend) {
   app.use(express.static(frontendDist));
 
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/')) {
       return next();
     }
-    res.sendFile(path.join(frontendDist, 'index.html'));
+    res.sendFile(frontendIndex);
   });
+} else if (NODE_ENV === 'production' && !hasFrontendBuild) {
+  console.log('ℹ️ Frontend build not found; backend will run API-only mode.');
 }
 
 // 404 handler

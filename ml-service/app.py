@@ -566,7 +566,7 @@ def internal_error(error):
 
 
 if __name__ == '__main__':
-    port = int(os.getenv('ML_PORT', 5001))
+    port = int(os.getenv('PORT') or os.getenv('ML_PORT', 5001))
     debug = os.getenv('NODE_ENV', 'development') == 'development'
 
     logger.info(f"🚀 ML Service starting on port {port}")
