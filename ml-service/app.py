@@ -19,6 +19,7 @@ from services.diagnostics import PerformanceDiagnostics
 from services.fcr_prediction import FCRPredictor
 from services.forecasting import TicketForecast
 from services.model_training import ModelTrainer
+from services.strategic_actions import StrategicActionsModel
 from services.workload_optimization import WorkloadOptimizer
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parent / '.env', override=True)
@@ -38,6 +39,7 @@ fcr_predictor = FCRPredictor()
 data_preprocessor = DataPreprocessor()
 db_connector = DatabaseConnector()
 model_trainer = ModelTrainer()
+strategic_actions_model = StrategicActionsModel()
 
 FORECAST_CACHE_TTL_SECONDS = max(0, int(os.getenv('FORECAST_CACHE_TTL_SECONDS', '300')))
 _forecast_cache = {}
@@ -289,6 +291,25 @@ def detect_anomalies():
     except Exception as exc:
         logger.error(f"Anomaly detection error: {exc}")
         return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/ml/hr/strategic-actions', methods=['POST'])
+def strategic_actions():
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        groups = data.get('groups', [])
+        context = data.get('context', {}) or {}
+        growth_rate = float(context.get('growth_rate', 0.0) or 0.0)
+
+        if not isinstance(groups, list) or len(groups) == 0:
+            return jsonify({'error': 'groups must be a non-empty array', 'code': 'MISSING_GROUPS'}), 400
+
+        result = strategic_actions_model.recommend(groups=groups, growth_rate=growth_rate)
+        return jsonify(result), 200
+
+    except Exception as exc:
+        logger.error(f"Strategic actions model error: {exc}")
+        return jsonify({'error': str(exc), 'code': 'STRATEGIC_ACTIONS_FAILED'}), 500
 
 
 @app.route('/api/ml/fcr/predict', methods=['POST'])

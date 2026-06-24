@@ -14,10 +14,35 @@ import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 
 export default function HRDashboard() {
+  const MONTHLY_AGENT_CAPACITY_MIN = 190;
+  const MONTHLY_AGENT_CAPACITY_MAX = 220;
+  const MONTHLY_AGENT_CAPACITY_TARGET = (MONTHLY_AGENT_CAPACITY_MIN + MONTHLY_AGENT_CAPACITY_MAX) / 2;
+
+  const getMonthlyTicketRateForGroup = (tickets: any[]): number => {
+    if (!tickets || tickets.length === 0) return 0;
+
+    const createdDates = tickets
+      .map((ticket: any) => new Date(ticket.created_date || ticket.created_at || ticket.opened_at || ticket.updated_at || 0))
+      .filter((date: Date) => !isNaN(date.getTime()))
+      .sort((a: Date, b: Date) => a.getTime() - b.getTime());
+
+    if (createdDates.length === 0) return 0;
+
+    // Avoid unrealistic monthly extrapolation from very short observation windows.
+    const first = createdDates[0].getTime();
+    const last = createdDates[createdDates.length - 1].getTime();
+    const durationDays = Math.max(14, (last - first) / (1000 * 60 * 60 * 24));
+    const ticketsPerDay = tickets.length / durationDays;
+
+    return ticketsPerDay * 30;
+  };
+
   const { isAuthReady } = useAuth();
   const { data: uploadedData } = useData();
   const [backendTickets, setBackendTickets] = useState<any[]>([]);
   const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
+  const [mlStrategicRecommendations, setMlStrategicRecommendations] = useState<any[] | null>(null);
+  const [mlStrategicModelName, setMlStrategicModelName] = useState<string | null>(null);
   const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
@@ -102,7 +127,8 @@ export default function HRDashboard() {
       .filter((value): value is number => typeof value === 'number'));
 
     const currentStaff = Math.max(assignedAgentIds.size, 1);
-    const recommendedStaff = Math.max(Math.ceil(group.totalTickets / 12), currentStaff);
+    const groupMonthlyTicketRate = getMonthlyTicketRateForGroup(groupTickets);
+    const recommendedStaff = Math.max(Math.ceil(groupMonthlyTicketRate / MONTHLY_AGENT_CAPACITY_TARGET), currentStaff);
     const staffingGap = Math.max(recommendedStaff - currentStaff, 0);
 
     return {
@@ -126,13 +152,14 @@ export default function HRDashboard() {
     const now = new Date();
     const recentWindowMs = 21 * 24 * 60 * 60 * 1000;
     const previousWindowMs = 42 * 24 * 60 * 60 * 1000;
+    const parseTicketDate = (ticket: any) => new Date(ticket.created_date || ticket.created_at || ticket.opened_at || ticket.updated_at || 0);
 
     const recentTickets = currentTickets.filter((ticket: any) => {
-      const date = new Date(ticket.created_date || ticket.created_at || ticket.opened_at || ticket.updated_at || 0);
+      const date = parseTicketDate(ticket);
       return !isNaN(date.getTime()) && date.getTime() >= now.getTime() - recentWindowMs;
     });
     const previousTickets = currentTickets.filter((ticket: any) => {
-      const date = new Date(ticket.created_date || ticket.created_at || ticket.opened_at || ticket.updated_at || 0);
+      const date = parseTicketDate(ticket);
       return !isNaN(date.getTime()) &&
         date.getTime() >= now.getTime() - previousWindowMs &&
         date.getTime() < now.getTime() - recentWindowMs;
@@ -146,16 +173,30 @@ export default function HRDashboard() {
 
     const groupSummary = performanceScores.map((group) => {
       const groupTickets = currentTickets.filter((ticket: any) => ticket.assignment_group_id === group.groupId);
+      const groupRecentCount = groupTickets.filter((ticket: any) => {
+        const date = parseTicketDate(ticket);
+        return !isNaN(date.getTime()) && date.getTime() >= now.getTime() - recentWindowMs;
+      }).length;
+      const groupPreviousCount = groupTickets.filter((ticket: any) => {
+        const date = parseTicketDate(ticket);
+        return !isNaN(date.getTime()) &&
+          date.getTime() >= now.getTime() - previousWindowMs &&
+          date.getTime() < now.getTime() - recentWindowMs;
+      }).length;
+      const groupGrowthRate = groupPreviousCount > 0
+        ? ((groupRecentCount - groupPreviousCount) / groupPreviousCount) * 100
+        : 0;
       const assignedAgentIds = new Set(groupTickets
         .map((ticket: any) => ticket.assigned_to_id)
         .filter((value): value is number => typeof value === 'number'));
       const currentStaff = Math.max(assignedAgentIds.size, 1);
-      const targetLoadPerAgent = 12;
-      const currentLoadPerAgent = group.totalTickets / Math.max(currentStaff, 1);
-      const projectedLoadPerAgent = group.totalTickets / Math.max(currentStaff, 1) * (1 + Math.max(growthRate, 0) / 100);
+      const targetLoadPerAgent = MONTHLY_AGENT_CAPACITY_TARGET;
+      const groupMonthlyTicketRate = getMonthlyTicketRateForGroup(groupTickets);
+      const currentLoadPerAgent = groupMonthlyTicketRate / Math.max(currentStaff, 1);
+      const projectedLoadPerAgent = currentLoadPerAgent * (1 + Math.max(groupGrowthRate, 0) / 100);
       const recommendedStaff = Math.max(
         currentStaff,
-        Math.ceil(Math.max(group.totalTickets / targetLoadPerAgent, projectedLoadPerAgent / targetLoadPerAgent))
+        Math.ceil(Math.max(groupMonthlyTicketRate / targetLoadPerAgent, projectedLoadPerAgent / targetLoadPerAgent))
       );
       const capacityGap = Math.max(recommendedStaff - currentStaff, 0);
       const loadRatio = currentLoadPerAgent / targetLoadPerAgent;
@@ -204,11 +245,17 @@ export default function HRDashboard() {
       return {
         groupId: group.groupId,
         teamName,
-        currentLoad: group.totalTickets,
-        recommendedLoad: Math.max(group.totalTickets, recommendedStaff * targetLoadPerAgent),
+        currentLoad: groupMonthlyTicketRate,
+        recommendedLoad: Math.max(groupMonthlyTicketRate, recommendedStaff * targetLoadPerAgent),
         capacityGap,
         fairnessScore,
         loadRatio,
+        groupRecentCount,
+        groupPreviousCount,
+        groupGrowthRate,
+        slaCompliance: group.slaCompliance,
+        fcrRate: group.fcrRate,
+        avgResolutionTime: group.avgResolutionTime,
         decision,
         predictedImpact,
         rationale: (() => {
@@ -239,7 +286,7 @@ export default function HRDashboard() {
         }
         acc.set(agentId, entry);
         return acc;
-      }, new Map())
+      }, new Map<number, { assignedCount: number; resolvedCount: number; totalMinutes: number }>())
     )
       .map(([agentId, stats]) => {
         const user = getUserById(agentId as number);
@@ -323,6 +370,121 @@ export default function HRDashboard() {
     isShortTermSpike,
     isSustainedGrowth,
   } = recommendationData;
+
+  useEffect(() => {
+    if (!isAuthReady || groupSummary.length === 0) {
+      setMlStrategicRecommendations(null);
+      setMlStrategicModelName(null);
+      return;
+    }
+
+    const token = localStorage.getItem('workwise_token');
+    if (!token) {
+      setMlStrategicRecommendations(null);
+      setMlStrategicModelName(null);
+      return;
+    }
+
+    const groupsPayload = groupSummary.map((entry) => ({
+      groupId: entry.groupId,
+      teamName: entry.teamName,
+      currentLoad: entry.currentLoad,
+      recommendedLoad: entry.recommendedLoad,
+      capacityGap: entry.capacityGap,
+      fairnessScore: entry.fairnessScore,
+      loadRatio: entry.loadRatio,
+      groupRecentCount: entry.groupRecentCount,
+      groupPreviousCount: entry.groupPreviousCount,
+      groupGrowthRate: entry.groupGrowthRate,
+      slaCompliance: entry.slaCompliance,
+      fcrRate: entry.fcrRate,
+      avgResolutionTime: entry.avgResolutionTime,
+    }));
+
+    let isMounted = true;
+    fetch(`${apiBase.replace(/\/$/, '')}/api/ml/hr/strategic-actions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        groups: groupsPayload,
+        context: {
+          growth_rate: growthRate,
+          recent_count: recentCount,
+          previous_count: previousCount,
+        },
+      }),
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Strategic actions ML request failed: ${response.status}`);
+        return response.json();
+      })
+      .then((payload) => {
+        if (!isMounted) return;
+        const rows = Array.isArray(payload?.recommendations) ? payload.recommendations : [];
+        setMlStrategicRecommendations(rows.length > 0 ? rows : null);
+        setMlStrategicModelName(typeof payload?.model?.name === 'string' ? payload.model.name : null);
+      })
+      .catch((error) => {
+        console.warn('Failed to load Decision Tree strategic actions; using fallback recommendations.', error);
+        if (!isMounted) return;
+        setMlStrategicRecommendations(null);
+        setMlStrategicModelName(null);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [apiBase, growthRate, groupSummary, isAuthReady, previousCount, recentCount]);
+
+  const strategicRecommendations = mlStrategicRecommendations && mlStrategicRecommendations.length > 0
+    ? mlStrategicRecommendations
+    : recommendations;
+
+  const prioritizedStrategicRecommendations = useMemo(() => {
+    const priorityRank = (priority: string) => {
+      if (priority === 'High') return 3;
+      if (priority === 'Medium') return 2;
+      return 1;
+    };
+
+    return [...strategicRecommendations].sort((a: any, b: any) => {
+      const byPriority = priorityRank(b?.priority || 'Low') - priorityRank(a?.priority || 'Low');
+      if (byPriority !== 0) return byPriority;
+
+      const byCapacityGap = Number(b?.computedFrom?.capacityGap ?? b?.capacityGap ?? 0) - Number(a?.computedFrom?.capacityGap ?? a?.capacityGap ?? 0);
+      if (byCapacityGap !== 0) return byCapacityGap;
+
+      return String(a?.teamName || '').localeCompare(String(b?.teamName || ''));
+    });
+  }, [strategicRecommendations]);
+
+  const extractScenarioKpis = (text: string | undefined, fallbackResolutionSign: 'negative' | 'positive') => {
+    const safeText = String(text || '');
+    const slaMatch = safeText.match(/SLA\s*([+-]?\d+(?:\.\d+)?)\s*pts/i);
+    const fcrMatch = safeText.match(/FCR\s*([+-]?\d+(?:\.\d+)?)\s*pts/i);
+    const resolutionMatch = safeText.match(/resolution\s*([+-]?\d+(?:\.\d+)?)\s*h/i);
+
+    const sla = slaMatch ? Number(slaMatch[1]) : 0;
+    const fcr = fcrMatch ? Number(fcrMatch[1]) : 0;
+    let resolution = resolutionMatch ? Number(resolutionMatch[1]) : 0;
+
+    // Some legacy strings omit the sign for followed scenarios; preserve expected direction.
+    if (resolution !== 0 && !String(resolutionMatch?.[1] || '').startsWith('-') && !String(resolutionMatch?.[1] || '').startsWith('+')) {
+      resolution = fallbackResolutionSign === 'negative' ? -Math.abs(resolution) : Math.abs(resolution);
+    }
+
+    return {
+      sla,
+      fcr,
+      resolution,
+    };
+  };
+
+  const formatKpiPointDelta = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)} pts`;
+  const formatKpiHourDelta = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}h`;
 
   return (
     <div className="space-y-6">
@@ -706,14 +868,20 @@ export default function HRDashboard() {
       <Card>
         <CardHeader>
           <CardTitle>Recommended Strategic Actions</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Data-driven recommendations for organizational improvement</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Data-driven recommendations for organizational improvement
+            {mlStrategicModelName ? ` (model: ${mlStrategicModelName})` : ''}
+          </p>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {recommendations.map((rec, index) => (
+            {prioritizedStrategicRecommendations.map((rec, index) => (
               <div key={index} className="border rounded-lg p-4 hover:border-indigo-300 transition-colors">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 mb-2">
+                      Assignment Group: {rec.teamName || 'Unspecified Group'}
+                    </p>
                     <div className="flex items-center gap-3 mb-2">
                       <span className="font-medium text-gray-900">{rec.category}</span>
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -727,17 +895,82 @@ export default function HRDashboard() {
                     <p className="text-sm text-gray-700 mb-1">{rec.action}</p>
                     <p className="text-xs text-gray-500 mb-2">{rec.impact}</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-md bg-slate-50 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">If followed</p>
-                        <p className="mt-1 text-sm text-gray-700">{rec.predictedIfFollowed}</p>
-                      </div>
-                      <div className="rounded-md bg-slate-50 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">If not followed</p>
-                        <p className="mt-1 text-sm text-gray-700">{rec.predictedIfNotFollowed}</p>
-                      </div>
+                      {(() => {
+                        const followedKpis = extractScenarioKpis(rec.predictedIfFollowed, 'negative');
+                        const notFollowedKpis = extractScenarioKpis(rec.predictedIfNotFollowed, 'positive');
+
+                        return (
+                          <>
+                            <div className="rounded-md bg-slate-50 p-3">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">If followed</p>
+                              <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                                <div className="rounded bg-white px-2 py-1">
+                                  <span className="text-gray-500">SLA:</span>{' '}
+                                  <span className="font-medium text-gray-800">{formatKpiPointDelta(followedKpis.sla)}</span>
+                                </div>
+                                <div className="rounded bg-white px-2 py-1">
+                                  <span className="text-gray-500">FCR:</span>{' '}
+                                  <span className="font-medium text-gray-800">{formatKpiPointDelta(followedKpis.fcr)}</span>
+                                </div>
+                                <div className="rounded bg-white px-2 py-1">
+                                  <span className="text-gray-500">Resolution:</span>{' '}
+                                  <span className="font-medium text-gray-800">{formatKpiHourDelta(followedKpis.resolution)}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="rounded-md bg-slate-50 p-3">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">If not followed</p>
+                              <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                                <div className="rounded bg-white px-2 py-1">
+                                  <span className="text-gray-500">SLA:</span>{' '}
+                                  <span className="font-medium text-gray-800">{formatKpiPointDelta(notFollowedKpis.sla)}</span>
+                                </div>
+                                <div className="rounded bg-white px-2 py-1">
+                                  <span className="text-gray-500">FCR:</span>{' '}
+                                  <span className="font-medium text-gray-800">{formatKpiPointDelta(notFollowedKpis.fcr)}</span>
+                                </div>
+                                <div className="rounded bg-white px-2 py-1">
+                                  <span className="text-gray-500">Resolution:</span>{' '}
+                                  <span className="font-medium text-gray-800">{formatKpiHourDelta(notFollowedKpis.resolution)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
+                    {rec.computedFrom && (
+                      <div className="mt-3 rounded-md border border-indigo-100 bg-indigo-50/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Computed From</p>
+                        <div className="mt-2 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+                          <div className="rounded bg-white px-2 py-1">
+                            <span className="text-gray-500">Capacity Gap:</span>{' '}
+                            <span className="font-medium text-gray-800">{Number(rec.computedFrom.capacityGap ?? 0).toFixed(2)}</span>
+                          </div>
+                          <div className="rounded bg-white px-2 py-1">
+                            <span className="text-gray-500">Load Ratio:</span>{' '}
+                            <span className="font-medium text-gray-800">{Number(rec.computedFrom.loadRatio ?? 0).toFixed(2)}</span>
+                          </div>
+                          <div className="rounded bg-white px-2 py-1">
+                            <span className="text-gray-500">SLA:</span>{' '}
+                            <span className="font-medium text-gray-800">{Number(rec.computedFrom.slaCompliance ?? 0).toFixed(2)}%</span>
+                          </div>
+                          <div className="rounded bg-white px-2 py-1">
+                            <span className="text-gray-500">FCR:</span>{' '}
+                            <span className="font-medium text-gray-800">{Number(rec.computedFrom.fcrRate ?? 0).toFixed(2)}%</span>
+                          </div>
+                          <div className="rounded bg-white px-2 py-1">
+                            <span className="text-gray-500">Resolution:</span>{' '}
+                            <span className="font-medium text-gray-800">{Number(rec.computedFrom.avgResolutionTime ?? 0).toFixed(2)}h</span>
+                          </div>
+                          <div className="rounded bg-white px-2 py-1">
+                            <span className="text-gray-500">Growth:</span>{' '}
+                            <span className="font-medium text-gray-800">{Number(rec.computedFrom.groupGrowthRate ?? 0).toFixed(2)}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     <p className="mt-3 text-sm text-gray-700"><span className="font-semibold">Business impact:</span> {rec.businessImpact}</p>
-                    <p className="mt-1 text-sm text-gray-700"><span className="font-semibold">Rationale:</span> {rec.rationale}</p>
                   </div>
                 </div>
               </div>
