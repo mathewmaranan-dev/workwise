@@ -52,6 +52,13 @@ export interface WorkloadTrendPoint {
   predictedTickets?: number;
 }
 
+export interface MonthlyWorkloadTrendPoint {
+  monthStart: string;
+  monthLabel: string;
+  actualTickets: number | null;
+  forecastTickets: number | null;
+}
+
 export interface GroupWorkloadMetrics {
   groupId: number;
   totalTickets: number;
@@ -270,6 +277,52 @@ export const getWeeklyTicketSeries = (
   }
 
   return series;
+};
+
+export const aggregateWeeklySeriesToMonthly = (
+  weeklySeries: Array<{ weekStart: string; actualTickets?: number | null; forecastTickets?: number | null }>
+): MonthlyWorkloadTrendPoint[] => {
+  const monthMap = new Map<
+    string,
+    { monthLabel: string; actualTickets: number; forecastTickets: number; hasActual: boolean; hasForecast: boolean }
+  >();
+
+  weeklySeries.forEach((point) => {
+    const date = parseDate(point.weekStart);
+    if (!date) return;
+
+    const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+    const monthKey = toLocalDateKey(monthStart);
+    const monthLabel = monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+    const existing = monthMap.get(monthKey) || {
+      monthLabel,
+      actualTickets: 0,
+      forecastTickets: 0,
+      hasActual: false,
+      hasForecast: false,
+    };
+
+    if (typeof point.actualTickets === 'number' && Number.isFinite(point.actualTickets)) {
+      existing.actualTickets += point.actualTickets;
+      existing.hasActual = true;
+    }
+    if (typeof point.forecastTickets === 'number' && Number.isFinite(point.forecastTickets)) {
+      existing.forecastTickets += point.forecastTickets;
+      existing.hasForecast = true;
+    }
+
+    monthMap.set(monthKey, existing);
+  });
+
+  return Array.from(monthMap.entries())
+    .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+    .map(([monthStart, value]) => ({
+      monthStart,
+      monthLabel: value.monthLabel,
+      actualTickets: value.hasActual ? Math.round(value.actualTickets) : null,
+      forecastTickets: value.hasForecast ? Math.round(value.forecastTickets) : null,
+    }));
 };
 
 export const getMonthlyTicketRate = (ticketData?: any[]): number => {

@@ -140,13 +140,59 @@ class TicketForecast:
             'mae': mae,
         }
 
+    def _calculate_error_metrics(self, actual, predicted):
+        actual_arr = np.asarray(actual, dtype=float)
+        pred_arr = np.asarray(predicted, dtype=float)
+
+        if actual_arr.size == 0 or pred_arr.size == 0:
+            return {'rmse': np.inf, 'mae': np.inf, 'mape': np.inf, 'score': np.inf}
+
+        min_len = min(actual_arr.size, pred_arr.size)
+        actual_arr = actual_arr[-min_len:]
+        pred_arr = pred_arr[-min_len:]
+
+        errors = pred_arr - actual_arr
+        rmse = float(np.sqrt(np.mean(np.square(errors))))
+        mae = float(np.mean(np.abs(errors)))
+
+        denominator = np.maximum(np.abs(actual_arr), 1.0)
+        mape = float(np.mean(np.abs(errors) / denominator) * 100.0)
+
+        scale = max(float(np.mean(np.abs(actual_arr))), 1.0)
+        normalized_rmse_pct = (rmse / scale) * 100.0
+        normalized_mae_pct = (mae / scale) * 100.0
+
+        # Weighted objective prioritizes percentage accuracy while discouraging large absolute misses.
+        score = float((0.50 * mape) + (0.30 * normalized_rmse_pct) + (0.20 * normalized_mae_pct))
+
+        return {
+            'rmse': rmse,
+            'mae': mae,
+            'mape': mape,
+            'score': score,
+        }
+
+    def _get_holdout_split(self, series, min_holdout=7, max_holdout=28):
+        values = np.asarray(series, dtype=float)
+        if values.size < (min_holdout * 3):
+            return None, None
+
+        holdout = int(np.clip(values.size // 5, min_holdout, max_holdout))
+        train = values[:-holdout]
+        test = values[-holdout:]
+        if train.size < (min_holdout * 2) or test.size == 0:
+            return None, None
+        return train, test
+
     def _find_optimal_arima_order(self, series, max_p=2, max_d=1, max_q=2):
-        """Find optimal ARIMA parameters using grid search and AIC"""
+        """Find optimal ARIMA parameters using holdout RMSE/MAE/MAPE, fallback to AIC."""
         if ARIMA is None:
             return (1, 1, 1)
 
         best_aic = np.inf
         best_order = (1, 1, 1)
+        best_score = np.inf
+        train, test = self._get_holdout_split(series)
         
         try:
             # For synthetic/clean data, be more conservative with differencing
@@ -161,12 +207,21 @@ class TicketForecast:
                 continue
                 
             try:
-                model = ARIMA(series, order=(p, d, q))
+                model_series = train if train is not None else series
+                model = ARIMA(model_series, order=(p, d, q))
                 # Suppress convergence warnings for synthetic data
                 import warnings
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     fitted = model.fit()
+
+                if train is not None and test is not None:
+                    forecast = fitted.forecast(steps=len(test))
+                    metrics = self._calculate_error_metrics(test, forecast)
+                    if metrics['score'] < best_score:
+                        best_score = metrics['score']
+                        best_order = (p, d, q)
+                    continue
                 
                 if fitted.aic < best_aic:
                     best_aic = fitted.aic
@@ -177,12 +232,14 @@ class TicketForecast:
         return best_order
 
     def _find_optimal_sarima_order(self, series, seasonal_period=7, max_p=1, max_d=1, max_q=1, max_P=1, max_D=1, max_Q=1):
-        """Find optimal SARIMA parameters using grid search and AIC"""
+        """Find optimal SARIMA parameters using holdout RMSE/MAE/MAPE, fallback to AIC."""
         if SARIMAX is None:
             return (1, 1, 1, 0, 1, 1, seasonal_period)
 
         best_aic = np.inf
         best_order = (1, 1, 1, 0, 1, 1, seasonal_period)
+        best_score = np.inf
+        train, test = self._get_holdout_split(series)
 
         for p in range(0, max_p + 1):
             for d in range(0, max_d + 1):
@@ -192,7 +249,7 @@ class TicketForecast:
                             for Q in range(0, max_Q + 1):
                                 try:
                                     model = SARIMAX(
-                                        series,
+                                        train if train is not None else series,
                                         order=(p, d, q),
                                         seasonal_order=(P, D, Q, seasonal_period),
                                         enforce_stationarity=False,
@@ -202,6 +259,14 @@ class TicketForecast:
                                     with warnings.catch_warnings():
                                         warnings.simplefilter("ignore")
                                         fitted = model.fit(disp=False)
+
+                                    if train is not None and test is not None:
+                                        forecast = fitted.forecast(steps=len(test))
+                                        metrics = self._calculate_error_metrics(test, forecast)
+                                        if metrics['score'] < best_score:
+                                            best_score = metrics['score']
+                                            best_order = (p, d, q, P, D, Q, seasonal_period)
+                                        continue
 
                                     if fitted.aic < best_aic:
                                         best_aic = fitted.aic
@@ -310,6 +375,7 @@ class TicketForecast:
             
             # Detect trend
             self.trend = self._detect_trend(series)
+            train_split, test_split = self._get_holdout_split(series)
 
             # Try a SARIMA model first for ticket volume with weekly seasonality
             sarima_order = self._find_optimal_sarima_order(series, seasonal_period=7)
@@ -350,6 +416,23 @@ class TicketForecast:
 
                     upper_bound = np.maximum(upper_vals, 0).astype(float).tolist()
                     lower_bound = np.maximum(lower_vals, 0).astype(float).tolist()
+                    holdout_metrics = None
+                    if train_split is not None and test_split is not None:
+                        try:
+                            backtest_model = SARIMAX(
+                                train_split,
+                                order=(p, d, q),
+                                seasonal_order=(P, D, Q, s),
+                                enforce_stationarity=False,
+                                enforce_invertibility=False,
+                            )
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore")
+                                backtest_fit = backtest_model.fit(disp=False)
+                            backtest_forecast = backtest_fit.forecast(steps=len(test_split))
+                            holdout_metrics = self._calculate_error_metrics(test_split, backtest_forecast)
+                        except Exception:
+                            holdout_metrics = None
 
                     return {
                         'forecast': np.maximum(stabilized_forecast, 0).astype(float).tolist(),
@@ -365,6 +448,9 @@ class TicketForecast:
                         'confidence': quality['confidence'],
                         'forecast_error_std': quality['forecast_error_std'],
                         'mae': quality['mae'],
+                        'rmse': holdout_metrics['rmse'] if holdout_metrics else None,
+                        'mape': holdout_metrics['mape'] if holdout_metrics else None,
+                        'holdout_days': int(len(test_split)) if test_split is not None else 0,
                         'history_stats': {
                             'mean': history_mean,
                             'std': float(np.std(series)),
@@ -389,6 +475,15 @@ class TicketForecast:
 
                 upper_bound = np.maximum(stabilized_forecast + 1.96 * sigma, 0).astype(float).tolist()
                 lower_bound = np.maximum(stabilized_forecast - 1.96 * sigma, 0).astype(float).tolist()
+                holdout_metrics = None
+                if train_split is not None and test_split is not None:
+                    try:
+                        backtest_ets = self._fit_ets(train_split)
+                        if backtest_ets is not None:
+                            backtest_forecast = backtest_ets.forecast(steps=len(test_split))
+                            holdout_metrics = self._calculate_error_metrics(test_split, backtest_forecast)
+                    except Exception:
+                        holdout_metrics = None
 
                 return {
                     'forecast': np.maximum(stabilized_forecast, 0).astype(float).tolist(),
@@ -404,6 +499,9 @@ class TicketForecast:
                     'confidence': quality['confidence'],
                     'forecast_error_std': quality['forecast_error_std'],
                     'mae': quality['mae'],
+                    'rmse': holdout_metrics['rmse'] if holdout_metrics else None,
+                    'mape': holdout_metrics['mape'] if holdout_metrics else None,
+                    'holdout_days': int(len(test_split)) if test_split is not None else 0,
                     'history_stats': {
                         'mean': history_mean,
                         'std': float(np.std(series)),
@@ -442,6 +540,17 @@ class TicketForecast:
                 history_mean = float(np.mean(series))
                 residuals = (forecast.predicted_mean.values - series[-len(forecast.predicted_mean.values):]) if len(series) >= len(forecast.predicted_mean.values) else forecast.predicted_mean.values - history_mean
                 quality = self._calculate_forecast_quality(residuals, history_mean)
+                holdout_metrics = None
+                if train_split is not None and test_split is not None:
+                    try:
+                        backtest_model = ARIMA(train_split, order=self.best_order)
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")
+                            backtest_fit = backtest_model.fit()
+                        backtest_forecast = backtest_fit.forecast(steps=len(test_split))
+                        holdout_metrics = self._calculate_error_metrics(test_split, backtest_forecast)
+                    except Exception:
+                        holdout_metrics = None
 
                 return {
                     'forecast': np.maximum(stabilized_forecast, 0).astype(float).tolist(),
@@ -457,6 +566,9 @@ class TicketForecast:
                     'confidence': quality['confidence'],
                     'forecast_error_std': quality['forecast_error_std'],
                     'mae': quality['mae'],
+                    'rmse': holdout_metrics['rmse'] if holdout_metrics else None,
+                    'mape': holdout_metrics['mape'] if holdout_metrics else None,
+                    'holdout_days': int(len(test_split)) if test_split is not None else 0,
                     'history_stats': {
                         'mean': history_mean,
                         'std': float(np.std(series)),

@@ -7,7 +7,9 @@ import {
   getAssignmentGroupPerformance, 
   calculateEmployeeSatisfaction, 
   calculateProductivityTrend,
-  getOptimizationNeeds 
+  getOptimizationNeeds,
+  getWeeklyTicketSeries,
+  aggregateWeeklySeriesToMonthly,
 } from '../../utils/analytics';
 import { weeklyCounts, getAssignmentGroupById, getUserById, assignmentGroups, tickets as seedDataTickets } from '../../data/seedData';
 import { useData } from '../../context/DataContext';
@@ -51,6 +53,21 @@ export default function HRDashboard() {
   const [backendTickets, setBackendTickets] = useState<any[]>([]);
   const [backendTicketsLoaded, setBackendTicketsLoaded] = useState(false);
   const [staffCountByGroup, setStaffCountByGroup] = useState<Record<number, number>>({});
+  const [mlWorkloadForecast, setMlWorkloadForecast] = useState<{
+    forecast: number[];
+    model: string | null;
+    dataSource: string | null;
+    confidence: number | null;
+    loading: boolean;
+    error: string | null;
+  }>({
+    forecast: [],
+    model: null,
+    dataSource: null,
+    confidence: null,
+    loading: false,
+    error: null,
+  });
   const [mlStrategicRecommendations, setMlStrategicRecommendations] = useState<any[] | null>(null);
   const [mlStrategicModelName, setMlStrategicModelName] = useState<string | null>(null);
   const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
@@ -133,7 +150,109 @@ export default function HRDashboard() {
     if (uploadedData && uploadedData.length > 0) return uploadedData;
     return [];
   }, [backendTickets, backendTicketsLoaded, uploadedData]);
+  const trendTickets = currentTickets;
   const hasData = currentTickets.length > 0;
+
+  const latestCreatedDate = useMemo(() => {
+    const parsedDates = trendTickets
+      .map((ticket: any) => new Date(
+        ticket.created_date ??
+        ticket.createdDate ??
+        ticket.created_at ??
+        ticket.createdAt ??
+        ticket.opened_at ??
+        ticket.openedAt ??
+        ticket.updated_at ??
+        ticket.updatedAt ??
+        ''
+      ))
+      .filter((date: Date) => !Number.isNaN(date.getTime()));
+    if (parsedDates.length === 0) return null;
+    return new Date(Math.max(...parsedDates.map((date: Date) => date.getTime())));
+  }, [trendTickets]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadMlForecast = async () => {
+      setMlWorkloadForecast((current) => ({ ...current, loading: true, error: null }));
+      try {
+        const token = localStorage.getItem('workwise_token');
+        if (!token) {
+          throw new Error('ML forecast request skipped: missing auth token');
+        }
+
+        const endpoint = `${apiBase.replace(/\/$/, '')}/api/ml/forecast/tickets`;
+        const retryableStatuses = new Set([429, 502, 503, 504]);
+        const maxRetries = 2;
+        let payload: any = null;
+        let lastError: unknown = null;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+          try {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ days_ahead: 180 }),
+            });
+
+            if (!response.ok) {
+              const shouldRetry = retryableStatuses.has(response.status) && attempt < maxRetries;
+              if (!shouldRetry) {
+                throw new Error(`ML forecast request failed with status ${response.status}`);
+              }
+              await new Promise((resolve) => setTimeout(resolve, 250 + attempt * 500));
+              continue;
+            }
+
+            payload = await response.json();
+            lastError = null;
+            break;
+          } catch (error) {
+            lastError = error;
+            const isFinalAttempt = attempt >= maxRetries;
+            if (isFinalAttempt) {
+              throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 250 + attempt * 500));
+          }
+        }
+
+        if (!payload && lastError) {
+          throw lastError;
+        }
+
+        if (!isMounted) return;
+
+        setMlWorkloadForecast({
+          forecast: Array.isArray(payload?.forecast) ? payload.forecast.map((value: any) => Number(value) || 0) : [],
+          model: payload?.model ? String(payload.model) : null,
+          dataSource: payload?.data_source ? String(payload.data_source) : null,
+          confidence: payload?.confidence !== undefined ? Number(payload.confidence) : null,
+          loading: false,
+          error: null,
+        });
+      } catch (error) {
+        if (!isMounted) return;
+        setMlWorkloadForecast({
+          forecast: [],
+          model: null,
+          dataSource: null,
+          confidence: null,
+          loading: false,
+          error: String(error),
+        });
+      }
+    };
+
+    loadMlForecast();
+    return () => {
+      isMounted = false;
+    };
+  }, [apiBase]);
 
   const kpis = calculateKPIs(currentTickets);
   const groupPerformance = getAssignmentGroupPerformance(currentTickets);
@@ -141,25 +260,72 @@ export default function HRDashboard() {
   const productivityTrend = calculateProductivityTrend(currentTickets);
   const optimizationNeeds = getOptimizationNeeds(currentTickets);
 
-  const weeklyData = hasData
-    ? (() => {
-        const map: Record<string, number> = {};
-        currentTickets.forEach((t: any) => {
-          const d = new Date(t.created_date || t.opened_at);
-          if (isNaN(d.getTime())) return;
-          const wk = new Date(d);
-          wk.setDate(wk.getDate() - wk.getDay());
-          const key = wk.toISOString().split('T')[0];
-          map[key] = (map[key] || 0) + 1;
-        });
-        return Object.entries(map)
-          .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
-          .map(([week, count]) => ({ week: new Date(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tickets: count }));
-      })()
-    : weeklyCounts.map(w => ({
-        week: new Date(w.week_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        tickets: w.ticket_count
+  const actualWeeklySeries = useMemo(() => {
+    if (trendTickets.length > 0) {
+      return getWeeklyTicketSeries(trendTickets, {
+        weeks: 24,
+        futureWeeks: 0,
+      }).map((point) => ({
+        ...point,
+        actualTickets: point.ticketCount,
       }));
+    }
+
+    return weeklyCounts
+      .slice(-24)
+      .map((w) => {
+        const weekDate = new Date(w.week_start);
+        const weekStart = Number.isNaN(weekDate.getTime())
+          ? String(w.week_start)
+          : `${weekDate.getFullYear()}-${String(weekDate.getMonth() + 1).padStart(2, '0')}-${String(weekDate.getDate()).padStart(2, '0')}`;
+        return {
+          weekStart,
+          weekLabel: new Date(w.week_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          ticketCount: Number(w.ticket_count || 0),
+          projected: false,
+          predictedTickets: undefined,
+          actualTickets: Number(w.ticket_count || 0),
+        };
+      });
+  }, [trendTickets]);
+
+  const workloadTrendSeries = useMemo(() => {
+    const canUseMlForecast = trendTickets.length > 0 && mlWorkloadForecast.forecast.length > 0;
+    if (!canUseMlForecast) {
+      return actualWeeklySeries.map((point) => ({
+        ...point,
+        forecastTickets: null as number | null,
+      }));
+    }
+
+    const futureWeeks = Math.max(12, Math.ceil(mlWorkloadForecast.forecast.length / 7));
+    const forecastSeries = getWeeklyTicketSeries(trendTickets, {
+      weeks: 24,
+      futureWeeks,
+      forecastDaily: mlWorkloadForecast.forecast,
+      predictionStartDate: latestCreatedDate ?? undefined,
+    });
+
+    const actualByWeek = new Map(actualWeeklySeries.map((point) => [point.weekStart, point.ticketCount]));
+    const latestActualWeekStart = actualWeeklySeries.length > 0
+      ? actualWeeklySeries[actualWeeklySeries.length - 1].weekStart
+      : null;
+
+    return forecastSeries.map((point) => ({
+      ...point,
+      actualTickets: actualByWeek.has(point.weekStart) ? actualByWeek.get(point.weekStart)! : null,
+      forecastTickets: latestActualWeekStart && point.weekStart === latestActualWeekStart
+        ? (actualByWeek.get(point.weekStart) ?? null)
+        : point.projected
+          ? (point.predictedTickets ?? null)
+          : null,
+    }));
+  }, [trendTickets, mlWorkloadForecast.forecast, latestCreatedDate, actualWeeklySeries]);
+
+  const monthlyWorkloadTrend = useMemo(
+    () => aggregateWeeklySeriesToMonthly(workloadTrendSeries),
+    [workloadTrendSeries]
+  );
 
   // Get top and bottom performing groups
   const performanceScores = groupPerformance.map(g => ({
@@ -636,15 +802,21 @@ export default function HRDashboard() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={weeklyData}>
+              <LineChart data={monthlyWorkloadTrend}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="week" />
+                <XAxis dataKey="monthLabel" />
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="tickets" stroke="#4F46E5" strokeWidth={2} name="Weekly Volume" />
+                <Line type="monotone" dataKey="forecastTickets" stroke="#10B981" strokeWidth={2} strokeDasharray="4 4" connectNulls={false} name="ML forecast (monthly)" />
+                <Line type="monotone" dataKey="actualTickets" stroke="#4F46E5" strokeWidth={3} dot={{ r: 2 }} connectNulls={false} name="Actual volume (monthly)" />
               </LineChart>
             </ResponsiveContainer>
+            <p className="mt-2 text-xs text-slate-500">
+              {mlWorkloadForecast.error
+                ? 'ML forecast unavailable; showing historical monthly volume only.'
+                : `Trend uses the same forecast pipeline as Admin Weekly Ticket Volume${mlWorkloadForecast.model ? ` (${mlWorkloadForecast.model})` : ''}${mlWorkloadForecast.dataSource ? ` using ${mlWorkloadForecast.dataSource} data` : ''}${mlWorkloadForecast.confidence !== null ? ` at ${Math.round(mlWorkloadForecast.confidence * 100)}% confidence` : ''}.`}
+            </p>
           </CardContent>
         </Card>
 

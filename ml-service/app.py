@@ -140,9 +140,13 @@ def forecast_tickets():
                 'forecast_mean': forecast_mean,
                 'upper_bound': forecast_result.get('upper_bound', []),
                 'lower_bound': forecast_result.get('lower_bound', []),
-                'confidence': round(min(0.98, max(0.55, float(forecast_result.get('rsquared', 0)))), 2),
+                'confidence': round(min(0.98, max(0.50, float(forecast_result.get('confidence', 0.55)))), 2),
                 'model': forecast_result.get('model'),
                 'data_source': forecast_result.get('data_source'),
+                'rmse': forecast_result.get('rmse'),
+                'mae': forecast_result.get('mae'),
+                'mape': forecast_result.get('mape'),
+                'holdout_days': forecast_result.get('holdout_days', 0),
             }
 
             if FORECAST_CACHE_TTL_SECONDS > 0:

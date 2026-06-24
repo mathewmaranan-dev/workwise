@@ -184,10 +184,11 @@ export async function updateUser(id: string, payload: {
 }
 
 export async function deleteUser(id: string, requesterEmail?: string) {
-  const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'admin@workwise.app';
+  const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'admin@workwise.it.com';
+  const SUPER_ADMIN_FULL_NAME = 'default admin';
 
   const targetResult = await query(
-    `SELECT u.user_id AS id, u.email, r.role_name AS role
+    `SELECT u.user_id AS id, u.email, u.first_name, u.last_name, r.role_name AS role
        FROM users u
        JOIN roles r ON u.role_id = r.role_id
        WHERE u.user_id = $1`,
@@ -199,7 +200,10 @@ export async function deleteUser(id: string, requesterEmail?: string) {
   }
 
   const target = targetResult.rows[0];
-  if (String(target.email).toLowerCase() === String(SUPER_ADMIN_EMAIL).toLowerCase()) {
+  const targetEmail = String(target.email || '').trim().toLowerCase();
+  const targetFullName = `${String(target.first_name || '').trim()} ${String(target.last_name || '').trim()}`.trim().toLowerCase();
+
+  if (targetEmail === String(SUPER_ADMIN_EMAIL).toLowerCase() || targetFullName === SUPER_ADMIN_FULL_NAME) {
     throw new Error('Cannot delete the super admin account');
   }
 

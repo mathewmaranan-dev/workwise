@@ -5,7 +5,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/ui/dialog';
-import { UserPlus, Mail, User } from 'lucide-react';
+import { UserPlus, Mail, User, Trash2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth, User as AuthUser, UserRole } from '../context/AuthContext';
 import { assignmentGroups, getAssignmentGroupById } from '../data/seedData';
@@ -98,6 +98,15 @@ export default function UserManagementPage() {
       console.error('Failed to fetch email suggestion', error);
       setEmailSuggestion('Using local email preview while backend suggestion is unavailable.');
     }
+  };
+
+  const SUPER_ADMIN_EMAIL = 'admin@workwise.it.com';
+  const SUPER_ADMIN_NAME = 'default admin';
+
+  const isProtectedSuperAdmin = (user: AppUser): boolean => {
+    const email = String(user.email || '').trim().toLowerCase();
+    const name = String(user.name || '').trim().toLowerCase();
+    return email === SUPER_ADMIN_EMAIL || name === SUPER_ADMIN_NAME;
   };
 
   // Auto-fill full name and email when first and last names are available
@@ -215,7 +224,7 @@ export default function UserManagementPage() {
     resetForm();
   };
 
-  const handleUpdateUser = () => {
+  const handleUpdateUser = async () => {
     if (!editingUser) return;
 
     const updated: AppUser = {
@@ -227,13 +236,19 @@ export default function UserManagementPage() {
       assignment_group_id: formData.assignment_group_id,
     };
 
-    updateUser({
+    const success = await updateUser({
       id: updated.id,
       email: updated.email,
       name: updated.name,
       role: updated.role,
       assignment_group_id: updated.assignment_group_id,
     });
+
+    if (!success) {
+      toast.error('Failed to update user');
+      return;
+    }
+
     toast.success(`User ${formData.name} updated successfully`);
     setEditingUser(null);
     resetForm();
@@ -242,6 +257,17 @@ export default function UserManagementPage() {
   const handleDeleteUser = async (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
+
+    if (isProtectedSuperAdmin(user)) {
+      toast.error('Default Admin cannot be deleted');
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete user ${user.name} (${user.email})?`);
+    if (!confirmed) {
+      return;
+    }
+
     const result = await deleteUser(user.email);
     if (!result.success) {
       const msg = String(result.message || '').toLowerCase();
@@ -458,6 +484,7 @@ export default function UserManagementPage() {
                   <th className="text-left p-3 font-medium">Role</th>
                   <th className="text-left p-3 font-medium">Assignment Group</th>
                   <th className="text-left p-3 font-medium">Created</th>
+                  <th className="text-right p-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -474,6 +501,34 @@ export default function UserManagementPage() {
                       {user.assignment_group || (user.assignment_group_id ? getAssignmentGroupById(user.assignment_group_id)?.group_name : '—') || '—'}
                     </td>
                     <td className="p-3 text-gray-600">{new Date(user.createdAt).toLocaleDateString()}</td>
+                    <td className="p-3 text-right">
+                      {isProtectedSuperAdmin(user) ? (
+                        <span className="text-xs text-gray-500">Protected</span>
+                      ) : (
+                        <div className="inline-flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => openEditDialog(user)}
+                            aria-label={`Edit role for ${user.name}`}
+                            title="Edit role"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleDeleteUser(user.id)}
+                            aria-label={`Delete ${user.name}`}
+                            title="Delete user"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -481,6 +536,83 @@ export default function UserManagementPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={!!editingUser} onOpenChange={(open) => { if (!open) setEditingUser(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Role</DialogTitle>
+            <DialogDescription>
+              Update role and assignment group for the selected user.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label>Name</Label>
+              <div className="text-sm text-gray-700">{editingUser?.name || '—'}</div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Email</Label>
+              <div className="text-sm text-gray-700">{editingUser?.email || '—'}</div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-role">Role</Label>
+              <Select
+                value={formData.role}
+                onValueChange={(value) => setFormData({ ...formData, role: value as UserRole })}
+              >
+                <SelectTrigger id="edit-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="manager">ITSM Manager</SelectItem>
+                  <SelectItem value="hr">Senior Management / HR</SelectItem>
+                  <SelectItem value="agent">IT Support Agent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {(formData.role === 'agent' || formData.role === 'manager') && (
+              <div className="space-y-2">
+                <Label htmlFor="edit-assignment-group">
+                  Assignment Group {formData.role === 'manager' ? '' : '(optional)'}
+                </Label>
+                <Select
+                  value={formData.assignment_group_id != null ? formData.assignment_group_id.toString() : undefined}
+                  onValueChange={(value) => setFormData({
+                    ...formData,
+                    assignment_group_id: value === '__none' ? undefined : parseInt(value, 10),
+                  })}
+                >
+                  <SelectTrigger id="edit-assignment-group">
+                    <SelectValue placeholder="Select a team..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">None</SelectItem>
+                    {assignmentGroups.map(group => (
+                      <SelectItem key={group.assignment_group_id} value={group.assignment_group_id.toString()}>
+                        {group.group_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingUser(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateUser}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
