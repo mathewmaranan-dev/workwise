@@ -79,12 +79,24 @@ class DatabaseConnector:
             self.last_error = str(e)
             logger.error(f"❌ Database connection failed: {e}")
             return False
+
+    def _connection_is_open(self) -> bool:
+        """Check if a psycopg2 connection exists and is still open."""
+        return self.conn is not None and getattr(self.conn, 'closed', 1) == 0
+
+    def _ensure_connection(self) -> bool:
+        """Ensure there is an active DB connection, reconnecting when stale."""
+        if self._connection_is_open():
+            return True
+        self.conn = None
+        return self.connect()
     
     def disconnect(self):
         """Close database connection"""
-        if self.conn:
+        if self._connection_is_open():
             self.conn.close()
             logger.info("Database disconnected")
+        self.conn = None
     
     def get_tickets(self, days_back: int = 90, group_id: Optional[int] = None, strict: bool = False) -> List[Dict[str, Any]]:
         """
@@ -103,9 +115,7 @@ class DatabaseConnector:
                 if strict:
                     raise RuntimeError(self.last_error)
                 return []
-            if not self.conn:
-                self.connect()
-            if not self.conn:
+            if not self._ensure_connection():
                 self.last_error = self.last_error or "Database connection could not be established"
                 if strict:
                     raise RuntimeError(self.last_error)
@@ -163,9 +173,7 @@ class DatabaseConnector:
         try:
             if not self.available:
                 return []
-            if not self.conn:
-                self.connect()
-            if not self.conn:
+            if not self._ensure_connection():
                 return []
             
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -205,9 +213,7 @@ class DatabaseConnector:
         try:
             if not self.available:
                 return []
-            if not self.conn:
-                self.connect()
-            if not self.conn:
+            if not self._ensure_connection():
                 return []
             
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -247,9 +253,7 @@ class DatabaseConnector:
         try:
             if not self.available:
                 return False
-            if not self.conn:
-                self.connect()
-            if not self.conn:
+            if not self._ensure_connection():
                 return False
             
             with self.conn.cursor() as cur:
@@ -275,9 +279,7 @@ class DatabaseConnector:
         try:
             if not self.available:
                 return []
-            if not self.conn:
-                self.connect()
-            if not self.conn:
+            if not self._ensure_connection():
                 return []
             
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
