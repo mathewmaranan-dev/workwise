@@ -7,7 +7,6 @@ import {
   Upload,
   Users,
   User,
-  Activity,
   ListTodo,
   LogOut,
   Menu
@@ -29,13 +28,10 @@ export default function DashboardLayout() {
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/dashboard/account', label: 'My Account', icon: User },
     ...(user?.role === 'manager' ? [
-      { path: '/dashboard/team-performance', label: 'Team Performance', icon: Activity },
       { path: '/dashboard/team-agents', label: 'Team Agents', icon: Users },
       { path: '/dashboard/tickets', label: 'Ticket Finder', icon: ListTodo }
     ] : []),
-    ...(user?.role === 'agent' ? [
-      { path: '/dashboard/my-tasks', label: 'My Tasks', icon: ListTodo }
-    ] : []),
+    ...(user?.role === 'agent' ? [] : []),
     ...(user?.role === 'admin' ? [
       { path: '/dashboard/users', label: 'User Management', icon: Users },
       { path: '/dashboard/tickets', label: 'Ticket Finder', icon: ListTodo },

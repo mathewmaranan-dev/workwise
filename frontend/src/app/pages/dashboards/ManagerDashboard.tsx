@@ -1263,50 +1263,133 @@ export default function ManagerDashboard() {
       {/* KPI Cards for Manager's Group */}
       {selectedTab === 'overview' && (
         <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">SLA Compliance</CardTitle>
-            <Target className="w-4 h-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.slaCompliance.toFixed(1)}%` : 'N/A'}</div>
-            <p className="text-xs text-gray-500 mt-1">{hasData ? `${groupKPIs.totalTickets} total tickets` : 'No data'}</p>
-          </CardContent>
-        </Card>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+            1. Executive KPIs
+          </span>
+          <h2 className="text-lg font-semibold text-slate-900">Key operating indicators for this team</h2>
+        </div>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">SLA Compliance</CardTitle>
+              <Target className="w-4 h-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.slaCompliance.toFixed(1)}%` : 'N/A'}</div>
+              <p className="text-xs text-gray-500 mt-1">{hasData ? `${groupKPIs.totalTickets} total tickets` : 'No data'}</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">FCR Rate</CardTitle>
-            <Activity className="w-4 h-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.fcrRate.toFixed(1)}%` : 'N/A'}</div>
-            <p className="text-xs text-gray-500 mt-1">First contact resolution</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">FCR Rate</CardTitle>
+              <Activity className="w-4 h-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.fcrRate.toFixed(1)}%` : 'N/A'}</div>
+              <p className="text-xs text-gray-500 mt-1">First contact resolution</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Active Tickets</CardTitle>
-            <Users className="w-4 h-4 text-indigo-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">{hasData ? groupKPIs.activeTickets : 'N/A'}</div>
-            <p className="text-xs text-gray-500 mt-1">Requiring attention</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Active Tickets</CardTitle>
+              <Users className="w-4 h-4 text-indigo-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-gray-900">{hasData ? groupKPIs.activeTickets : 'N/A'}</div>
+              <p className="text-xs text-gray-500 mt-1">Requiring attention</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Non-FCR Alerts</CardTitle>
-            <AlertTriangle className="w-4 h-4 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">{hasData ? groupNonFCRTickets.length : 'N/A'}</div>
-            <p className="text-xs text-gray-500 mt-1">Tickets needing review</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Non-FCR Alerts</CardTitle>
+              <AlertTriangle className="w-4 h-4 text-orange-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-gray-900">{hasData ? groupNonFCRTickets.length : 'N/A'}</div>
+              <p className="text-xs text-gray-500 mt-1">Tickets needing review</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+            2. Overview & Forecasting
+          </span>
+          <h2 className="text-lg font-semibold text-slate-900">Task allocation and workload forecasts</h2>
+        </div>
+        <div className="mt-4 space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Task Allocation Overview</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={taskAllocationData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, value }) => `${name}: ${value}`}
+                      outerRadius={100}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {taskAllocationData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="grid grid-cols-3 gap-4 mt-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600">{newTasks}</div>
+                    <p className="text-xs text-gray-500">New Tasks</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-purple-600">{assignedTasks}</div>
+                    <p className="text-xs text-gray-500">Assigned</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-amber-600">{pendingTasks}</div>
+                    <p className="text-xs text-gray-500">Pending</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Forecast vs actual workload</CardTitle>
+                <p className="text-xs text-gray-500 mt-1">Actual ticket volume versus forecast target and capacity threshold for {displayGroup?.group_name || `Group ${displayGroupId}`}</p>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={weightedForecastData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="week" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <ReferenceLine y={currentStaffCount * agentCapacityTarget} stroke="#F59E0B" strokeDasharray="4 4" label="Capacity threshold" />
+                    <Line type="monotone" dataKey="actualTickets" stroke="#4F46E5" strokeWidth={2} name="Actual tickets" />
+                    <Line type="monotone" dataKey="forecastTarget" stroke="#10B981" strokeWidth={2} strokeDasharray="4 4" name="Forecast target" />
+                  </LineChart>
+                </ResponsiveContainer>
+                <div className="mt-3 text-xs text-gray-600">Capacity threshold is derived from {currentStaffCount} current agents × {agentCapacityTarget} tickets/agent. Values above the threshold indicate overload and potential hiring or redistribution.</div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
 
       <Card>

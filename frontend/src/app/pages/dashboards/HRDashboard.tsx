@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Award, AlertCircle } from 'lucide-react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { TrendingUp, Clock3, RefreshCw, Award, SmilePlus, BarChart3, AlertCircle } from 'lucide-react';
+import { BarChart, Bar, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { 
   calculateKPIs, 
   getAssignmentGroupPerformance, 
@@ -576,6 +576,19 @@ export default function HRDashboard() {
     isSustainedGrowth,
   } = recommendationData;
 
+  const overallPerformance = hasData ? ((kpis.slaCompliance + kpis.fcrRate) / 2) : 0;
+  const employeeSatisfaction = hasData
+    ? Math.max(0, Math.min(100, 0.6 * overallPerformance + 0.4 * (100 - kpis.reopenRate)))
+    : 0;
+  const productivityTrendLabel = hasData
+    ? growthRate > 8
+      ? 'Upward'
+      : growthRate < -8
+        ? 'Downward'
+        : 'Stable'
+    : 'No data';
+  const productivityTrendValue = hasData ? `${growthRate >= 0 ? '+' : ''}${growthRate.toFixed(1)}%` : 'N/A';
+
   useEffect(() => {
     if (!isAuthReady || groupSummary.length === 0) {
       setMlStrategicRecommendations(null);
@@ -698,78 +711,113 @@ export default function HRDashboard() {
         <p className="text-gray-600 mt-1">Organizational performance, team health, and strategic insights</p>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Overall Performance</CardTitle>
-            <Award className="w-4 h-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">
-              {((kpis.slaCompliance + kpis.fcrRate) / 2).toFixed(1)}%
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Composite score (SLA + FCR)</p>
-          </CardContent>
-        </Card>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+            1. Executive KPIs
+          </span>
+          <h2 className="text-lg font-semibold text-slate-900">Key operating indicators for the organization</h2>
+        </div>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Overall Performance</CardTitle>
+              <Award className="w-4 h-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-gray-900">{overallPerformance.toFixed(1)}%</div>
+              <p className="text-xs text-gray-500 mt-1">Composite SLA + FCR score</p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Teams Needing Support</CardTitle>
-            <AlertCircle className="w-4 h-4 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">{underperformers.length}</div>
-            <p className="text-xs text-gray-500 mt-1">Teams with score &lt;75%</p>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Employee Satisfaction</CardTitle>
+              <SmilePlus className="w-4 h-4 text-pink-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-gray-900">{employeeSatisfaction.toFixed(1)}%</div>
+              <p className="text-xs text-gray-500 mt-1">Based on service quality and reopen rate</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Productivity Trend</CardTitle>
+              <BarChart3 className="w-4 h-4 text-purple-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-gray-900">{productivityTrendValue}</div>
+              <p className="text-xs text-gray-500 mt-1">{productivityTrendLabel} demand trend</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Team Needing Support</CardTitle>
+              <AlertCircle className="w-4 h-4 text-orange-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-gray-900">{underperformers.length}</div>
+              <p className="text-xs text-gray-500 mt-1">Teams below the target score</p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Organizational Workload Trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={monthlyWorkloadTrend}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="monthLabel" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="forecastTickets" stroke="#10B981" strokeWidth={2} strokeDasharray="4 4" connectNulls={false} name="ML forecast (monthly)" />
-                <Line type="monotone" dataKey="actualTickets" stroke="#4F46E5" strokeWidth={3} dot={{ r: 2 }} connectNulls={false} name="Actual volume (monthly)" />
-              </LineChart>
-            </ResponsiveContainer>
-            <p className="mt-2 text-xs text-slate-500">
-              {mlWorkloadForecast.error
-                ? 'ML forecast unavailable; showing historical monthly volume only.'
-                : `Trend uses the same forecast pipeline as Admin Weekly Ticket Volume${mlWorkloadForecast.model ? ` (${mlWorkloadForecast.model})` : ''}${mlWorkloadForecast.dataSource ? ` using ${mlWorkloadForecast.dataSource} data` : ''}${mlWorkloadForecast.confidence !== null ? ` at ${Math.round(mlWorkloadForecast.confidence * 100)}% confidence` : ''}.`}
-            </p>
-          </CardContent>
-        </Card>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+            2. Overview & Forecasting
+          </span>
+          <h2 className="text-lg font-semibold text-slate-900">Organizational workload and forecast visibility</h2>
+        </div>
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Organizational Workload Trend</CardTitle>
+              <p className="text-xs text-gray-500 mt-1">Monthly actual volume versus ML forecast for the wider organization</p>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={monthlyWorkloadTrend}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="monthLabel" tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(value: any) => `${Number(value).toLocaleString()}`} />
+                  <Legend />
+                  <Area type="monotone" dataKey="actualTickets" fill="#4F46E5" fillOpacity={0.16} stroke="#4F46E5" strokeWidth={2} name="Actual volume" />
+                  <Line type="monotone" dataKey="forecastTickets" stroke="#10B981" strokeWidth={2} strokeDasharray="5 5" connectNulls={false} dot={false} name="ML forecast" />
+                </ComposedChart>
+              </ResponsiveContainer>
+              <p className="mt-2 text-xs text-slate-500">
+                {mlWorkloadForecast.error
+                  ? 'ML forecast unavailable; showing historical monthly volume only.'
+                  : `Trend uses the same forecast pipeline as Admin Weekly Ticket Volume${mlWorkloadForecast.model ? ` (${mlWorkloadForecast.model})` : ''}${mlWorkloadForecast.dataSource ? ` using ${mlWorkloadForecast.dataSource} data` : ''}${mlWorkloadForecast.confidence !== null ? ` at ${Math.round(mlWorkloadForecast.confidence * 100)}% confidence` : ''}.`}
+              </p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Top Performing Teams</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart 
-                data={topPerformers.map(g => ({ name: g.teamName, performance: g.overallScore }))} 
-                layout="vertical"
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" domain={[0, 100]} />
-                <YAxis dataKey="name" type="category" width={140} />
-                <Tooltip formatter={(value) => `${Number(value).toFixed(1)}%`} />
-                <Bar dataKey="performance" fill="#10B981" name="Performance Score" />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Top Performing Teams</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart 
+                  data={topPerformers.map(g => ({ name: g.teamName, performance: g.overallScore }))} 
+                  layout="vertical"
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" domain={[0, 100]} />
+                  <YAxis dataKey="name" type="category" width={140} />
+                  <Tooltip formatter={(value) => `${Number(value).toFixed(1)}%`} />
+                  <Bar dataKey="performance" fill="#10B981" name="Performance Score" />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Staffing Gap Planning */}

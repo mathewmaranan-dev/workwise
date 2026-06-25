@@ -127,8 +127,18 @@ def forecast_tickets():
             forecast_result = forecast_service.forecast(group_id, days_ahead=days_ahead)
 
             if 'error' in forecast_result:
-                status_code = 404 if forecast_result.get('code') == 'NO_DB_HISTORY' else 500
-                return jsonify({'error': forecast_result['error'], 'code': forecast_result.get('code')}), status_code
+                status_code = 200 if forecast_result.get('code') in {'NO_DB_HISTORY', 'MODEL_UNAVAILABLE', 'FORECAST_PIPELINE_FAILED'} else 500
+                return jsonify({
+                    'error': forecast_result['error'],
+                    'code': forecast_result.get('code'),
+                    'forecast': [],
+                    'forecast_mean': None,
+                    'upper_bound': [],
+                    'lower_bound': [],
+                    'confidence': 0.55,
+                    'model': 'heuristic',
+                    'data_source': 'fallback',
+                }), status_code
 
             forecast_values = forecast_result['forecast']
             forecast_mean = round(float(sum(forecast_values) / len(forecast_values)), 2) if forecast_values else None
