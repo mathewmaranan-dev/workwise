@@ -24,7 +24,7 @@ function buildQuery(params: Record<string, string | undefined>) {
 }
 
 export default function TicketFinderPage() {
-  const { user } = useAuth();
+  const { user, users } = useAuth();
   const [ticketId, setTicketId] = useState('');
   const [assignedToId, setAssignedToId] = useState('');
   const [assignmentGroupId, setAssignmentGroupId] = useState(EMPTY_OPTION_VALUE);
@@ -175,6 +175,25 @@ export default function TicketFinderPage() {
     if (byApi) return byApi.category_name;
     const seed = getCategoryById(Number(id));
     return seed?.category_name || String(id);
+  };
+
+  const resolveAssigned = (ticket: any) => {
+    const apiFullName = `${String(ticket.assigned_first_name || '').trim()} ${String(ticket.assigned_last_name || '').trim()}`.trim();
+    if (apiFullName) {
+      return apiFullName;
+    }
+
+    const matchedUser = users.find((candidate) => Number(candidate.id) === Number(ticket.assigned_to_id));
+    const contextFullName = `${String(matchedUser?.first_name || '').trim()} ${String(matchedUser?.last_name || '').trim()}`.trim();
+    if (contextFullName) {
+      return contextFullName;
+    }
+
+    if (matchedUser?.name) {
+      return matchedUser.name;
+    }
+
+    return ticket.assigned_to_id ?? '-';
   };
 
   if (!canAccess) {
@@ -379,7 +398,7 @@ export default function TicketFinderPage() {
                         {resolveCategory(ticket.category_id)}
                       </td>
                       <td className="px-3 py-2 text-slate-600">
-                        {ticket.assigned_to_id ?? '-'}
+                        {resolveAssigned(ticket)}
                       </td>
                       <td className="px-3 py-2 text-slate-600 max-w-lg truncate">
                         {ticket.short_description || 'ΓÇö'}

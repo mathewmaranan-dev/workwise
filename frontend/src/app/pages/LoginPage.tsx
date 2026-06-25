@@ -220,11 +220,8 @@ export default function LoginPage() {
                 </div>
               )}
 
-              <div className="flex items-center justify-between">
-                <Link to="/forgot-password" className="text-sm text-primary hover:text-primary/90">
-                  Forgot password?
-                </Link>
-                <Button type="submit" className="ml-4" disabled={loading}>
+              <div className="flex items-center justify-end">
+                <Button type="submit" disabled={loading}>
                   {loading ? 'Signing in...' : 'Sign In'}
                 </Button>
               </div>

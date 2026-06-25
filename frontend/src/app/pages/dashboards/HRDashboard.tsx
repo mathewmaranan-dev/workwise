@@ -1,17 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Users, TrendingUp, Award, AlertCircle, TrendingDown } from 'lucide-react';
+import { Award, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { 
   calculateKPIs, 
   getAssignmentGroupPerformance, 
-  calculateEmployeeSatisfaction, 
-  calculateProductivityTrend,
   getOptimizationNeeds,
   getWeeklyTicketSeries,
   aggregateWeeklySeriesToMonthly,
 } from '../../utils/analytics';
-import { weeklyCounts, getAssignmentGroupById, getUserById, assignmentGroups, tickets as seedDataTickets } from '../../data/seedData';
+import { weeklyCounts, getAssignmentGroupById, assignmentGroups, tickets as seedDataTickets } from '../../data/seedData';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -256,8 +254,6 @@ export default function HRDashboard() {
 
   const kpis = calculateKPIs(currentTickets);
   const groupPerformance = getAssignmentGroupPerformance(currentTickets);
-  const employeeSatisfaction = calculateEmployeeSatisfaction(currentTickets);
-  const productivityTrend = calculateProductivityTrend(currentTickets);
   const optimizationNeeds = getOptimizationNeeds(currentTickets);
 
   const actualWeeklySeries = useMemo(() => {
@@ -523,45 +519,6 @@ export default function HRDashboard() {
       };
     });
 
-    const agentSummary = Array.from(
-      currentTickets.reduce((acc: Map<number, { assignedCount: number; resolvedCount: number; totalMinutes: number }>, ticket: any) => {
-        const agentId = typeof ticket.assigned_to_id === 'number' ? ticket.assigned_to_id : null;
-        if (!agentId) return acc;
-
-        const entry = acc.get(agentId) || { assignedCount: 0, resolvedCount: 0, totalMinutes: 0 };
-        entry.assignedCount += 1;
-        if (ticket.status_id === 3 || ticket.status_id === 4) {
-          entry.resolvedCount += 1;
-          if (typeof ticket.duration === 'number') entry.totalMinutes += ticket.duration;
-        }
-        acc.set(agentId, entry);
-        return acc;
-      }, new Map<number, { assignedCount: number; resolvedCount: number; totalMinutes: number }>())
-    )
-      .map(([agentId, stats]) => {
-        const user = getUserById(agentId as number);
-        const groupId = user?.assignment_group_id;
-        const groupName = groupId ? getAssignmentGroupById(groupId)?.group_name : 'Unassigned';
-        const avgResolution = stats.resolvedCount > 0 ? stats.totalMinutes / stats.resolvedCount / 60 : 0;
-        const currentLoad = stats.assignedCount;
-        const recommendedLoad = Math.max(currentLoad, Math.round(currentLoad * (1 + Math.max(growthRate, 0) / 100)));
-        const capacityGap = Math.max(recommendedLoad - currentLoad, 0);
-        const fairnessScore = Math.max(0, Math.min(100, Math.round(100 - Math.abs((currentLoad - 8) * 4))));
-
-        return {
-          agentId,
-          name: user ? `${user.first_name} ${user.last_name}` : `Agent ${agentId}`,
-          groupName,
-          currentLoad,
-          recommendedLoad,
-          capacityGap,
-          avgResolution,
-          fairnessScore,
-        };
-      })
-      .sort((a, b) => b.currentLoad - a.currentLoad)
-      .slice(0, 8);
-
     const recommendations = groupSummary
       .filter((entry) => entry.decision !== 'Retain & monitor' || groupSummary.length <= 3)
       .sort((a, b) => {
@@ -600,7 +557,6 @@ export default function HRDashboard() {
 
     return {
       groupSummary,
-      agentSummary,
       recommendations,
       recentCount,
       previousCount,
@@ -612,7 +568,6 @@ export default function HRDashboard() {
 
   const {
     groupSummary,
-    agentSummary,
     recommendations,
     recentCount,
     previousCount,
@@ -744,7 +699,7 @@ export default function HRDashboard() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Overall Performance</CardTitle>
@@ -755,30 +710,6 @@ export default function HRDashboard() {
               {((kpis.slaCompliance + kpis.fcrRate) / 2).toFixed(1)}%
             </div>
             <p className="text-xs text-gray-500 mt-1">Composite score (SLA + FCR)</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Employee Satisfaction</CardTitle>
-            <Users className="w-4 h-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900">{employeeSatisfaction.toFixed(1)}/5.0</div>
-            <p className="text-xs text-gray-500 mt-1">Based on performance metrics</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Productivity Trend</CardTitle>
-            <TrendingUp className={`w-4 h-4 ${productivityTrend >= 0 ? 'text-green-600' : 'text-red-600'}`} />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-3xl font-bold ${productivityTrend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {productivityTrend >= 0 ? '+' : ''}{productivityTrend.toFixed(1)}%
-            </div>
-            <p className="text-xs text-gray-500 mt-1">vs. previous period</p>
           </CardContent>
         </Card>
 
@@ -902,46 +833,6 @@ export default function HRDashboard() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Underperforming Teams Alert */}
-      {underperformers.length > 0 && (
-        <Card className="border-orange-200 bg-orange-50">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <TrendingDown className="w-5 h-5 text-orange-600" />
-              <CardTitle>Teams Requiring Immediate Attention</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {underperformers.map(group => (
-                <div key={group.groupId} className="border rounded p-3 bg-white">
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-medium text-gray-900">{group.teamName}</h4>
-                    <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium">
-                      Score: {group.overallScore.toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <p className="text-xs text-gray-500">SLA Compliance</p>
-                      <p className="font-medium">{group.slaCompliance.toFixed(1)}%</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">FCR Rate</p>
-                      <p className="font-medium">{group.fcrRate.toFixed(1)}%</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Avg Resolution</p>
-                      <p className="font-medium">{group.avgResolutionTime.toFixed(1)}h</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Team Performance Summary */}
       <Card>
@@ -1074,44 +965,6 @@ export default function HRDashboard() {
                         {entry.decision}
                       </span>
                     </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Agent Load Summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Agent-Level Load Summary</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Current vs. recommended workload per agent</p>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left p-3 font-medium">Agent</th>
-                  <th className="text-left p-3 font-medium">Team</th>
-                  <th className="text-left p-3 font-medium">Current Load</th>
-                  <th className="text-left p-3 font-medium">Recommended Load</th>
-                  <th className="text-left p-3 font-medium">Gap</th>
-                  <th className="text-left p-3 font-medium">Avg Resolution</th>
-                  <th className="text-left p-3 font-medium">Fairness</th>
-                </tr>
-              </thead>
-              <tbody>
-                {agentSummary.map((agent) => (
-                  <tr key={agent.agentId} className="border-b hover:bg-gray-50">
-                    <td className="p-3 font-medium">{agent.name}</td>
-                    <td className="p-3">{agent.groupName}</td>
-                    <td className="p-3">{agent.currentLoad}</td>
-                    <td className="p-3">{agent.recommendedLoad}</td>
-                    <td className="p-3 font-medium text-orange-700">{agent.capacityGap > 0 ? `+${agent.capacityGap}` : '0'}</td>
-                    <td className="p-3">{agent.avgResolution.toFixed(1)}h</td>
-                    <td className="p-3">{agent.fairnessScore}%</td>
                   </tr>
                 ))}
               </tbody>

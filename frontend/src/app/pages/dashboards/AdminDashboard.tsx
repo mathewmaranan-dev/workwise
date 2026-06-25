@@ -409,6 +409,36 @@ function AdminView({
     tickets: g.totalTickets
   }));
 
+  const systemChecks = useMemo(() => {
+    const apiStatus = dashboardLoading
+      ? { label: 'Checking', tone: 'checking' as const, detail: 'Loading KPI endpoints...' }
+      : dashboardError
+        ? { label: 'Warning', tone: 'warning' as const, detail: 'Backend KPI fetch had issues' }
+        : { label: 'Healthy', tone: 'healthy' as const, detail: 'KPI endpoints responding' };
+
+    const dataStatus = hasData
+      ? { label: 'Healthy', tone: 'healthy' as const, detail: `${trendTickets.length} ticket rows available` }
+      : { label: 'Warning', tone: 'warning' as const, detail: 'No ticket data loaded' };
+
+    const mlStatus = mlForecast.loading
+      ? { label: 'Checking', tone: 'checking' as const, detail: 'Running forecast health check...' }
+      : mlForecast.error
+        ? { label: 'Degraded', tone: 'degraded' as const, detail: 'ML forecast unavailable' }
+        : mlForecast.forecast.length > 0
+          ? {
+              label: 'Healthy',
+              tone: 'healthy' as const,
+              detail: `Forecast ready${mlForecast.confidence !== null ? ` (${Math.round(mlForecast.confidence * 100)}% conf.)` : ''}`,
+            }
+          : { label: 'Warning', tone: 'warning' as const, detail: 'No ML forecast output yet' };
+
+    return [
+      { key: 'api', title: 'Backend API', ...apiStatus },
+      { key: 'data', title: 'Data Pipeline', ...dataStatus },
+      { key: 'ml', title: 'ML Service', ...mlStatus },
+    ];
+  }, [dashboardLoading, dashboardError, hasData, trendTickets.length, mlForecast.loading, mlForecast.error, mlForecast.forecast.length, mlForecast.confidence]);
+
   const handleExport = () => {
     exportTicketsToCSV();
     toast.success('Ticket data exported successfully');
@@ -480,6 +510,36 @@ function AdminView({
           <span className="font-semibold text-slate-700">Trend source:</span> Weekly Ticket Volume uses {trendSource} ({trendTickets.length} rows).
         </div>
         {dashboardError && <span className="text-rose-600">Backend dashboard fetch warning</span>}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        {systemChecks.map((check) => {
+          const toneClass =
+            check.tone === 'healthy'
+              ? 'bg-emerald-500'
+              : check.tone === 'degraded'
+                ? 'bg-rose-500'
+                : check.tone === 'checking'
+                  ? 'bg-sky-500'
+                  : 'bg-amber-500';
+
+          return (
+            <Card key={check.key}>
+              <CardHeader className="pb-1 pt-3 px-3">
+                <CardTitle className="text-xs flex items-center justify-between">
+                  <span>{check.title}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600">
+                    <span className={`inline-block h-2 w-2 rounded-full ${toneClass}`} />
+                    {check.label}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 px-3 pb-3">
+                <p className="text-[11px] text-slate-600">{check.detail}</p>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Charts */}
