@@ -204,7 +204,7 @@ class PerformanceDiagnostics:
                         'deviation_from_mean': workload - mean_workload,
                     })
             
-            is_imbalanced = imbalance_ratio > self.fairness_threshold
+            is_imbalanced = bool(imbalance_ratio > self.fairness_threshold)
             
             return {
                 'imbalanced': is_imbalanced,
