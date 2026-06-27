@@ -21,8 +21,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const ML_PROXY_TIMEOUT_MS = Number(process.env.ML_PROXY_TIMEOUT_MS || 25000);
-const ML_PROXY_MAX_RETRIES = Number(process.env.ML_PROXY_MAX_RETRIES || 2);
+// ML requests require more time for model inference and data processing
+const ML_PROXY_TIMEOUT_MS = Number(process.env.ML_PROXY_TIMEOUT_MS || 120000); // 120s default
+const ML_PROXY_MAX_RETRIES = Number(process.env.ML_PROXY_MAX_RETRIES || 3);
 
 // Middleware
 app.use(helmet());
