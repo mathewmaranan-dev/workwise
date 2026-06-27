@@ -115,7 +115,10 @@ app.use('/api/ml', async (req, res) => {
       }
 
       const controller = new AbortController();
-      const timeoutHandle = setTimeout(() => controller.abort(), ML_PROXY_TIMEOUT_MS);
+      const timeoutHandle = setTimeout(() => {
+        console.warn(`⚠️  ML proxy timeout (${ML_PROXY_TIMEOUT_MS}ms) for ${req.method} ${mlPath} - attempt ${attempt + 1}`);
+        controller.abort();
+      }, ML_PROXY_TIMEOUT_MS);
 
       try {
         response = await fetch(target.toString(), {
@@ -134,6 +137,7 @@ app.use('/api/ml', async (req, res) => {
         if (!shouldRetry) {
           break;
         }
+        console.debug(`ML proxy error on attempt ${attempt + 1}, retrying...`, { code: error?.code || error?.cause?.code, message: error?.message });
         await delay(150 * (attempt + 1));
       }
     }
