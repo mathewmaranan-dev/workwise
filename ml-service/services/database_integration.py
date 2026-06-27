@@ -7,8 +7,11 @@ Handles communication with backend PostgreSQL database
 import logging
 import os
 import time
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from dotenv import load_dotenv
 
 try:
     import psycopg2
@@ -18,6 +21,8 @@ except ImportError:
     RealDictCursor = None
 
 logger = logging.getLogger(__name__)
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / '.env', override=True)
 
 
 class DatabaseConnector:
