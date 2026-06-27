@@ -147,29 +147,30 @@ class DatabaseConnector:
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
                 SELECT 
-                    t.id as ticket_id,
-                    t.title,
-                    t.description,
-                    t.status,
-                    t.priority,
+                    t.ticket_id,
+                    t.short_description,
+                    t.work_notes,
+                    s.status_name as status,
+                    p.priority_level as priority,
                     t.category_id,
-                    c.name as category,
+                    cat.category_name as category,
                     t.assignment_group_id,
-                    t.assigned_to,
-                    t.created_at,
+                    t.assigned_to_id,
+                    t.created_date as created_at,
                     t.updated_at,
-                    t.resolved_at,
-                    t.sla_met,
+                    t.resolved_date as resolved_at,
+                    t.made_sla as sla_met,
                     t.fcr,
                     t.reopen_count,
                     t.reassignment_count,
-                    EXTRACT(EPOCH FROM (COALESCE(t.resolved_at, NOW()) - t.created_at))/3600 as duration,
-                    u.name as agent_name,
-                    u.experience_level
+                    EXTRACT(EPOCH FROM (COALESCE(t.resolved_date, NOW()) - t.created_date))/3600 as duration,
+                    CONCAT(u.first_name, ' ', u.last_name) as agent_name
                 FROM tickets t
-                LEFT JOIN ticket_categories c ON t.category_id = c.id
-                LEFT JOIN users u ON t.assigned_to = u.id
-                WHERE t.created_at >= NOW() - INTERVAL '{days_back} days'
+                LEFT JOIN category cat ON t.category_id = cat.category_id
+                LEFT JOIN users u ON t.assigned_to_id = u.user_id
+                LEFT JOIN status s ON t.status_id = s.status_id
+                LEFT JOIN priority p ON t.priority_id = p.priority_id
+                WHERE t.created_date >= NOW() - INTERVAL '{days_back} days'
                 """
                 
                 params = []
@@ -177,7 +178,7 @@ class DatabaseConnector:
                     query += " AND t.assignment_group_id = %s"
                     params.append(group_id)
                 
-                query += " ORDER BY t.created_at DESC"
+                query += " ORDER BY t.created_date DESC"
                 
                 cur.execute(query, params)
                 return cur.fetchall()
@@ -211,27 +212,28 @@ class DatabaseConnector:
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
                 SELECT 
-                    u.id,
-                    u.name,
+                    u.user_id,
+                    CONCAT(u.first_name, ' ', u.last_name) as name,
                     u.email,
                     u.experience_level,
-                    ag.id as group_id,
-                    ag.name as group_name,
-                    COUNT(t.id) as ticket_count,
-                    AVG(CASE WHEN t.sla_met THEN 1 ELSE 0 END) * 100 as sla_compliance,
+                    ag.assignment_group_id as group_id,
+                    ag.group_name as group_name,
+                    COUNT(t.ticket_id) as ticket_count,
+                    AVG(CASE WHEN t.made_sla THEN 1 ELSE 0 END) * 100 as sla_compliance,
                     AVG(CASE WHEN t.fcr THEN 1 ELSE 0 END) * 100 as fcr_rate,
-                    AVG(EXTRACT(EPOCH FROM (COALESCE(t.resolved_at, NOW()) - t.created_at))/3600) as avg_resolution_time
+                    AVG(EXTRACT(EPOCH FROM (COALESCE(t.resolved_date, NOW()) - t.created_date))/3600) as avg_resolution_time
                 FROM users u
-                LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.id
-                LEFT JOIN tickets t ON u.id = t.assigned_to AND t.created_at >= NOW() - INTERVAL '30 days'
-                WHERE u.role = 'agent'
+                LEFT JOIN assignment_groups ag ON u.assignment_group_id = ag.assignment_group_id
+                LEFT JOIN tickets t ON u.user_id = t.assigned_to_id AND t.created_date >= NOW() - INTERVAL '30 days'
+                LEFT JOIN roles r ON u.role_id = r.role_id
+                WHERE r.role_name = 'Agent'
                 """
                 
                 if group_id:
-                    query += " AND ag.id = %s"
+                    query += " AND ag.assignment_group_id = %s"
                 
-                query += " GROUP BY u.id, u.name, u.email, u.experience_level, ag.id, ag.name"
-                query += " ORDER BY u.name"
+                query += " GROUP BY u.user_id, u.first_name, u.last_name, u.email, u.experience_level, ag.assignment_group_id, ag.group_name"
+                query += " ORDER BY u.first_name, u.last_name"
                 
                 params = [group_id] if group_id else []
                 cur.execute(query, params)
@@ -254,16 +256,18 @@ class DatabaseConnector:
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
                 SELECT 
-                    ag.id,
-                    ag.name,
-                    COUNT(DISTINCT u.id) as team_size,
-                    COUNT(DISTINCT t.id) as total_tickets_30d,
-                    AVG(CASE WHEN t.sla_met THEN 1 ELSE 0 END) * 100 as group_sla_compliance
+                    ag.assignment_group_id as id,
+                    ag.group_name as name,
+                    COUNT(DISTINCT u.user_id) as team_size,
+                    COUNT(DISTINCT t.ticket_id) as total_tickets_30d,
+                    AVG(CASE WHEN t.made_sla THEN 1 ELSE 0 END) * 100 as group_sla_compliance
                 FROM assignment_groups ag
-                LEFT JOIN users u ON ag.id = u.assignment_group_id AND u.role = 'agent'
-                LEFT JOIN tickets t ON ag.id = t.assignment_group_id AND t.created_at >= NOW() - INTERVAL '30 days'
-                GROUP BY ag.id, ag.name
-                ORDER BY ag.name
+                LEFT JOIN users u ON ag.assignment_group_id = u.assignment_group_id
+                LEFT JOIN roles r ON u.role_id = r.role_id
+                LEFT JOIN tickets t ON ag.assignment_group_id = t.assignment_group_id AND t.created_date >= NOW() - INTERVAL '30 days'
+                WHERE r.role_name = 'Agent' OR r.role_name IS NULL
+                GROUP BY ag.assignment_group_id, ag.group_name
+                ORDER BY ag.group_name
                 """
                 cur.execute(query)
                 return cur.fetchall()
@@ -324,7 +328,7 @@ class DatabaseConnector:
                 return []
             
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                query = "SELECT id, name FROM ticket_categories ORDER BY name"
+                query = "SELECT category_id as id, category_name as name FROM category ORDER BY category_name"
                 cur.execute(query)
                 return cur.fetchall()
         except Exception as e:
