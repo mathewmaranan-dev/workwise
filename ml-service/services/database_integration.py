@@ -6,6 +6,7 @@ Handles communication with backend PostgreSQL database
 
 import logging
 import os
+import time
 from typing import List, Dict, Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pathlib import Path
@@ -30,7 +31,6 @@ class DatabaseConnector:
     """Manages database connections and queries"""
     
     def __init__(self):
-        self.connection_string = self._resolve_connection_string()
         self.conn = None
         self.last_error = None
         self.available = psycopg2 is not None and RealDictCursor is not None
@@ -39,7 +39,7 @@ class DatabaseConnector:
                 "psycopg2 is not installed; database-backed ML features will be unavailable until the dependency is fixed."
             )
 
-    def _resolve_connection_string(self) -> str:
+    def _resolve_connection_string(self, sslmode: str = 'prefer') -> str:
         raw_url = (os.getenv('DATABASE_URL') or os.getenv('\ufeffDATABASE_URL') or '').strip()
         if not raw_url:
             # Keep a local default for development if DATABASE_URL is missing.
@@ -50,15 +50,14 @@ class DatabaseConnector:
             host = (parsed.hostname or '').lower()
             query = dict(parse_qsl(parsed.query, keep_blank_values=True))
 
-            # Managed Postgres providers typically use SSL, but use 'prefer' to handle SSL issues gracefully.
-            # If 'sslmode' is already set, keep it; otherwise default to 'prefer' for remote hosts.
-            if host and host not in {'localhost', '127.0.0.1'} and 'sslmode' not in query:
-                query['sslmode'] = 'prefer'
+            # Apply sslmode if not already set
+            if 'sslmode' not in query:
+                query['sslmode'] = sslmode
             
-            # Add sslrootcert handling for Render or other managed providers
-            if host and 'render.com' in host and 'sslrootcert' not in query:
-                # Don't verify certificate if SSL errors occur; Render provides valid certificates
-                query['sslmode'] = 'prefer'
+            # Set connection timeout for remote hosts
+            if host and host not in {'localhost', '127.0.0.1'}:
+                if 'connect_timeout' not in query:
+                    query['connect_timeout'] = '10'
 
             return urlunsplit((
                 parsed.scheme,
@@ -70,21 +69,56 @@ class DatabaseConnector:
         except Exception:
             return raw_url
     
-    def connect(self) -> bool:
-        """Establish database connection"""
+    def connect(self, max_retries: int = 3) -> bool:
+        """Establish database connection with retry logic and SSL fallback.
+        
+        Args:
+            max_retries: Maximum number of connection attempts
+            
+        Returns:
+            True if connected, False otherwise
+        """
         if not self.available:
             self.last_error = "psycopg2 and RealDictCursor are unavailable"
             logger.warning("Database connector is unavailable because psycopg2 is not installed")
             return False
-        try:
-            self.conn = psycopg2.connect(self.connection_string)
-            self.last_error = None
-            logger.info("✅ Database connected")
-            return True
-        except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"❌ Database connection failed: {e}")
-            return False
+        
+        # Try multiple SSL modes if initial mode fails
+        ssl_modes = ['prefer', 'allow', 'disable']
+        
+        for ssl_mode in ssl_modes:
+            connection_string = self._resolve_connection_string(sslmode=ssl_mode)
+            logger.info(f"Attempting connection with sslmode={ssl_mode}...")
+            
+            for attempt in range(max_retries):
+                try:
+                    self.conn = psycopg2.connect(connection_string, connect_timeout=10)
+                    self.last_error = None
+                    logger.info(f"✅ Database connected successfully with sslmode={ssl_mode}")
+                    return True
+                except psycopg2.OperationalError as e:
+                    error_msg = str(e).lower()
+                    # SSL-specific errors should try next SSL mode
+                    if 'ssl' in error_msg or 'certificate' in error_msg or 'decryption' in error_msg:
+                        logger.warning(f"SSL error on attempt {attempt + 1}: {e}")
+                        break  # Try next SSL mode
+                    else:
+                        self.last_error = str(e)
+                        if attempt < max_retries - 1:
+                            wait_time = 2 ** attempt  # Exponential backoff
+                            logger.warning(f"Connection attempt {attempt + 1}/{max_retries} failed: {e}. Retrying in {wait_time}s...")
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"All connection attempts failed: {e}")
+                except Exception as e:
+                    self.last_error = str(e)
+                    logger.error(f"Unexpected error on attempt {attempt + 1}: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
+        
+        self.last_error = "Failed to connect with all SSL modes"
+        logger.error("❌ Database connection failed with all SSL modes")
+        return False
 
     def _connection_is_open(self) -> bool:
         """Check if a psycopg2 connection exists and is still open."""
@@ -95,7 +129,7 @@ class DatabaseConnector:
         if self._connection_is_open():
             return True
         self.conn = None
-        return self.connect()
+        return self.connect(max_retries=2)  # Use 2 retries for mid-connection checks
     
     def disconnect(self):
         """Close database connection"""
