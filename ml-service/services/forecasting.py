@@ -41,8 +41,8 @@ class TicketForecast:
         self.trend = None
         self.last_data_source = 'db'
         self.db_connector = DatabaseConnector()
-        if self.db_connector.available:
-            self.db_connector.connect()
+        # Don't connect here - let _ensure_connection() handle it lazily
+        # This prevents stale connections from sitting around
 
     def _load_local_history(self, assignment_group_id, days=90):
         history_path = Path(__file__).resolve().parent.parent / 'data' / 'forecast_history.csv'

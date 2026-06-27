@@ -145,6 +145,7 @@ class DatabaseConnector:
         Args:
             days_back: Number of days of historical data
             group_id: Optional assignment group ID filter
+            strict: If True, raise exceptions instead of returning empty list
             
         Returns:
             List of ticket dictionaries
@@ -196,6 +197,8 @@ class DatabaseConnector:
         except Exception as e:
             self.last_error = str(e)
             logger.error(f"Error fetching tickets: {e}")
+            # Close connection on error to force reconnection on next attempt
+            self.disconnect()
             if strict:
                 raise
             return []
