@@ -119,24 +119,30 @@ class DatabaseConnector:
             self.conn.close()
             logger.info("Database disconnected")
     
-    def get_tickets(self, days_back: int = 90, group_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_tickets(self, days_back: int = 90, group_id: Optional[int] = None, strict: bool = False) -> List[Dict[str, Any]]:
         """
         Fetch ticket data from database
         
         Args:
             days_back: Number of days of historical data
             group_id: Optional assignment group ID filter
+            strict: If True, raise exceptions on error instead of returning empty list
             
         Returns:
             List of ticket dictionaries
         """
         try:
             if not self.available:
+                error_msg = "Database connector is unavailable"
+                if strict:
+                    raise RuntimeError(error_msg)
                 return []
             if not self.conn:
-                self.connect()
-            if not self.conn:
-                return []
+                if not self.connect():
+                    error_msg = "Could not establish database connection"
+                    if strict:
+                        raise RuntimeError(error_msg)
+                    return []
             
             with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
@@ -176,9 +182,12 @@ class DatabaseConnector:
                 cur.execute(query, params)
                 return cur.fetchall()
         except Exception as e:
-            logger.error(f"Error fetching tickets: {e}")
+            error_msg = f"Error fetching tickets: {e}"
+            logger.error(error_msg)
             # Close broken connection to force reconnection on next attempt
             self.disconnect()
+            if strict:
+                raise RuntimeError(error_msg)
             return []
     
     def get_employees(self, group_id: Optional[int] = None) -> List[Dict[str, Any]]:
