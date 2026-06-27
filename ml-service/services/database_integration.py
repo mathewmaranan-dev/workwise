@@ -170,10 +170,10 @@ class DatabaseConnector:
                 LEFT JOIN users u ON t.assigned_to_id = u.user_id
                 LEFT JOIN status s ON t.status_id = s.status_id
                 LEFT JOIN priority p ON t.priority_id = p.priority_id
-                WHERE t.created_date >= NOW() - INTERVAL '{days_back} days'
+                WHERE t.created_date >= NOW() - (%s * INTERVAL '1 day')
                 """
                 
-                params = []
+                params = [int(days_back)]
                 if group_id:
                     query += " AND t.assignment_group_id = %s"
                     params.append(group_id)
