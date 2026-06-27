@@ -1,1 +1,11 @@
-["assignment_group_id", "assigned_to_id", "category_id", "subcategory_id", "priority_id", "impact_id", "urgency_id", "channel_id", "source_id", "reopen_count", "reassignment_count", "duration", "ticket_complexity", "agent_fcr_history", "category_non_fcr_rate", "duration_per_complexity", "reopen_per_duration", "reassignment_per_complexity", "agent_risk_factor"]
+[
+  "assignment_group_id",
+  "category_id",
+  "priority_id",
+  "impact_id",
+  "urgency_id",
+  "reopen_count",
+  "reassignment_count",
+  "duration_hours",
+  "agent_experience_level"
+]

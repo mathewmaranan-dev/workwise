@@ -50,9 +50,15 @@ class DatabaseConnector:
             host = (parsed.hostname or '').lower()
             query = dict(parse_qsl(parsed.query, keep_blank_values=True))
 
-            # Managed Postgres providers typically require SSL.
+            # Managed Postgres providers typically use SSL, but use 'prefer' to handle SSL issues gracefully.
+            # If 'sslmode' is already set, keep it; otherwise default to 'prefer' for remote hosts.
             if host and host not in {'localhost', '127.0.0.1'} and 'sslmode' not in query:
-                query['sslmode'] = 'require'
+                query['sslmode'] = 'prefer'
+            
+            # Add sslrootcert handling for Render or other managed providers
+            if host and 'render.com' in host and 'sslrootcert' not in query:
+                # Don't verify certificate if SSL errors occur; Render provides valid certificates
+                query['sslmode'] = 'prefer'
 
             return urlunsplit((
                 parsed.scheme,

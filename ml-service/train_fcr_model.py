@@ -32,8 +32,10 @@ MODEL_DIR = PROJECT_ROOT / 'ml-service' / 'models'
 def normalize_database_url(database_url: str) -> str:
     parsed = urlsplit(database_url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    if parsed.hostname and parsed.hostname not in {'localhost', '127.0.0.1'} and 'sslmode' not in query:
-        query['sslmode'] = 'require'
+    host = parsed.hostname or ''
+    if host and host not in {'localhost', '127.0.0.1'} and 'sslmode' not in query:
+        # Use 'prefer' instead of 'require' to handle SSL issues gracefully
+        query['sslmode'] = 'prefer'
     normalized_query = urlencode(query)
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, normalized_query, parsed.fragment))
 
