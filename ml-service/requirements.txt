@@ -4,7 +4,7 @@ Flask==3.0.0
 Flask-CORS==4.0.0
 
 # Database (optional for DB-backed endpoints; install separately if needed)
-psycopg[binary]==3.3.4
+psycopg2-binary==2.9.9
 
 # Configuration
 python-dotenv==1.0.0
