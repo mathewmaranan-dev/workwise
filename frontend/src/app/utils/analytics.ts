@@ -518,10 +518,35 @@ export interface NonFCRDetectionRow {
   action: string;
 }
 
+const isResolvedLikeStatus = (status?: number | string | null) => {
+  if (status === null || status === undefined || status === '') return false;
+  const statusId = Number(status);
+  return statusId === 3 || statusId === 4;
+};
+
+const inferTicketFcrFlag = (ticket: any): boolean | null => {
+  const rawValue = ticket?.fcr;
+  if (rawValue === true || rawValue === 'true') return true;
+  if (rawValue === false || rawValue === 'false') return false;
+
+  const reopenCount = Number(ticket?.reopen_count ?? ticket?.reopens ?? 0);
+  if (reopenCount > 0) return false;
+
+  if (isResolvedLikeStatus(ticket?.status_id ?? ticket?.status)) return false;
+
+  return null;
+};
+
+export const isActionableNonFCRTicket = (ticket: any): boolean => {
+  if (!ticket || typeof ticket !== 'object') return false;
+  const fcrFlag = inferTicketFcrFlag(ticket);
+  return fcrFlag === false && !isResolvedLikeStatus(ticket?.status_id ?? ticket?.status);
+};
+
 export const getNonFCRTickets = (ticketData?: any[]): NonFCRTicket[] => {
   const ticketsToUse = ticketData !== undefined ? ticketData : seedDataTickets;
   return ticketsToUse
-    .filter(t => !t.fcr)
+    .filter(isActionableNonFCRTicket)
     .map(t => ({
       ticket_id: t.ticket_id,
       priority_id: t.priority_id,
@@ -529,7 +554,8 @@ export const getNonFCRTickets = (ticketData?: any[]): NonFCRTicket[] => {
       assignment_group_id: t.assignment_group_id,
       created_date: t.created_date,
       opened_at: t.opened_at ?? t.created_date,
-      status_id: t.status_id
+      status_id: t.status_id,
+      reopen_count: t.reopen_count,
     }))
     .sort((a, b) => {
       // Sort by priority first (lower ID = higher priority)
@@ -551,12 +577,13 @@ export const getNonFCRTicketsWithCategoryRisk = (ticketData?: any[]): NonFCRDete
   ticketsToUse.forEach((ticket) => {
     const categoryId = Number(ticket.category_id);
     if (!categoryId) return;
+    const isFcrTicket = inferTicketFcrFlag(ticket) === true;
 
     if (!categoryStats[categoryId]) {
       categoryStats[categoryId] = { total: 0, fcrCount: 0 };
     }
     categoryStats[categoryId].total += 1;
-    if (ticket.fcr) {
+    if (isFcrTicket) {
       categoryStats[categoryId].fcrCount += 1;
     }
 
@@ -569,14 +596,14 @@ export const getNonFCRTicketsWithCategoryRisk = (ticketData?: any[]): NonFCRDete
         agentCategoryStats[categoryId][agentId] = { total: 0, fcrCount: 0 };
       }
       agentCategoryStats[categoryId][agentId].total += 1;
-      if (ticket.fcr) {
+      if (isFcrTicket) {
         agentCategoryStats[categoryId][agentId].fcrCount += 1;
       }
     }
   });
 
   return ticketsToUse
-    .filter((ticket) => !ticket.fcr)
+    .filter(isActionableNonFCRTicket)
     .map((ticket) => {
       const ticketId = String(ticket.ticket_id || ticket.id || 'unknown');
       const categoryId = Number(ticket.category_id) || 0;

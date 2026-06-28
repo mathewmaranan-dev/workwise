@@ -17,6 +17,7 @@ export default function NonFCRRiskPanel({ tickets, riskScoreMap }: Props) {
     let highRisk = 0;
 
     tickets.forEach((t) => {
+      if (!t || typeof t !== 'object') return;
       const scoreEntry = riskScoreMap[t.ticket_id];
       const score = scoreEntry?.riskScore ?? null;
       if (score !== null) {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Users, Activity, AlertTriangle, Target, Filter } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
-import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance, getWeeklyTicketSeries } from '../../utils/analytics';
+import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance, isActionableNonFCRTicket } from '../../utils/analytics';
 import { predictNonFCRRisk, NonFCRRiskScore } from '../../utils/mlAlgorithms';
 import NonFCRRiskPanel from '../../components/NonFCRRiskPanel';
 import { 
@@ -36,17 +36,7 @@ interface EmployeeWorkloadPayload {
   current_workload: number;
 }
 
-interface MasterRecommendationSummaryRow {
-  flag: string;
-  categories: string;
-  redirectPct: number;
-  suggestedTeam: string;
-  expectedSla: string;
-  expectedFcr: string;
-}
-
 const env = (import.meta as any).env as Record<string, string | undefined>;
-const enableMasterRecommendationDecisionTree = String(env.VITE_ENABLE_MASTER_REC_DT ?? 'true').toLowerCase() !== 'false';
 
 // Mapping of assignment group -> ticket categories they handle
 const GROUP_CATEGORY_MAPPING: Record<number, number[]> = {
@@ -77,8 +67,10 @@ export default function ManagerDashboard() {
       category_id: ticket.category_id != null ? Number(ticket.category_id) : undefined,
       status_id: ticket.status_id != null ? Number(ticket.status_id) : undefined,
       priority_id: ticket.priority_id != null ? Number(ticket.priority_id) : undefined,
+      reopen_count: ticket.reopen_count != null ? Number(ticket.reopen_count) : undefined,
+      reassignment_count: ticket.reassignment_count != null ? Number(ticket.reassignment_count) : undefined,
       made_sla: ticket.made_sla === true || ticket.made_sla === 'true',
-      fcr: ticket.fcr === true || ticket.fcr === 'true',
+      fcr: ticket.fcr === true || ticket.fcr === 'true' ? true : ticket.fcr === false || ticket.fcr === 'false' ? false : undefined,
     };
   };
 
@@ -200,17 +192,6 @@ export default function ManagerDashboard() {
     () => currentTickets.filter(t => Number(t.assignment_group_id) === Number(selectedGroupId)),
     [currentTickets, selectedGroupId]
   );
-  const activeGroupTicketsForRedistribution = useMemo(() => {
-    return selectedGroupTickets.filter((ticket: any) => {
-      const normalizedStatus = String(getStatusName(ticket.status_id) ?? '').trim().toLowerCase();
-      if (normalizedStatus) {
-        return normalizedStatus === 'new' || normalizedStatus === 'in progress' || normalizedStatus === 'pending';
-      }
-
-      const statusId = Number(ticket.status_id);
-      return statusId !== 3 && statusId !== 4;
-    });
-  }, [selectedGroupTickets, getStatusName]);
   const selectedGroupNonFCRTickets = useMemo(
     () => getNonFCRTickets(selectedGroupTickets),
     [selectedGroupTickets]
@@ -219,7 +200,17 @@ export default function ManagerDashboard() {
   const displayGroup = selectedGroupId !== null ? getAssignmentGroupById(selectedGroupId) : null;
   const groupTickets = selectedGroupTickets;
   const groupNonFCRTickets = selectedGroupNonFCRTickets;
-  const groupNonFCRTicketRecords = useMemo(() => groupTickets.filter(t => !t.fcr), [groupTickets]);
+  const [riskScoreMap, setRiskScoreMap] = useState<Record<string, NonFCRRiskScore>>({});
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [riskError, setRiskError] = useState<string | null>(null);
+  const groupNonFCRTicketRecords = useMemo(() => groupTickets.filter(isActionableNonFCRTicket), [groupTickets]);
+  const groupHighRiskNonFCRTicketRecords = useMemo(() => {
+    const activeStatuses = new Set([1, 2, 7]);
+    return groupNonFCRTicketRecords.filter(ticket =>
+      activeStatuses.has(Number(ticket.status_id)) &&
+      (riskScoreMap[ticket.ticket_id]?.riskScore ?? 0) > 50
+    );
+  }, [groupNonFCRTicketRecords, riskScoreMap]);
   const groupNonFCRCategoryRiskRows = useMemo(
     () => getNonFCRTicketsWithCategoryRisk(groupTickets),
     [groupTickets]
@@ -258,9 +249,9 @@ export default function ManagerDashboard() {
       const entry = map.get(key);
       // Count totals and fcrs over all tickets
       entry.total += 1;
-      if (t.fcr) entry.fcrCount += 1;
+      if (t.fcr === true || t.fcr === 'true') entry.fcrCount += 1;
       // If this ticket is non-FCR, include it in the flagged ticket list
-      if (!t.fcr) entry.ticketIds.push(t.ticket_id);
+      if (isActionableNonFCRTicket(t)) entry.ticketIds.push(t.ticket_id);
     });
 
     // Compute category-level FCR rates from all tickets in group
@@ -269,7 +260,7 @@ export default function ManagerDashboard() {
       const cat = Number(t.category_id) || 0;
       if (!categoryTotals[cat]) categoryTotals[cat] = { total: 0, fcr: 0 };
       categoryTotals[cat].total += 1;
-      if (t.fcr) categoryTotals[cat].fcr += 1;
+      if (t.fcr === true || t.fcr === 'true') categoryTotals[cat].fcr += 1;
     });
 
     const rows: any[] = [];
@@ -304,11 +295,11 @@ export default function ManagerDashboard() {
     let sampleTickets: any[] = [];
     if (row.ticketIds && Array.isArray(row.ticketIds) && row.ticketIds.length > 0) {
       const idSet = new Set(row.ticketIds.map((id: any) => String(id)));
-      sampleTickets = groupTickets.filter(t => idSet.has(String(t.ticket_id)) && !t.fcr && Number(t.category_id) === Number(row.categoryId) && (row.agentId == null || Number(t.assigned_to_id) === Number(row.agentId)));
+      sampleTickets = groupTickets.filter(t => idSet.has(String(t.ticket_id)) && isActionableNonFCRTicket(t) && Number(t.category_id) === Number(row.categoryId) && (row.agentId == null || Number(t.assigned_to_id) === Number(row.agentId)));
     }
     // Fallback: find any matching non-FCR ticket
     if (sampleTickets.length === 0) {
-      const fallback = groupTickets.find((t) => !t.fcr && Number(t.category_id) === Number(row.categoryId) && (row.agentId == null || Number(t.assigned_to_id) === Number(row.agentId)));
+      const fallback = groupTickets.find((t) => isActionableNonFCRTicket(t) && Number(t.category_id) === Number(row.categoryId) && (row.agentId == null || Number(t.assigned_to_id) === Number(row.agentId)));
       if (fallback) sampleTickets = [fallback];
     }
 
@@ -326,7 +317,7 @@ export default function ManagerDashboard() {
     fcrRate: backendTicketSummary?.total
       ? (Number(backendTicketSummary.fcr_count || 0) / Number(backendTicketSummary.total)) * 100
       : groupTickets.length > 0
-      ? (groupTickets.filter(t => t.fcr).length / groupTickets.length) * 100
+      ? (groupTickets.filter(t => t.fcr === true || t.fcr === 'true').length / groupTickets.length) * 100
       : 0,
     totalTickets: backendTicketSummary?.total ?? groupTickets.length,
     activeTickets: groupTickets.filter(t => Number(t.status_id) !== 3 && Number(t.status_id) !== 4).length,
@@ -340,9 +331,18 @@ export default function ManagerDashboard() {
   const pendingTasks = groupTickets.filter(t => t.status_id === 5).length;
   
 
-  const [riskScoreMap, setRiskScoreMap] = useState<Record<string, NonFCRRiskScore>>({});
-  const [riskLoading, setRiskLoading] = useState(false);
-  const [riskError, setRiskError] = useState<string | null>(null);
+  const [nfcrPage, setNfcrPage] = useState(0);
+  const nfcrPageSize = 10;
+  const nfcrTotalPages = Math.max(1, Math.ceil(groupHighRiskNonFCRTicketRecords.length / nfcrPageSize));
+
+  useEffect(() => {
+    if (nfcrPage >= nfcrTotalPages) setNfcrPage(0);
+  }, [nfcrTotalPages]);
+
+  const nfcrPageTickets = useMemo(() => {
+    const start = nfcrPage * nfcrPageSize;
+    return groupHighRiskNonFCRTicketRecords.slice(start, start + nfcrPageSize);
+  }, [groupHighRiskNonFCRTicketRecords, nfcrPage]);
   const [recommendations, setRecommendations] = useState<Ticket[]>([]);
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
@@ -447,58 +447,6 @@ export default function ManagerDashboard() {
     }));
   }, [groupTickets]);
 
-  const activeTeamMemberMetrics = useMemo(() => {
-    const agentMap: Record<number, {
-      user_id: number;
-      employee_name: string;
-      current_tickets: number;
-      sla_compliance: number;
-      fcr_rate: number;
-      capacity: number;
-      experience_level: number;
-      assignment_group_id?: number;
-    }> = {};
-
-    activeGroupTicketsForRedistribution.forEach(ticket => {
-      const userId = ticket.assigned_to_id;
-      if (typeof userId !== 'number') return;
-
-      if (!agentMap[userId]) {
-        const userRecord = usersList.find((u: any) => Number(u.user_id) === userId);
-        const fallbackUser = getUserById(userId);
-        const firstName = userRecord?.first_name ?? fallbackUser?.first_name ?? 'Agent';
-        const lastName = userRecord?.last_name ?? fallbackUser?.last_name ?? String(userId);
-        const assignmentGroupId = userRecord?.assignment_group_id != null
-          ? Number(userRecord.assignment_group_id)
-          : fallbackUser?.assignment_group_id;
-
-        agentMap[userId] = {
-          user_id: userId,
-          employee_name: `${firstName} ${lastName}`,
-          current_tickets: 0,
-          sla_compliance: 0,
-          fcr_rate: 0,
-          capacity: 10,
-          experience_level: 1,
-          assignment_group_id: assignmentGroupId,
-        };
-      }
-
-      const agent = agentMap[userId];
-      agent.current_tickets += 1;
-      if (ticket.made_sla) agent.sla_compliance += 1;
-      if (ticket.fcr) agent.fcr_rate += 1;
-    });
-
-    return Object.values(agentMap).map((agent) => ({
-      ...agent,
-      sla_compliance: agent.current_tickets > 0 ? Number((agent.sla_compliance / agent.current_tickets * 100).toFixed(1)) : 0,
-      fcr_rate: agent.current_tickets > 0 ? Number((agent.fcr_rate / agent.current_tickets * 100).toFixed(1)) : 0,
-    }));
-  }, [activeGroupTicketsForRedistribution, usersList]);
-
-  const redistributionTeamMetrics = activeTeamMemberMetrics.length > 0 ? activeTeamMemberMetrics : teamMemberMetrics;
-
   const averageRiskScore = useMemo(() => {
     const values = groupNonFCRTickets
       .map(ticket => riskScoreMap[ticket.ticket_id]?.riskScore)
@@ -508,44 +456,35 @@ export default function ManagerDashboard() {
     return values.reduce((sum, value) => sum + value, 0) / values.length;
   }, [groupNonFCRTickets, riskScoreMap]);
 
-  // Calculate workload metrics for group-specific analysis
-  // Monthly rate normalization: baseline is 204 tickets/agent/month
-  const monthlyBaseline = 204;
-  const monthlyTicketCount = Math.round((selectedGroupTickets.length / Math.max(currentStaffCount, 1)) * (30 / Math.max(1, selectedGroupTickets.length / 30 || 1)));
-  const monthlyWorkloadRate = {
-    monthlyRate: monthlyTicketCount > 0 ? monthlyTicketCount : selectedGroupTickets.length,
-    loadRatio: monthlyTicketCount > 0 ? monthlyTicketCount / monthlyBaseline : (selectedGroupTickets.length / monthlyBaseline)
-  };
-
-  // Calculate KPI pressure indicators (SLA < 90%, FCR < 75%, etc.)
-  const groupKpiPressure = {
-    lowSla: groupKPIs.slaCompliance < 90,
-    lowFcr: groupKPIs.fcrRate < 75,
-    highResolution: false, // Would need resolution time data
-    highReopen: false // Would need reopen rate data
-  };
-  const hasKpiPressure = Object.values(groupKpiPressure).some(v => v);
+  // Weekly workload for this group (from uploaded data)
+  const weeklyGroupData = (() => {
+    if (!hasData) return [] as { week: string; tickets: number }[];
+    const map: Record<string, number> = {};
+    currentTickets.forEach((t: any) => {
+      if (t.assignment_group_id !== displayGroupId) return;
+      const d = new Date(t.created_date);
+      const wk = new Date(d);
+      wk.setDate(wk.getDate() - wk.getDay());
+      const key = wk.toISOString().split('T')[0];
+      map[key] = (map[key] || 0) + 1;
+    });
+    return Object.entries(map)
+      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+      .map(([week, count]) => ({ week: new Date(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tickets: count }));
+  })();
 
   const forecastDemand = mlInsights.forecastMean ?? (groupTickets.length > 0 ? groupTickets.length : 0);
   const agentCapacityTarget = 10;
   const currentCapacity = currentStaffCount * agentCapacityTarget;
   const requiredStaff = Math.ceil(forecastDemand / agentCapacityTarget);
   const staffingGap = requiredStaff - currentStaffCount;
-  
-  // Use monthly rate normalized to 204 baseline for workload calculations
-  const normalizedWorkload = monthlyWorkloadRate.monthlyRate;
-  const workloadRatio = monthlyWorkloadRate.loadRatio; // loadRatio from calculation
+  const demandCapacityRatio = forecastDemand / Math.max(currentCapacity, 1);
   const workloadPerAgent = forecastDemand / Math.max(currentStaffCount, 1);
   const overloadDelta = Math.max(0, forecastDemand - currentCapacity);
   const capacityUtilization = (forecastDemand / Math.max(currentCapacity, 1)) * 100;
-  
-  // Strict hiring trigger: workload spike AND KPI pressure (NOT workload-only)
-  const shouldHire = workloadRatio > 1.1 && hasKpiPressure;
-  const staffingDecision = shouldHire ? 'Hire' : workloadRatio >= 0.9 ? 'Redistribute' : 'Maintain';
-  const staffingReason = `${workloadRatio > 1.0 ? `Group workload normalized to ${normalizedWorkload.toFixed(0)} tickets/agent/month.` : 'Workload remains within target capacity.'} ${hasKpiPressure ? 'KPI pressure detected - hiring may be warranted.' : 'KPIs are stable - monitor before adding staff.'} ${shouldHire ? 'Strict hiring requirements met: workload spike + KPI pressure.' : 'Current status does not trigger immediate hiring.'}`;
-  
-  // Store old demand-based calculation for scenario planning
-  const demandCapacityRatio = forecastDemand / Math.max(currentCapacity, 1);
+  const staffingDecision = demandCapacityRatio > 1.1 ? 'Hire' : demandCapacityRatio >= 0.9 ? 'Redistribute' : 'Maintain';
+  const staffingReason = `${workloadPerAgent > agentCapacityTarget ? 'Workload overload is driving SLA risk.' : 'Workload remains within target capacity.'} ${averageRiskScore >= 70 ? 'High repeat-ticket risk is lowering FCR performance.' : 'FCR risk is moderate and monitorable.'} ${demandCapacityRatio > 1.1 ? 'Capacity mismatch warrants staffing action.' : 'Current capacity is broadly aligned with demand.'}`;
+
   // Determine if current group is imbalanced and should show redistribution recommendations
   const isGroupImbalanced = useMemo(() => {
     return demandCapacityRatio > 1.1 || (workloadPerAgent > agentCapacityTarget && currentStaffCount > 1);
@@ -555,15 +494,14 @@ export default function ManagerDashboard() {
   const acceptingGroupsForOffload = useMemo(() => {
     if (!isGroupImbalanced) return [];
     
-    const safeSelectedGroupId = Number(selectedGroupId ?? 0);
-    const currentGroupCategories = GROUP_CATEGORY_MAPPING[safeSelectedGroupId] || [];
+    const currentGroupCategories = selectedGroupId !== null ? GROUP_CATEGORY_MAPPING[selectedGroupId] || [] : [];
     const potentialReceivers: number[] = [];
     
     Object.entries(GROUP_CATEGORY_MAPPING).forEach(([groupIdStr, categories]) => {
       const groupId = Number(groupIdStr);
-      if (groupId === safeSelectedGroupId) return; // Don't offload to self
+      if (groupId === selectedGroupId) return; // Don't offload to self
       // Check if this group handles any of the current group's categories
-      if (currentGroupCategories.some((cat: number) => categories.includes(cat))) {
+      if (currentGroupCategories.some(cat => categories.includes(cat))) {
         potentialReceivers.push(groupId);
       }
     });
@@ -572,14 +510,14 @@ export default function ManagerDashboard() {
   }, [isGroupImbalanced, selectedGroupId]);
 
   const fallbackWorkloadBalance = useMemo(() => {
-    if (!redistributionTeamMetrics || redistributionTeamMetrics.length === 0) return null;
+    if (!teamMemberMetrics || teamMemberMetrics.length === 0) return null;
     if (!isGroupImbalanced) return null; // Only show recommendations if imbalanced
 
-    const currentLoads = redistributionTeamMetrics.map((member) => Number(member.current_tickets ?? 0));
+    const currentLoads = teamMemberMetrics.map((member) => Number(member.current_tickets ?? 0));
     const totalCurrentLoad = currentLoads.reduce((sum, load) => sum + load, 0);
     const forecastLoad = Math.round(mlInsights.forecastMean ?? groupTickets.length ?? 0);
     const totalWorkload = totalCurrentLoad + Math.max(0, forecastLoad);
-    const agentCount = Math.max(1, redistributionTeamMetrics.length);
+    const agentCount = Math.max(1, teamMemberMetrics.length);
     const targetLoad = Math.round(totalWorkload / agentCount);
     const minLoad = Math.min(...currentLoads);
     const maxLoad = Math.max(...currentLoads);
@@ -589,7 +527,7 @@ export default function ManagerDashboard() {
     const stdDev = Math.sqrt(currentLoads.reduce((sum, load) => sum + Math.pow(load - meanLoad, 2), 0) / agentCount);
 
     // For overloaded members, suggest offloading to accepting groups
-    const recommendations = redistributionTeamMetrics.map((member) => {
+    const recommendations = teamMemberMetrics.map((member) => {
       const currentLoad = Number(member.current_tickets ?? 0);
       const adjustment = targetLoad - currentLoad;
       
@@ -648,7 +586,7 @@ export default function ManagerDashboard() {
       fairness_score: Number(fairnessScore.toFixed(2)),
       business_impact: { note: 'Group-specific fallback estimate' },
     };
-  }, [redistributionTeamMetrics, mlInsights.forecastMean, groupTickets.length, isGroupImbalanced, selectedGroupId, selectedGroup, acceptingGroupsForOffload]);
+  }, [teamMemberMetrics, mlInsights.forecastMean, groupTickets.length, isGroupImbalanced, selectedGroupId, selectedGroup, acceptingGroupsForOffload]);
 
 
   const effectiveWorkloadBalance = workloadBalance ?? fallbackWorkloadBalance;
@@ -676,162 +614,46 @@ export default function ManagerDashboard() {
   }, [effectiveWorkloadBalance, workloadAnalysis]);
 
   const isServiceDeskGroup = selectedGroup?.group_name === 'Service Desk';
-  const activeTicketCount = activeGroupTicketsForRedistribution.length;
-  const activeLoadPerAgent = activeTicketCount / Math.max(currentStaffCount, 1);
-  const activeCapacityRatio = activeLoadPerAgent / Math.max(agentCapacityTarget, 1);
-  const modeledSlaGain = Number(predictedKpiImprovements?.sla_compliance_gain_pct ?? 0);
-  const modeledFcrGain = Number(predictedKpiImprovements?.fcr_rate_gain_pct ?? 0);
-  const heuristicSlaGain = Math.max(
-    0,
-    Math.min(
-      6,
-      (activeCapacityRatio - 1) * 6 +
-      Math.max(0, 90 - groupKPIs.slaCompliance) * 0.22 +
-      Math.max(0, 75 - groupKPIs.fcrRate) * 0.08
-    )
-  );
-  const heuristicFcrGain = Math.max(
-    0,
-    Math.min(
-      5,
-      (activeCapacityRatio - 1) * 4 +
-      Math.max(0, 75 - groupKPIs.fcrRate) * 0.18 +
-      Math.max(0, 90 - groupKPIs.slaCompliance) * 0.05
-    )
-  );
-  const effectiveProjectedSlaGain = Number(Math.max(modeledSlaGain, heuristicSlaGain).toFixed(1));
-  const effectiveProjectedFcrGain = Number(Math.max(modeledFcrGain, heuristicFcrGain).toFixed(1));
-  const substantialKpiDecay =
-    groupKPIs.slaCompliance < 91 ||
-    groupKPIs.fcrRate < 73 ||
-    (groupKPIs.slaCompliance < 93 && groupKPIs.fcrRate < 78);
-  const meaningfulPredictedKpiImprovement =
-    effectiveProjectedSlaGain >= 0.6 ||
-    effectiveProjectedFcrGain >= 0.6;
-  const severeServiceDeskOverload =
-    activeCapacityRatio >= 1.2 ||
-    activeTicketCount >= Math.ceil(currentStaffCount * agentCapacityTarget * 1.2);
 
-  const masterRecommendationDecision = useMemo(() => {
-    if (!enableMasterRecommendationDecisionTree) {
-      return {
-        state: 'triggered' as const,
-        reason: 'Decision gate is disabled by feature flag.',
-      };
-    }
-
-    if (!isServiceDeskGroup) {
-      return {
-        state: 'normal' as const,
-        reason: 'Master recommendation summary is scoped to Service Desk.',
-      };
-    }
-
-    if (!severeServiceDeskOverload) {
-      return {
-        state: 'normal' as const,
-        reason: 'Service Desk active workload is not yet substantially above capacity.',
-      };
-    }
-
-    if (activeTicketCount < 3) {
-      return {
-        state: 'watch' as const,
-        reason: 'Overload signal detected, but active ticket sample is still too small.',
-      };
-    }
-
-    if (!substantialKpiDecay) {
-      return {
-        state: 'watch' as const,
-        reason: 'Overload detected, but KPI decay is not yet substantial enough for redistribution.',
-      };
-    }
-
-    if (!meaningfulPredictedKpiImprovement) {
-      return {
-        state: 'watch' as const,
-        reason: 'KPI decay detected, but projected KPI uplift from redistribution is still marginal.',
-      };
-    }
-
-    return {
-      state: 'triggered' as const,
-      reason: 'Service Desk is severely overloaded on active tickets with substantial KPI decay and meaningful projected KPI recovery from redistribution.',
-    };
-  }, [
-    enableMasterRecommendationDecisionTree,
-    isServiceDeskGroup,
-    severeServiceDeskOverload,
-    activeTicketCount,
-    substantialKpiDecay,
-    meaningfulPredictedKpiImprovement,
-  ]);
+  const workloadBalanceRecommendations = useMemo(() => {
+    if (!effectiveWorkloadBalance) return [];
+    if (!isGroupImbalanced || !isServiceDeskGroup) return [];
+    return Array.isArray(effectiveWorkloadBalance.recommendations) ? effectiveWorkloadBalance.recommendations as any[] : [];
+  }, [effectiveWorkloadBalance, effectiveWorkloadBalance?.recommendations, isGroupImbalanced, isServiceDeskGroup]);
 
   const workloadRecommendationSummary = useMemo(() => {
-    if (!isServiceDeskGroup) return [];
-    if (masterRecommendationDecision.state !== 'triggered') return [];
+    if (!isGroupImbalanced || !isServiceDeskGroup || workloadBalanceRecommendations.length === 0) return [];
+    return workloadBalanceRecommendations.map((rec) => {
+      const currentLoad = Number(rec.current_load ?? 0);
+      const adjustment = Number(rec.adjustment ?? 0);
+      const redirectPct = currentLoad > 0 ? Math.round(Math.abs(adjustment) / currentLoad * 100) : 0;
+      const flag = adjustment > 1 ? 'Overloaded' : adjustment < -1 ? 'Underloaded' : 'Balanced';
+      const expectedSla = `+${predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%`;
+      const expectedFcr = `+${predictedKpiImprovements.fcr_rate_gain_pct ?? 0}%`;
 
-    const sourceGroupId = Number(selectedGroupId ?? 0);
-    const targetGroupsByCategory = new Map<number, number>();
-    Object.entries(GROUP_CATEGORY_MAPPING).forEach(([groupIdStr, categories]) => {
-      const groupId = Number(groupIdStr);
-      if (groupId === sourceGroupId) return;
-      categories.forEach((categoryId) => {
-        if (!targetGroupsByCategory.has(categoryId)) {
-          targetGroupsByCategory.set(categoryId, groupId);
-        }
-      });
-    });
+      const targetGroupId = Number(rec.assignment_group_id ?? 0);
+      let suggestedTeam = targetGroupId && targetGroupId !== selectedGroupId
+        ? getAssignmentGroupById(targetGroupId)?.group_name
+        : null;
 
-    const fallbackTargetGroupId = acceptingGroupsForOffload.find((groupId) => groupId !== sourceGroupId);
-
-    const aggregate = new Map<number, { ticketCount: number; categoryIds: Set<number> }>();
-
-    activeGroupTicketsForRedistribution.forEach((ticket: any) => {
-      const categoryId = Number(ticket.category_id ?? 0);
-      if (!categoryId) return;
-      const targetGroupId = targetGroupsByCategory.get(categoryId) ?? fallbackTargetGroupId;
-      if (!targetGroupId || targetGroupId === sourceGroupId) return;
-
-      if (!aggregate.has(targetGroupId)) {
-        aggregate.set(targetGroupId, { ticketCount: 0, categoryIds: new Set<number>() });
+      if (!suggestedTeam && flag === 'Overloaded' && acceptingGroupsForOffload.length > 0) {
+        suggestedTeam = getAssignmentGroupById(acceptingGroupsForOffload[0])?.group_name ?? null;
       }
 
-      const entry = aggregate.get(targetGroupId)!;
-      entry.ticketCount += 1;
-      entry.categoryIds.add(categoryId);
-    });
-
-    const totalActive = Math.max(1, activeTicketCount);
-    const rows: MasterRecommendationSummaryRow[] = Array.from(aggregate.entries()).map(([targetGroupId, entry]) => {
-      const categories = Array.from(entry.categoryIds)
-        .map((categoryId) => getCategoryName(categoryId))
-        .join(', ');
+      if (!suggestedTeam) {
+        suggestedTeam = selectedGroup?.group_name ?? 'Current Group';
+      }
 
       return {
-        flag: 'Overloaded (Active)',
-        categories,
-        redirectPct: Math.round((entry.ticketCount / totalActive) * 100),
-        suggestedTeam: getAssignmentGroupById(targetGroupId)?.group_name ?? `Group ${targetGroupId}`,
-        expectedSla: `+${effectiveProjectedSlaGain}%`,
-        expectedFcr: `+${effectiveProjectedFcrGain}%`,
+        user_id: rec.user_id,
+        flag,
+        redirectPct,
+        suggestedTeam,
+        expectedSla,
+        expectedFcr,
       };
     });
-
-    return rows.sort((a, b) => b.redirectPct - a.redirectPct);
-  }, [
-    isServiceDeskGroup,
-    masterRecommendationDecision.state,
-    predictedKpiImprovements,
-    selectedGroupId,
-    activeGroupTicketsForRedistribution,
-    activeTicketCount,
-    acceptingGroupsForOffload,
-    getCategoryName,
-    effectiveProjectedSlaGain,
-    effectiveProjectedFcrGain,
-  ]);
+  }, [workloadBalanceRecommendations, predictedKpiImprovements, acceptingGroupsForOffload, selectedGroupId, selectedGroup]);
 
   const staffingScenarioData = [0, 1, 2, 3].map((extraAgents) => {
     const scenarioStaff = currentStaffCount + extraAgents;
@@ -863,71 +685,85 @@ export default function ManagerDashboard() {
       workloadPerAgent: Number((count / Math.max(currentStaffCount, 1)).toFixed(1))
     }));
 
-  const latestGroupCreatedDate = useMemo(() => {
-    const parsedDates = groupTickets
-      .map((ticket: any) => new Date(
-        ticket.created_date ??
-        ticket.createdDate ??
-        ticket.created_at ??
-        ticket.createdAt ??
-        ticket.opened_at ??
-        ticket.openedAt ??
-        ticket.updated_at ??
-        ticket.updatedAt ??
-        ''
-      ))
-      .filter((date: Date) => !Number.isNaN(date.getTime()));
-
-    if (parsedDates.length === 0) return null;
-    return new Date(Math.max(...parsedDates.map((date: Date) => date.getTime())));
-  }, [groupTickets]);
-
   const weightedForecastData = useMemo(() => {
-    const canUseMlForecast = mlInsights.forecastArray.length > 0;
-    const historicalSeries = getWeeklyTicketSeries(groupTickets, {
-      weeks: 12,
-      futureWeeks: 0,
-    });
-
-    const actualWeeklySeries = historicalSeries.map((point) => ({
-      ...point,
-      week: point.weekLabel,
-      actualTickets: point.ticketCount,
+    if (weeklyGroupData.length === 0) return [];
+    
+    // Historical data from actual tickets
+    const historicalData = weeklyGroupData.map((entry) => ({
+      week: entry.week,
+      actualTickets: entry.tickets,
       forecastTarget: null as number | null,
       capacityThreshold: currentStaffCount * agentCapacityTarget,
       isHistorical: true,
     }));
 
-    if (!canUseMlForecast) {
-      return actualWeeklySeries;
-    }
+    // Forecast data from ML
+    if (mlInsights.forecastArray.length === 0) return historicalData;
 
-    const futureWeeks = Math.max(1, Math.ceil(mlInsights.forecastArray.length / 7));
-    const forecastSeries = getWeeklyTicketSeries(groupTickets, {
-      weeks: 12,
-      futureWeeks,
-      forecastDaily: mlInsights.forecastArray,
-      predictionStartDate: latestGroupCreatedDate ?? undefined,
+    const forecastData: any[] = [];
+    const now = new Date();
+    
+    // Group forecast data by week for cleaner visualization
+    let weekAccum = 0;
+    let dayCount = 0;
+    
+    mlInsights.forecastArray.forEach((dailyForecast, index) => {
+      const forecastDate = new Date(now.getTime() + (index + 1) * 24 * 60 * 60 * 1000);
+      const weekKey = forecastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      
+      weekAccum += dailyForecast;
+      dayCount += 1;
+      
+      // Every 7 days or at the end, add a weekly summary
+      if (dayCount === 7 || index === mlInsights.forecastArray.length - 1) {
+        forecastData.push({
+          week: weekKey,
+          actualTickets: null as number | null,
+          forecastTarget: Math.round(weekAccum / dayCount),
+          capacityThreshold: currentStaffCount * agentCapacityTarget,
+          isHistorical: false,
+        });
+        weekAccum = 0;
+        dayCount = 0;
+      }
     });
 
-    const actualByWeek = new Map(actualWeeklySeries.map((point) => [point.weekStart, point.actualTickets]));
-    const latestActualWeekStart = actualWeeklySeries.length > 0
-      ? actualWeeklySeries[actualWeeklySeries.length - 1].weekStart
-      : null;
+    return [...historicalData, ...forecastData];
+  }, [weeklyGroupData, mlInsights.forecastArray, currentStaffCount, agentCapacityTarget]);
 
-    return forecastSeries.map((point) => ({
-      ...point,
-      week: point.weekLabel,
-      actualTickets: actualByWeek.has(point.weekStart) ? actualByWeek.get(point.weekStart)! : null,
-      forecastTarget: latestActualWeekStart && point.weekStart === latestActualWeekStart
-        ? (actualByWeek.get(point.weekStart) ?? null)
-        : point.projected
-          ? (point.predictedTickets ?? null)
-          : null,
-      capacityThreshold: currentStaffCount * agentCapacityTarget,
-      isHistorical: !point.projected,
-    }));
-  }, [groupTickets, mlInsights.forecastArray, latestGroupCreatedDate, currentStaffCount, agentCapacityTarget]);
+  const teamStaffingAnalysis = useMemo(() => {
+    return assignmentGroups
+      .map((group) => {
+        const groupTicketsForTeam = currentTickets.filter((ticket: any) => ticket.assignment_group_id === group.assignment_group_id);
+        const groupNonFCR = groupTicketsForTeam.filter(isActionableNonFCRTicket);
+        const assignedAgentIds = new Set(groupTicketsForTeam
+          .map((ticket: any) => ticket.assigned_to_id)
+          .filter((value): value is number => typeof value === 'number'));
+        const currentStaff = assignedAgentIds.size > 0 ? assignedAgentIds.size : 1;
+        const forecastVolume = groupTicketsForTeam.length > 0 ? groupTicketsForTeam.length : 0;
+        const required = Math.ceil(forecastVolume / agentCapacityTarget);
+        const gap = required - currentStaff;
+        const demandRatio = forecastVolume / Math.max(currentStaff * agentCapacityTarget, 1);
+        const loadPerAgent = forecastVolume / Math.max(currentStaff, 1);
+        const avgRisk = groupNonFCR.length > 0
+          ? groupNonFCR.reduce((sum, ticket: any) => sum + (riskScoreMap[ticket.ticket_id]?.riskScore ?? 0), 0) / groupNonFCR.length
+          : 0;
+
+        return {
+          groupId: group.assignment_group_id,
+          groupName: group.group_name,
+          forecastVolume,
+          currentStaff,
+          requiredStaff: required,
+          staffingGap: gap,
+          demandCapacityRatio: Number(demandRatio.toFixed(2)),
+          workloadPerAgent: Number(loadPerAgent.toFixed(1)),
+          avgRisk: Number(avgRisk.toFixed(1)),
+          recommendation: demandRatio > 1.1 ? `Hire ${Math.max(gap, 1)} agent${Math.max(gap, 1) === 1 ? '' : 's'}` : demandRatio >= 0.9 ? 'Redistribute workload' : 'Maintain staffing',
+        };
+      })
+      .sort((a, b) => b.staffingGap - a.staffingGap);
+  }, [assignmentGroups, currentTickets, riskScoreMap, agentCapacityTarget]);
 
   useEffect(() => {
     let isMounted = true;
@@ -971,20 +807,12 @@ export default function ManagerDashboard() {
     const fetchRecommendations = async () => {
       setRecLoading(true);
       setRecError(null);
-      if (
-        selectedGroupId == null ||
-        !Array.isArray(redistributionTeamMetrics) ||
-        redistributionTeamMetrics.length === 0
-      ) {
-        setRecLoading(false);
-        return;
-      }
       try {
         const payload = {
           assignment_group_id: selectedGroupId,
-          incoming_tickets: Math.round(mlInsights.forecastMean ?? activeGroupTicketsForRedistribution.length),
+          incoming_tickets: Math.round(mlInsights.forecastMean ?? groupTickets.length),
           target_date: new Date().toISOString(),
-          team_members: redistributionTeamMetrics
+          team_members: teamMemberMetrics
         };
 
         const resp = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/workload/balance`, {
@@ -1034,7 +862,7 @@ export default function ManagerDashboard() {
 
     fetchRecommendations();
     return () => { isMounted = false; };
-  }, [apiBase, selectedGroupId, mlInsights.forecastMean, activeGroupTicketsForRedistribution.length, groupTickets, redistributionTeamMetrics]);
+  }, [apiBase, selectedGroupId, mlInsights.forecastMean, groupTickets]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1105,7 +933,7 @@ export default function ManagerDashboard() {
   }, [apiBase, selectedGroupId]);
 
   useEffect(() => {
-    if (redistributionTeamMetrics.length === 0) return;
+    if (teamMemberMetrics.length === 0) return;
     let isMounted = true;
 
     const loadWorkloadAnalysis = async () => {
@@ -1116,7 +944,7 @@ export default function ManagerDashboard() {
         const resp = await fetch(`${apiBase.replace(/\/$/, '')}/api/ml/workload/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team_members: redistributionTeamMetrics })
+          body: JSON.stringify({ team_members: teamMemberMetrics })
         });
 
         if (!resp.ok) throw new Error('Failed to load workload analysis');
@@ -1140,7 +968,7 @@ export default function ManagerDashboard() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            employee_workloads: redistributionTeamMetrics.map((agent) => ({
+            employee_workloads: teamMemberMetrics.map((agent) => ({
               employee_id: agent.user_id,
               employee_name: agent.employee_name,
               current_workload: agent.current_tickets,
@@ -1165,7 +993,7 @@ export default function ManagerDashboard() {
     loadImbalanceAnalysis();
 
     return () => { isMounted = false; };
-  }, [apiBase, selectedGroupId, redistributionTeamMetrics]);
+  }, [apiBase, selectedGroupId, teamMemberMetrics]);
 
   const computeAgentFcrHistory = (agentId?: number): number => {
     const agentTickets = currentTickets.filter(t => t.assigned_to_id === agentId);
@@ -1176,13 +1004,13 @@ export default function ManagerDashboard() {
   const computeCategoryNonFcrRate = (categoryId: number): number => {
     const categoryTickets = currentTickets.filter(t => t.category_id === categoryId);
     if (categoryTickets.length === 0) return 0.3;
-    return categoryTickets.filter(t => !t.fcr).length / categoryTickets.length;
+    return categoryTickets.filter(isActionableNonFCRTicket).length / categoryTickets.length;
   };
 
   // Active tickets based on filter
   let filteredTickets = groupTickets;
   if (filterStatus === 'active') {
-    filteredTickets = groupTickets.filter(t => t.status_id !== 3 && t.status_id !== 4);
+    filteredTickets = groupTickets.filter(t => [1, 2, 7].includes(Number(t.status_id)));
   } else if (filterStatus === 'new') {
     filteredTickets = groupTickets.filter(t => t.status_id === 1);
   } else if (filterStatus === 'closed') {
@@ -1263,133 +1091,50 @@ export default function ManagerDashboard() {
       {/* KPI Cards for Manager's Group */}
       {selectedTab === 'overview' && (
         <>
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-            1. Executive KPIs
-          </span>
-          <h2 className="text-lg font-semibold text-slate-900">Key operating indicators for this team</h2>
-        </div>
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">SLA Compliance</CardTitle>
-              <Target className="w-4 h-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.slaCompliance.toFixed(1)}%` : 'N/A'}</div>
-              <p className="text-xs text-gray-500 mt-1">{hasData ? `${groupKPIs.totalTickets} total tickets` : 'No data'}</p>
-            </CardContent>
-          </Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">SLA Compliance</CardTitle>
+            <Target className="w-4 h-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.slaCompliance.toFixed(1)}%` : 'N/A'}</div>
+            <p className="text-xs text-gray-500 mt-1">{hasData ? `${groupKPIs.totalTickets} total tickets` : 'No data'}</p>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">FCR Rate</CardTitle>
-              <Activity className="w-4 h-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.fcrRate.toFixed(1)}%` : 'N/A'}</div>
-              <p className="text-xs text-gray-500 mt-1">First contact resolution</p>
-            </CardContent>
-          </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">FCR Rate</CardTitle>
+            <Activity className="w-4 h-4 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.fcrRate.toFixed(1)}%` : 'N/A'}</div>
+            <p className="text-xs text-gray-500 mt-1">First contact resolution</p>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Active Tickets</CardTitle>
-              <Users className="w-4 h-4 text-indigo-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-gray-900">{hasData ? groupKPIs.activeTickets : 'N/A'}</div>
-              <p className="text-xs text-gray-500 mt-1">Requiring attention</p>
-            </CardContent>
-          </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Active Tickets</CardTitle>
+            <Users className="w-4 h-4 text-indigo-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-gray-900">{hasData ? groupKPIs.activeTickets : 'N/A'}</div>
+            <p className="text-xs text-gray-500 mt-1">Requiring attention</p>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Non-FCR Alerts</CardTitle>
-              <AlertTriangle className="w-4 h-4 text-orange-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-gray-900">{hasData ? groupNonFCRTickets.length : 'N/A'}</div>
-              <p className="text-xs text-gray-500 mt-1">Tickets needing review</p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-            2. Overview & Forecasting
-          </span>
-          <h2 className="text-lg font-semibold text-slate-900">Task allocation and workload forecasts</h2>
-        </div>
-        <div className="mt-4 space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Task Allocation Overview</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={taskAllocationData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, value }) => `${name}: ${value}`}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {taskAllocationData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="grid grid-cols-3 gap-4 mt-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">{newTasks}</div>
-                    <p className="text-xs text-gray-500">New Tasks</p>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-600">{assignedTasks}</div>
-                    <p className="text-xs text-gray-500">Assigned</p>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-amber-600">{pendingTasks}</div>
-                    <p className="text-xs text-gray-500">Pending</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Forecast vs actual workload</CardTitle>
-                <p className="text-xs text-gray-500 mt-1">Actual ticket volume versus forecast target and capacity threshold for {displayGroup?.group_name || `Group ${displayGroupId}`}</p>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={weightedForecastData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="week" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <ReferenceLine y={currentStaffCount * agentCapacityTarget} stroke="#F59E0B" strokeDasharray="4 4" label="Capacity threshold" />
-                    <Line type="monotone" dataKey="actualTickets" stroke="#4F46E5" strokeWidth={2} name="Actual tickets" />
-                    <Line type="monotone" dataKey="forecastTarget" stroke="#10B981" strokeWidth={2} strokeDasharray="4 4" name="Forecast target" />
-                  </LineChart>
-                </ResponsiveContainer>
-                <div className="mt-3 text-xs text-gray-600">Capacity threshold is derived from {currentStaffCount} current agents × {agentCapacityTarget} tickets/agent. Values above the threshold indicate overload and potential hiring or redistribution.</div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Non-FCR Alerts</CardTitle>
+            <AlertTriangle className="w-4 h-4 text-orange-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-gray-900">{hasData ? groupHighRiskNonFCRTicketRecords.length : 'N/A'}</div>
+            <p className="text-xs text-gray-500 mt-1">High-risk tickets needing review</p>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -1544,53 +1289,115 @@ export default function ManagerDashboard() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Master recommendation summary</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Actionable flags and expected SLA/FCR impact if the recommended redistribution plan is followed.</p>
+          <CardTitle>Team staffing gap analysis</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">Cross-team staffing needs by forecast volume, capacity utilization, and workload risk.</p>
         </CardHeader>
         <CardContent>
-          {workloadRecommendationSummary.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Flag</th>
-                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Categories</th>
-                    <th className="px-3 py-3 text-left font-semibold text-slate-700">% Redirect</th>
-                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Suggested Team</th>
-                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Expected SLA Gain</th>
-                    <th className="px-3 py-3 text-left font-semibold text-slate-700">Expected FCR Gain</th>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="text-left">Team</th>
+                  <th className="text-left">Forecast volume</th>
+                  <th className="text-left">Current staff</th>
+                  <th className="text-left">Required staff</th>
+                  <th className="text-left">Gap</th>
+                  <th className="text-left">Load / agent</th>
+                  <th className="text-left">Avg risk</th>
+                  <th className="text-left">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamStaffingAnalysis.map((entry) => (
+                  <tr key={entry.groupId} className={entry.groupId === displayGroupId ? 'bg-indigo-50' : undefined}>
+                    <td className="font-medium">{entry.groupName}</td>
+                    <td>{entry.forecastVolume}</td>
+                    <td>{entry.currentStaff}</td>
+                    <td>{entry.requiredStaff}</td>
+                    <td className={entry.staffingGap > 0 ? 'font-semibold text-rose-600' : 'font-semibold text-emerald-600'}>{entry.staffingGap >= 0 ? `+${entry.staffingGap}` : entry.staffingGap}</td>
+                    <td>{entry.workloadPerAgent.toFixed(1)} tickets</td>
+                    <td>{entry.avgRisk.toFixed(1)}%</td>
+                    <td>{entry.recommendation}</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 bg-white">
-                  {workloadRecommendationSummary.map((row: MasterRecommendationSummaryRow) => (
-                    <tr key={`summary-${row.suggestedTeam}-${row.categories}`}>
-                      <td className="px-3 py-3 text-slate-700">{row.flag}</td>
-                      <td className="px-3 py-3 text-slate-700">{row.categories}</td>
-                      <td className="px-3 py-3 text-slate-700">{row.redirectPct}%</td>
-                      <td className="px-3 py-3 text-slate-700">{row.suggestedTeam}</td>
-                      <td className="px-3 py-3 text-slate-700">{row.expectedSla}</td>
-                      <td className="px-3 py-3 text-slate-700">{row.expectedFcr}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : masterRecommendationDecision.state === 'watch' ? (
-            <p className="text-sm text-amber-700">{masterRecommendationDecision.reason}</p>
-          ) : masterRecommendationDecision.state === 'normal' ? (
-            <p className="text-sm text-slate-600">{masterRecommendationDecision.reason}</p>
-          ) : (
-            <p className="text-sm text-slate-600">No redistribution recommendations are currently required.</p>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 
       {/* ML workload diagnostics removed (UI-only). Workload ML calls remain for backend logic. */}
 
+      {/* Task Allocation & Workload */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Task Allocation Overview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={taskAllocationData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, value }) => `${name}: ${value}`}
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {taskAllocationData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="grid grid-cols-3 gap-4 mt-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">{newTasks}</div>
+                <p className="text-xs text-gray-500">New Tasks</p>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-600">{assignedTasks}</div>
+                <p className="text-xs text-gray-500">Assigned</p>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-amber-600">{pendingTasks}</div>
+                <p className="text-xs text-gray-500">Pending</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Forecast vs actual workload</CardTitle>
+            <p className="text-xs text-gray-500 mt-1">Actual ticket volume versus forecast target and capacity threshold for {displayGroup?.group_name || `Group ${displayGroupId}`}</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={weightedForecastData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="week" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <ReferenceLine y={currentStaffCount * agentCapacityTarget} stroke="#F59E0B" strokeDasharray="4 4" label="Capacity threshold" />
+                <Line type="monotone" dataKey="actualTickets" stroke="#4F46E5" strokeWidth={2} name="Actual tickets" />
+                <Line type="monotone" dataKey="forecastTarget" stroke="#10B981" strokeWidth={2} strokeDasharray="4 4" name="Forecast target" />
+              </LineChart>
+            </ResponsiveContainer>
+            <div className="mt-3 text-xs text-gray-600">Capacity threshold is derived from {currentStaffCount} current agents × {agentCapacityTarget} tickets/agent. Values above the threshold indicate overload and potential hiring or redistribution.</div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Non-FCR Detection List */}
       <div className="grid grid-cols-1 gap-6">
         <div>
-          <NonFCRRiskPanel tickets={currentTickets} riskScoreMap={riskScoreMap} />
+          <NonFCRRiskPanel tickets={groupNonFCRTicketRecords} riskScoreMap={riskScoreMap} />
         </div>
       </div>
 
@@ -1603,8 +1410,17 @@ export default function ManagerDashboard() {
           </p>
         </CardHeader>
         <CardContent>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-600">Showing {groupHighRiskNonFCRTicketRecords.length} high-risk non-FCR tickets</div>
+            <div className="flex items-center space-x-2">
+              <Button size="sm" disabled={nfcrPage === 0} onClick={() => setNfcrPage(p => Math.max(0, p - 1))}>Prev</Button>
+              <div className="text-sm text-gray-700">Page {nfcrPage + 1} / {nfcrTotalPages}</div>
+              <Button size="sm" disabled={nfcrPage + 1 >= nfcrTotalPages} onClick={() => setNfcrPage(p => Math.min(nfcrTotalPages - 1, p + 1))}>Next</Button>
+            </div>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <div className="max-h-80 overflow-y-auto">
+              <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-gray-50">
                   <th className="text-left p-3 font-medium">Ticket ID</th>
@@ -1618,13 +1434,13 @@ export default function ManagerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {groupNonFCRTickets.length === 0 ? (
+                {groupHighRiskNonFCRTicketRecords.length === 0 ? (
                   <tr className="border-b hover:bg-gray-50">
                     <td className="p-3 text-sm text-gray-500" colSpan={8}>
-                      No non-FCR tickets found for this team. Check that the manager is assigned to a valid group and that ticket data is loaded.
+                      No high-risk non-FCR tickets found for this team. Check that ML risk scores are available and that tickets are flagged correctly.
                     </td>
                   </tr>
-                ) : groupNonFCRTickets.slice(0, 10).map(ticket => {
+                ) : nfcrPageTickets.map(ticket => {
                   const age = Math.floor(
                     (new Date().getTime() - new Date(ticket.created_date).getTime()) / (1000 * 60 * 60 * 24)
                   );
@@ -1665,17 +1481,16 @@ export default function ManagerDashboard() {
                       </td>
                       <td className="p-3">{age}d</td>
                       <td className="p-3 text-center">
-                        {(fullTicket?.reopen_count ?? 0) > 0 && (
-                          <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium">
-                            {fullTicket?.reopen_count}
-                          </span>
-                        )}
+                        {(fullTicket?.reopen_count ?? 0) > 0 ? (
+                          <span className="px-2 py-1 rounded text-xs text-gray-700">{fullTicket?.reopen_count}</span>
+                        ) : null}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1763,50 +1578,56 @@ export default function ManagerDashboard() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm text-gray-600">Showing {filteredTickets.length} tickets</div>
+            <div className="text-xs text-gray-500">Scroll to view all tickets</div>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left p-3 font-medium">Ticket ID</th>
-                  <th className="text-left p-3 font-medium">Description</th>
-                  <th className="text-left p-3 font-medium">Status</th>
-                  <th className="text-left p-3 font-medium">Priority</th>
-                  <th className="text-left p-3 font-medium">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTickets.slice(0, 15).map(ticket => (
-                  <tr key={ticket.ticket_id} className="border-b hover:bg-gray-50">
-                    <td className="p-3 font-mono text-xs font-medium">{ticket.ticket_id}</td>
-                    <td className="p-3 truncate max-w-xs">{ticket.short_description}</td>
-                    <td className="p-3 text-xs">
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        ticket.status_id === 1 ? 'bg-blue-100 text-blue-800' :
-                        ticket.status_id === 2 ? 'bg-purple-100 text-purple-800' :
-                        ticket.status_id === 3 ? 'bg-green-100 text-green-800' :
-                        ticket.status_id === 4 ? 'bg-gray-100 text-gray-800' :
-                        'bg-amber-100 text-amber-800'
-                      }`}>
-                        {getStatusName(ticket.status_id)}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        ticket.priority_id === 1 ? 'bg-red-100 text-red-800' :
-                        ticket.priority_id === 2 ? 'bg-orange-100 text-orange-800' :
-                        ticket.priority_id === 3 ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {getPriorityLabel(ticket.priority_id)}
-                      </span>
-                    </td>
-                    <td className="p-3 text-xs">
-                      {new Date(ticket.created_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </td>
+            <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 sticky top-0 z-10">
+                  <tr className="border-b">
+                    <th className="text-left p-3 font-medium">Ticket ID</th>
+                    <th className="text-left p-3 font-medium">Description</th>
+                    <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-left p-3 font-medium">Priority</th>
+                    <th className="text-left p-3 font-medium">Created</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredTickets.map(ticket => (
+                    <tr key={ticket.ticket_id} className="border-b hover:bg-gray-50">
+                      <td className="p-3 font-mono text-xs font-medium">{ticket.ticket_id}</td>
+                      <td className="p-3 truncate max-w-xs">{ticket.short_description}</td>
+                      <td className="p-3 text-xs">
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          ticket.status_id === 1 ? 'bg-blue-100 text-blue-800' :
+                          ticket.status_id === 2 ? 'bg-purple-100 text-purple-800' :
+                          ticket.status_id === 3 ? 'bg-green-100 text-green-800' :
+                          ticket.status_id === 4 ? 'bg-gray-100 text-gray-800' :
+                          'bg-amber-100 text-amber-800'
+                        }`}>
+                          {getStatusName(ticket.status_id)}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          ticket.priority_id === 1 ? 'bg-red-100 text-red-800' :
+                          ticket.priority_id === 2 ? 'bg-orange-100 text-orange-800' :
+                          ticket.priority_id === 3 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {getPriorityLabel(ticket.priority_id)}
+                        </span>
+                      </td>
+                      <td className="p-3 text-xs">
+                        {new Date(ticket.created_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </CardContent>
       </Card>

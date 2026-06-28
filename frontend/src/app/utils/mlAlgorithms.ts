@@ -102,6 +102,27 @@ const toFiniteNumber = (value: any, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const logisticRegressionRisk = (payload: FcrPredictionPayload): number => {
+  const priority = toFiniteNumber(payload.priority_id, 3);
+  const reopenCount = toFiniteNumber(payload.reopen_count, 0);
+  const reassignmentCount = toFiniteNumber(payload.reassignment_count, 0);
+  const duration = toFiniteNumber(payload.duration, 120);
+  const complexity = toFiniteNumber(payload.ticket_complexity, 6);
+  const agentFcrHistory = toFiniteNumber(payload.agent_fcr_history, 0.7);
+  const categoryNonFcrRate = toFiniteNumber(payload.category_non_fcr_rate, 0.2);
+
+  const logit = -2.15
+    + 0.22 * priority
+    + 0.34 * reopenCount
+    + 0.25 * reassignmentCount
+    + 0.0018 * Math.min(duration, 1200)
+    + 0.08 * complexity
+    + 0.65 * (1 - agentFcrHistory)
+    + 1.05 * categoryNonFcrRate;
+
+  return 1 / (1 + Math.exp(-logit));
+};
+
 const buildFcrPredictionPayload = (ticket: Ticket, tickets: Ticket[] = seedDataTickets): FcrPredictionPayload => {
   const assignment_group_id = toFiniteNumber(ticket.assignment_group_id, 1);
   const assigned_to_id = toFiniteNumber(ticket.assigned_to_id, 1);
@@ -156,45 +177,24 @@ const buildFcrPredictionPayload = (ticket: Ticket, tickets: Ticket[] = seedDataT
 
 const predictNonFCRRiskLocal = (tickets: Ticket[]): NonFCRRiskScore[] => {
   return tickets.map(ticket => {
-    let score = 0;
+    const payload = buildFcrPredictionPayload(ticket);
+    const probability = logisticRegressionRisk(payload);
+    const score = Math.round(probability * 100);
     const factors: string[] = [];
 
-    // High priority = higher non-FCR risk
-    if (ticket.priority_id === 1) {
-      score += 15;
-      factors.push('Critical priority');
-    } else if (ticket.priority_id === 2) {
-      score += 10;
+    if (ticket.priority_id && ticket.priority_id <= 2) {
       factors.push('High priority');
     }
-
-    // Complex categories more likely non-FCR
-    if ([2, 3, 8].includes(ticket.category_id)) {
-      score += 20;
-      factors.push('Complexity (software/hardware/printer)');
-    }
-
-    // Already reopened tickets have high non-FCR risk
     if (ticket.reopen_count > 0) {
-      score += 25;
       factors.push(`Already reopened ${ticket.reopen_count} time(s)`);
     }
-
-    // Long resolution time indicates complexity
     if (ticket.duration && ticket.duration > 480) {
-      score += 15;
       factors.push('Long resolution time');
     }
-
-    // Assigned to multiple people = higher complexity
     if (ticket.reassignment_count > 0) {
-      score += 10;
       factors.push(`Reassigned ${ticket.reassignment_count} time(s)`);
     }
-
-    // Multiple work notes indicate back-and-forth
     if (ticket.work_notes && ticket.work_notes.split('\n').length > 3) {
-      score += 10;
       factors.push('Multiple interactions');
     }
 
@@ -209,7 +209,7 @@ const predictNonFCRRiskLocal = (tickets: Ticket[]): NonFCRRiskScore[] => {
 
     return {
       ticket_id: ticket.ticket_id,
-      riskScore: Math.min(100, score),
+      riskScore: Math.min(100, Math.max(0, score)),
       factors,
       recommendation
     };
