@@ -212,10 +212,18 @@ export default function ManagerDashboard() {
     );
   }, [groupNonFCRTicketRecords, riskScoreMap]);
 
+  const highRiskScoredTicketsWithAgent = useMemo(() => {
+    return groupHighRiskNonFCRTicketRecords.filter((ticket) => {
+      const score = riskScoreMap[ticket.ticket_id]?.riskScore;
+      const agentId = Number(ticket.assigned_to_id);
+      return score != null && score > 50 && Number.isFinite(agentId);
+    });
+  }, [groupHighRiskNonFCRTicketRecords, riskScoreMap]);
+
   const agentProblemRows = useMemo(() => {
     const agentMap: Record<number, { agentId: number; totalRisk: number; ticketCount: number }> = {};
 
-    groupNonFCRTicketRecords.forEach((ticket) => {
+    highRiskScoredTicketsWithAgent.forEach((ticket) => {
       const score = riskScoreMap[ticket.ticket_id]?.riskScore;
       if (score == null || score <= 50) return;
 
@@ -234,7 +242,7 @@ export default function ManagerDashboard() {
       .map((row) => ({ ...row, avgRisk: row.totalRisk / row.ticketCount }))
       .sort((a, b) => b.avgRisk - a.avgRisk)
       .slice(0, 5);
-  }, [groupNonFCRTicketRecords, riskScoreMap]);
+  }, [highRiskScoredTicketsWithAgent, riskScoreMap]);
 
   const categoryProblemRows = useMemo(() => {
     const categoryMap: Record<number, { categoryId: number; scores: number[]; fcrTickets: number; totalTickets: number; uniqueAgents: Set<number> }> = {};
@@ -252,12 +260,18 @@ export default function ManagerDashboard() {
 
       const isFCR = ticket.fcr === true || ticket.fcr === 'true' || Number(ticket.reopen_count || 0) === 0;
       if (isFCR) entry.fcrTickets += 1;
+    });
+
+    highRiskScoredTicketsWithAgent.forEach((ticket) => {
+      const categoryId = Number(ticket.category_id);
+      if (!Number.isFinite(categoryId) || !categoryMap[categoryId]) return;
 
       const score = riskScoreMap[ticket.ticket_id]?.riskScore;
-      if (score != null && score > 50) {
-        entry.scores.push(score);
-        entry.uniqueAgents.add(Number(ticket.assigned_to_id));
-      }
+      const agentId = Number(ticket.assigned_to_id);
+      if (score == null || score <= 50 || !Number.isFinite(agentId)) return;
+
+      categoryMap[categoryId].scores.push(score);
+      categoryMap[categoryId].uniqueAgents.add(agentId);
     });
 
     return Object.values(categoryMap)
@@ -265,10 +279,8 @@ export default function ManagerDashboard() {
         const avgRisk = entry.scores.length > 0 ? entry.scores.reduce((sum, value) => sum + value, 0) / entry.scores.length : 0;
         const fcrRate = entry.totalTickets > 0 ? (entry.fcrTickets / entry.totalTickets) * 100 : 0;
         const uniqueAgents = entry.uniqueAgents.size;
-        let problemTypeLabel = 'Agent-specific issue';
-        if (uniqueAgents >= 3) {
-          problemTypeLabel = 'Category-wide issue';
-        } else if (uniqueAgents >= 2) {
+        let problemTypeLabel = 'Category-related issue';
+        if (uniqueAgents >= 2) {
           problemTypeLabel = 'Mixed issue';
         }
 
@@ -291,7 +303,7 @@ export default function ManagerDashboard() {
       .filter((row) => row.avgRisk > 0)
       .sort((a, b) => b.avgRisk - a.avgRisk)
       .slice(0, 5);
-  }, [groupTickets, riskScoreMap, getCategoryName]);
+  }, [groupTickets, highRiskScoredTicketsWithAgent, riskScoreMap, getCategoryName]);
 
   const groupNonFCRCategoryRiskRows = useMemo(
     () => getNonFCRTicketsWithCategoryRisk(groupTickets),
@@ -1507,7 +1519,7 @@ export default function ManagerDashboard() {
       {/* Non-FCR Detection List */}
       <div className="grid grid-cols-1 gap-6">
         <div>
-          <NonFCRRiskPanel tickets={groupNonFCRTicketRecords} riskScoreMap={riskScoreMap} />
+          <NonFCRRiskPanel tickets={groupHighRiskNonFCRTicketRecords} riskScoreMap={riskScoreMap} />
         </div>
       </div>
 

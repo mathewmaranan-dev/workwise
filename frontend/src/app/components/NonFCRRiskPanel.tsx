@@ -15,7 +15,7 @@ interface CategoryAnalysis {
   count: number;
   fcrRate: number;
   uniqueAgents: number;
-  problemType: 'category-wide' | 'agent-specific' | 'mixed';
+  problemType: 'category-related' | 'mixed';
   recommendation: string;
 }
 
@@ -31,7 +31,10 @@ export default function NonFCRRiskPanel({ tickets, riskScoreMap }: Props) {
       if (!t || typeof t !== 'object') return;
       const scoreEntry = riskScoreMap[t.ticket_id];
       const score = scoreEntry?.riskScore ?? null;
-      if (score !== null) {
+      if (score !== null && score > 50) {
+        const agentId = Number(t.assigned_to_id);
+        if (!Number.isFinite(agentId)) return;
+
         if (!agentMap[t.assigned_to_id]) agentMap[t.assigned_to_id] = [];
         agentMap[t.assigned_to_id].push(score);
 
@@ -39,7 +42,7 @@ export default function NonFCRRiskPanel({ tickets, riskScoreMap }: Props) {
           categoryDetailMap[t.category_id] = { scores: [], agents: new Set(), fcrTickets: 0, totalTickets: 0 };
         }
         categoryDetailMap[t.category_id].scores.push(score);
-        categoryDetailMap[t.category_id].agents.add(t.assigned_to_id);
+        categoryDetailMap[t.category_id].agents.add(agentId);
         
         // Calculate FCR: ticket is FCR if it has 0 reopens OR fcr flag is true
         const isFCR = (t.reopen_count === 0 || t.reopen_count === '0') || t.fcr === true;
@@ -63,10 +66,8 @@ export default function NonFCRRiskPanel({ tickets, riskScoreMap }: Props) {
         const uniqueAgents = data.agents.size;
         
         // Determine problem type
-        let problemType: 'category-wide' | 'agent-specific' | 'mixed' = 'agent-specific';
-        if (uniqueAgents >= 3) {
-          problemType = 'category-wide'; // Multiple agents, consistent high risk
-        } else if (uniqueAgents >= 2) {
+        let problemType: 'category-related' | 'mixed' = 'category-related';
+        if (uniqueAgents >= 2) {
           problemType = 'mixed'; // Some agents handle it well, others don't
         }
 
@@ -98,15 +99,15 @@ export default function NonFCRRiskPanel({ tickets, riskScoreMap }: Props) {
   }, [tickets, riskScoreMap, getCategoryName]);
 
   const getProblemTypeColor = (problemType: string) => {
-    if (problemType === 'category-wide') return 'text-red-600 bg-red-50';
+    if (problemType === 'category-related') return 'text-red-600 bg-red-50';
     if (problemType === 'mixed') return 'text-amber-600 bg-amber-50';
-    return 'text-blue-600 bg-blue-50';
+    return 'text-red-600 bg-red-50';
   };
 
   const getProblemTypeLabel = (problemType: string) => {
-    if (problemType === 'category-wide') return '📊 Category-Wide Issue';
+    if (problemType === 'category-related') return '📊 Category-Related Issue';
     if (problemType === 'mixed') return '⚠️ Mixed Problem';
-    return '👤 Agent-Specific';
+    return '📊 Category-Related Issue';
   };
 
   return (
@@ -132,10 +133,10 @@ export default function NonFCRRiskPanel({ tickets, riskScoreMap }: Props) {
           <div className="p-3 bg-slate-50 rounded">
             <p className="text-xs text-slate-500">Problem distribution</p>
             <p className="text-lg font-bold text-slate-700 mt-2">
-              {categoryAnalysis.filter(c => c.problemType === 'category-wide').length} Category-wide
+              {categoryAnalysis.filter(c => c.problemType === 'category-related').length} Category-related
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              {categoryAnalysis.filter(c => c.problemType === 'agent-specific').length} Agent-specific
+              {categoryAnalysis.filter(c => c.problemType === 'mixed').length} Mixed
             </p>
           </div>
         </div>
