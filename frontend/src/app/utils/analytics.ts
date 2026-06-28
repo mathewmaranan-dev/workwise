@@ -680,9 +680,28 @@ export const getAssignmentGroupPerformance = (ticketData?: any[]): GroupPerforma
     }
     
     acc[groupId].totalTickets++;
-    if (ticket.status_id === 3 || ticket.status_id === 4) {
+    
+    const isResolved = ticket.status_id === 3 || ticket.status_id === 4 || ticket.status_name === 'Resolved' || ticket.status_name === 'Closed';
+    
+    if (isResolved) {
       acc[groupId].resolvedTickets++;
+      
+      // Calculate resolution time from created_date to resolved_date (in minutes) - ONLY for resolved tickets
+      if (ticket.resolved_date && ticket.created_date) {
+        const created = new Date(ticket.created_date);
+        const resolved = new Date(ticket.resolved_date);
+        if (!isNaN(created.getTime()) && !isNaN(resolved.getTime())) {
+          const durationMinutes = (resolved.getTime() - created.getTime()) / (1000 * 60);
+          if (durationMinutes >= 0) { // Only count positive durations
+            acc[groupId].totalResolutionTime += durationMinutes;
+          }
+        }
+      } else if (ticket.duration !== undefined && ticket.duration !== null && ticket.duration > 0) {
+        // Fallback to pre-calculated duration field if available
+        acc[groupId].totalResolutionTime += ticket.duration;
+      }
     }
+    
     if (ticket.made_sla === true) {
       acc[groupId].slaMetCount++;
     }
@@ -691,9 +710,6 @@ export const getAssignmentGroupPerformance = (ticketData?: any[]): GroupPerforma
     }
     if (ticket.reopen_count > 0) {
       acc[groupId].reopenCount++;
-    }
-    if (ticket.duration !== undefined && ticket.duration !== null) {
-      acc[groupId].totalResolutionTime += ticket.duration;
     }
     
     return acc;

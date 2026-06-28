@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { TrendingUp, Clock3, RefreshCw, Award, SmilePlus, BarChart3, AlertCircle } from 'lucide-react';
+import { TrendingUp, Clock3, RefreshCw, Award, AlertCircle } from 'lucide-react';
 import { BarChart, Bar, ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { 
   calculateKPIs, 
@@ -44,6 +44,63 @@ export default function HRDashboard() {
     hireSlaMax: 88,
     hireFcrMax: 72,
     hireAvgResolutionMin: 1.8,
+  };
+
+  /**
+   * Calculate average daily rate from historical tickets
+   * Used to properly scale forecast constraints
+   */
+  const calculateAvgDailyRate = (tickets: any[]): number => {
+    if (!tickets || tickets.length === 0) return 0;
+    
+    const createdDates = tickets
+      .map((t: any) => new Date(t.created_date || t.created_at || t.opened_at || t.updated_at || 0))
+      .filter((d: Date) => !isNaN(d.getTime()))
+      .sort((a: Date, b: Date) => a.getTime() - b.getTime());
+    
+    if (createdDates.length === 0) return 0;
+    
+    const first = createdDates[0].getTime();
+    const last = createdDates[createdDates.length - 1].getTime();
+    const durationDays = Math.max(1, (last - first) / (1000 * 60 * 60 * 24));
+    
+    return tickets.length / durationDays;
+  };
+
+  /**
+   * Smooth and process forecast to ensure realistic, continuous data
+   * - Uses DAILY rate for proper scaling
+   * - Smooth gradual changes
+   * - Limits peak to 20-30% above actual daily average
+   * - Removes sudden spikes and drops
+   */
+  const smoothForecast = (forecastDaily: number[], avgDailyRate: number): number[] => {
+    if (!forecastDaily || forecastDaily.length === 0) return [];
+    if (avgDailyRate <= 0) return forecastDaily; // Can't smooth without baseline
+    
+    const smoothed = [...forecastDaily];
+    
+    // Calculate max/min allowed values (20-30% above/below actual daily rate)
+    // This prevents forecast from being 5-10x higher than actual
+    const maxAllowed = avgDailyRate * 1.3; // Only 30% above actual
+    const minAllowed = avgDailyRate * 0.75; // Can dip to 75% of actual
+    
+    // Clamp values to realistic range
+    for (let i = 0; i < smoothed.length; i++) {
+      smoothed[i] = Math.max(minAllowed, Math.min(maxAllowed, smoothed[i]));
+    }
+    
+    // Apply exponential smoothing to eliminate sudden spikes
+    const alpha = 0.25; // Conservative smoothing (more weight on historical)
+    const result = [avgDailyRate]; // Start from average daily rate
+    
+    for (let i = 0; i < smoothed.length; i++) {
+      const prevSmoothed = i === 0 ? avgDailyRate : result[result.length - 1];
+      const smoothedValue = alpha * smoothed[i] + (1 - alpha) * prevSmoothed;
+      result.push(smoothedValue);
+    }
+    
+    return result.slice(1); // Remove the initial value, keep only the forecast
   };
 
   const { isAuthReady, users } = useAuth();
@@ -294,11 +351,18 @@ export default function HRDashboard() {
       }));
     }
 
-    const futureWeeks = Math.max(12, Math.ceil(mlWorkloadForecast.forecast.length / 7));
+    // Calculate average DAILY rate from historical data for proper scaling
+    const avgDailyRate = calculateAvgDailyRate(trendTickets);
+    
+    // Smooth the forecast using daily rate (not weekly value!)
+    // This prevents forecast from being 6x higher than actual
+    const smoothedForecast = smoothForecast(mlWorkloadForecast.forecast, avgDailyRate);
+
+    const futureWeeks = Math.max(12, Math.ceil(smoothedForecast.length / 7));
     const forecastSeries = getWeeklyTicketSeries(trendTickets, {
       weeks: 24,
       futureWeeks,
-      forecastDaily: mlWorkloadForecast.forecast,
+      forecastDaily: smoothedForecast,
       predictionStartDate: latestCreatedDate ?? undefined,
     });
 
@@ -316,7 +380,7 @@ export default function HRDashboard() {
           ? (point.predictedTickets ?? null)
           : null,
     }));
-  }, [trendTickets, mlWorkloadForecast.forecast, latestCreatedDate, actualWeeklySeries]);
+  }, [trendTickets, mlWorkloadForecast.forecast, latestCreatedDate, actualWeeklySeries, smoothForecast, calculateAvgDailyRate]);
 
   const monthlyWorkloadTrend = useMemo(
     () => aggregateWeeklySeriesToMonthly(workloadTrendSeries),
@@ -327,7 +391,7 @@ export default function HRDashboard() {
   const performanceScores = groupPerformance.map(g => ({
     ...g,
     teamName: getAssignmentGroupById(g.groupId)?.group_name || `Group ${g.groupId}`,
-    overallScore: (g.slaCompliance + g.fcrRate) / 2
+    overallScore: (0.6 * g.slaCompliance + 0.4 * g.fcrRate)
   }));
 
   const getCurrentStaffCount = (groupId: number, groupTickets: any[]) => {
@@ -576,18 +640,7 @@ export default function HRDashboard() {
     isSustainedGrowth,
   } = recommendationData;
 
-  const overallPerformance = hasData ? ((kpis.slaCompliance + kpis.fcrRate) / 2) : 0;
-  const employeeSatisfaction = hasData
-    ? Math.max(0, Math.min(100, 0.6 * overallPerformance + 0.4 * (100 - kpis.reopenRate)))
-    : 0;
-  const productivityTrendLabel = hasData
-    ? growthRate > 8
-      ? 'Upward'
-      : growthRate < -8
-        ? 'Downward'
-        : 'Stable'
-    : 'No data';
-  const productivityTrendValue = hasData ? `${growthRate >= 0 ? '+' : ''}${growthRate.toFixed(1)}%` : 'N/A';
+  const overallPerformance = hasData ? (0.6 * kpis.slaCompliance + 0.4 * kpis.fcrRate) : 0;
 
   useEffect(() => {
     if (!isAuthReady || groupSummary.length === 0) {
@@ -718,7 +771,7 @@ export default function HRDashboard() {
           </span>
           <h2 className="text-lg font-semibold text-slate-900">Key operating indicators for the organization</h2>
         </div>
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-gray-600">Overall Performance</CardTitle>
@@ -727,28 +780,6 @@ export default function HRDashboard() {
             <CardContent>
               <div className="text-3xl font-bold text-gray-900">{overallPerformance.toFixed(1)}%</div>
               <p className="text-xs text-gray-500 mt-1">Composite SLA + FCR score</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Employee Satisfaction</CardTitle>
-              <SmilePlus className="w-4 h-4 text-pink-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-gray-900">{employeeSatisfaction.toFixed(1)}%</div>
-              <p className="text-xs text-gray-500 mt-1">Based on service quality and reopen rate</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Productivity Trend</CardTitle>
-              <BarChart3 className="w-4 h-4 text-purple-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-gray-900">{productivityTrendValue}</div>
-              <p className="text-xs text-gray-500 mt-1">{productivityTrendLabel} demand trend</p>
             </CardContent>
           </Card>
 
@@ -772,7 +803,7 @@ export default function HRDashboard() {
           </span>
           <h2 className="text-lg font-semibold text-slate-900">Organizational workload and forecast visibility</h2>
         </div>
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="mt-4 grid grid-cols-1 gap-6">
           <Card>
             <CardHeader>
               <CardTitle>Organizational Workload Trend</CardTitle>
@@ -800,21 +831,83 @@ export default function HRDashboard() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Top Performing Teams</CardTitle>
+              <CardTitle>Top Performing Teams (Based on SLA–FCR Composite Score)</CardTitle>
+              <p className="text-xs text-gray-500 mt-1">Score = (0.6 × SLA %) + (0.4 × FCR %)</p>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart 
-                  data={topPerformers.map(g => ({ name: g.teamName, performance: g.overallScore }))} 
+                  data={topPerformers.map(g => {
+                    const score = g.overallScore;
+                    let status = 'Needs Improvement';
+                    let barColor = '#EF4444';
+                    if (score >= 80) {
+                      status = 'Good';
+                      barColor = '#10B981';
+                    } else if (score >= 70) {
+                      status = 'Average';
+                      barColor = '#F59E0B';
+                    }
+                    return { 
+                      name: g.teamName, 
+                      score: Number(score.toFixed(1)),
+                      sla: Number(g.slaCompliance.toFixed(1)),
+                      fcr: Number(g.fcrRate.toFixed(1)),
+                      status,
+                      color: barColor
+                    };
+                  })} 
                   layout="vertical"
                 >
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" domain={[0, 100]} />
                   <YAxis dataKey="name" type="category" width={140} />
-                  <Tooltip formatter={(value) => `${Number(value).toFixed(1)}%`} />
-                  <Bar dataKey="performance" fill="#10B981" name="Performance Score" />
+                  <Tooltip 
+                    formatter={(value, name) => {
+                      if (name === 'score') return `${Number(value).toFixed(1)}%`;
+                      return `${Number(value).toFixed(1)}%`;
+                    }}
+                    contentStyle={{ backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '4px' }}
+                    labelFormatter={(label) => `Team: ${label}`}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload[0]) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-white p-3 border border-gray-300 rounded shadow-lg text-xs">
+                            <p className="font-semibold">{data.name}</p>
+                            <p className="text-slate-600">SLA: {data.sla}%</p>
+                            <p className="text-slate-600">FCR: {data.fcr}%</p>
+                            <p className="font-semibold mt-1">Final Score: {data.score}%</p>
+                            <p className={`text-xs font-medium mt-1 px-2 py-1 rounded w-fit ${
+                              data.status === 'Good' ? 'bg-green-100 text-green-800' :
+                              data.status === 'Average' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              {data.status}
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Bar dataKey="score" fill="#3B82F6" name="Composite Score" radius={[0, 8, 8, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+              <div className="mt-4 grid grid-cols-3 gap-4 text-center text-xs">
+                <div className="p-2 bg-green-50 rounded">
+                  <p className="text-green-700 font-semibold">≥80%</p>
+                  <p className="text-green-600">Good</p>
+                </div>
+                <div className="p-2 bg-yellow-50 rounded">
+                  <p className="text-yellow-700 font-semibold">70–79%</p>
+                  <p className="text-yellow-600">Average</p>
+                </div>
+                <div className="p-2 bg-red-50 rounded">
+                  <p className="text-red-700 font-semibold">&lt;70%</p>
+                  <p className="text-red-600">Needs Improvement</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -905,8 +998,13 @@ export default function HRDashboard() {
                 {performanceScores
                   .sort((a, b) => b.overallScore - a.overallScore)
                   .map(group => {
-                    const status = group.overallScore >= 80 ? 'Excellent' : 
-                                   group.overallScore >= 70 ? 'Good' : 'Needs Support';
+                    const compositeScore = 0.6 * group.slaCompliance + 0.4 * group.fcrRate;
+                    const status = compositeScore >= 80 ? 'Good' : 
+                                   compositeScore >= 70 ? 'Average' : 'Needs Improvement';
+                    const avgResTime = !isNaN(group.avgResolutionTime) && Number.isFinite(group.avgResolutionTime)
+                      ? Number(group.avgResolutionTime).toFixed(1)
+                      : 'No Data';
+                    
                     return (
                       <tr key={group.groupId} className="border-b hover:bg-gray-50">
                         <td className="p-3 font-medium">{group.teamName}</td>
@@ -929,12 +1027,12 @@ export default function HRDashboard() {
                             {group.fcrRate.toFixed(1)}%
                           </span>
                         </td>
-                        <td className="p-3">{group.avgResolutionTime.toFixed(1)}h</td>
+                        <td className="p-3">{avgResTime}{avgResTime !== 'No Data' ? 'h' : ''}</td>
                         <td className="p-3">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            status === 'Excellent' ? 'bg-green-100 text-green-800' :
-                            status === 'Good' ? 'bg-blue-100 text-blue-800' :
-                            'bg-orange-100 text-orange-800'
+                            status === 'Good' ? 'bg-green-100 text-green-800' :
+                            status === 'Average' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
                           }`}>
                             {status}
                           </span>
@@ -942,79 +1040,6 @@ export default function HRDashboard() {
                       </tr>
                     );
                   })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Demand Outlook */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Demand Outlook & Scenario Signals</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Recent demand vs. prior period to separate short spikes from sustained growth</p>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-gray-500">Recent tickets</p>
-              <p className="text-2xl font-semibold text-gray-900">{recentCount}</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-gray-500">Previous window</p>
-              <p className="text-2xl font-semibold text-gray-900">{previousCount}</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-gray-500">Growth rate</p>
-              <p className="text-2xl font-semibold text-gray-900">{growthRate >= 0 ? '+' : ''}{growthRate.toFixed(1)}%</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs text-gray-500">Scenario class</p>
-              <p className="text-sm font-semibold text-gray-900">{isShortTermSpike ? 'Short-term spike' : isSustainedGrowth ? 'Sustained growth' : 'Stable / monitor'}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Group Capacity Summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Group Capacity & Fairness Summary</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Current vs. recommended load, capacity gap, and fairness score</p>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left p-3 font-medium">Team</th>
-                  <th className="text-left p-3 font-medium">Current Load</th>
-                  <th className="text-left p-3 font-medium">Recommended Load</th>
-                  <th className="text-left p-3 font-medium">Gap</th>
-                  <th className="text-left p-3 font-medium">Fairness Score</th>
-                  <th className="text-left p-3 font-medium">Decision</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groupSummary.map((entry) => (
-                  <tr key={entry.groupId} className="border-b hover:bg-gray-50">
-                    <td className="p-3 font-medium">{entry.teamName}</td>
-                    <td className="p-3">{entry.currentLoad}</td>
-                    <td className="p-3">{entry.recommendedLoad}</td>
-                    <td className="p-3 font-medium text-orange-700">{entry.capacityGap > 0 ? `+${entry.capacityGap}` : '0'}</td>
-                    <td className="p-3">{entry.fairnessScore}%</td>
-                    <td className="p-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        entry.decision === 'Hire' ? 'bg-red-100 text-red-800' :
-                        entry.decision === 'Training' ? 'bg-amber-100 text-amber-800' :
-                        entry.decision === 'Temporary staffing / reassign' ? 'bg-blue-100 text-blue-800' :
-                        'bg-green-100 text-green-800'
-                      }`}>
-                        {entry.decision}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
               </tbody>
             </table>
           </div>
