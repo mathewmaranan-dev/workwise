@@ -18,8 +18,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const ML_PROXY_TIMEOUT_MS = Number(process.env.ML_PROXY_TIMEOUT_MS || 25000);
-const ML_PROXY_MAX_RETRIES = Number(process.env.ML_PROXY_MAX_RETRIES || 2);
+// ML requests require more time for model inference and data processing
+const ML_PROXY_TIMEOUT_MS = Number(process.env.ML_PROXY_TIMEOUT_MS || 120000); // 120s default
+const ML_PROXY_MAX_RETRIES = Number(process.env.ML_PROXY_MAX_RETRIES || 3);
 // Middleware
 app.use(helmet());
 app.use(cors({
@@ -37,7 +38,9 @@ app.use(cors({
     credentials: true,
     optionsSuccessStatus: 200,
 }));
-app.use(express.json());
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '100mb';
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 // Health check
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', timestamp: new Date().toISOString() });
@@ -101,7 +104,10 @@ app.use('/api/ml', async (req, res) => {
                 }
             }
             const controller = new AbortController();
-            const timeoutHandle = setTimeout(() => controller.abort(), ML_PROXY_TIMEOUT_MS);
+            const timeoutHandle = setTimeout(() => {
+                console.warn(`⚠️  ML proxy timeout (${ML_PROXY_TIMEOUT_MS}ms) for ${req.method} ${mlPath} - attempt ${attempt + 1}`);
+                controller.abort();
+            }, ML_PROXY_TIMEOUT_MS);
             try {
                 response = await fetch(target.toString(), {
                     method: req.method,
@@ -120,6 +126,7 @@ app.use('/api/ml', async (req, res) => {
                 if (!shouldRetry) {
                     break;
                 }
+                console.debug(`ML proxy error on attempt ${attempt + 1}, retrying...`, { code: error?.code || error?.cause?.code, message: error?.message });
                 await delay(150 * (attempt + 1));
             }
         }
@@ -171,7 +178,17 @@ app.use((req, res) => {
 // Error handler
 app.use((err, req, res, next) => {
     console.error('Error:', err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
+    const status = typeof err?.status === 'number'
+        ? err.status
+        : typeof err?.statusCode === 'number'
+            ? err.statusCode
+            : 500;
+    if (status === 413) {
+        return res.status(413).json({
+            error: `Request payload too large. Increase JSON_BODY_LIMIT (current: ${JSON_BODY_LIMIT}) or upload in smaller batches.`,
+        });
+    }
+    res.status(status).json({ error: err.message || 'Internal server error' });
 });
 // Start server
 async function start() {

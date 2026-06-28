@@ -306,12 +306,18 @@ export const generateTicketDataset = (
   now: Date = new Date()
 ): Ticket[] => {
   const tickets: Ticket[] = [];
-  const requesterIds = users.filter(user => user.role_id !== 4).map(user => user.user_id).filter(id => id !== 1);
-
-  const chooseAssignmentGroup = () => weightedChoice(
-    assignmentGroupWeights.map(item => item.id),
-    assignmentGroupWeights.map(item => item.weight)
-  );
+  const validUserIds = new Set(users.map(user => user.user_id));
+  let requesterIds = users
+    .filter(user => user.role_id !== 4)
+    .map(user => user.user_id)
+    .filter(id => id !== 1 && validUserIds.has(id));
+  if (requesterIds.length === 0) {
+    requesterIds = users.map(user => user.user_id).filter(id => id !== 1);
+  }
+  const sanitizeUserId = (id: number | undefined, fallback: number) => {
+    if (typeof id !== 'number') return fallback;
+    return validUserIds.has(id) ? id : fallback;
+  };
 
   const descriptionTemplates: Record<number, string[]> = {
     1: [
@@ -492,6 +498,8 @@ export const generateTicketDataset = (
     const assignmentGroupId = overrideAssignmentGroup ?? chooseAssignmentGroup();
     const assignedTo = chooseAgentByGroup(assignmentGroupId);
     const requestor = randomChoice(requesterIds.length > 0 ? requesterIds : activeAgentIds);
+    const safeAssignedTo = sanitizeUserId(assignedTo, 4);
+    const safeRequester = sanitizeUserId(requestor, 1);
 
     const reopenCount = followUpReopenCount !== undefined
       ? followUpReopenCount
@@ -537,10 +545,10 @@ export const generateTicketDataset = (
       ])} ${reassignmentCount > 0 ? 'Reassigned once for specialist review.' : ''}`,
       made_sla: madeSLA,
       fcr,
-      requester_id: requestor,
-      assigned_to_id: assignedTo,
-      closed_by_id: statusId === statusIds.Closed ? assignedTo : undefined,
-      resolved_by_id: statusId === statusIds.Resolved ? assignedTo : undefined,
+      requester_id: safeRequester,
+      assigned_to_id: safeAssignedTo,
+      closed_by_id: statusId === statusIds.Closed ? safeAssignedTo : undefined,
+      resolved_by_id: statusId === statusIds.Resolved ? safeAssignedTo : undefined,
       assignment_group_id: assignmentGroupId,
       priority_id: priority.priority_id,
       impact_id: impact.impact_id,

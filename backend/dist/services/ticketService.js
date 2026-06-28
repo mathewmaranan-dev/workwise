@@ -35,6 +35,95 @@ async function resolveStatusId(statusId, statusName) {
     }
     return undefined;
 }
+const LOOKUP_SPECS = [
+    { field: 'requester_id', table: 'users', column: 'user_id', required: true },
+    { field: 'assigned_to_id', table: 'users', column: 'user_id', required: false },
+    { field: 'closed_by_id', table: 'users', column: 'user_id', required: false },
+    { field: 'resolved_by_id', table: 'users', column: 'user_id', required: false },
+    { field: 'assignment_group_id', table: 'assignment_groups', column: 'assignment_group_id', required: false },
+    { field: 'priority_id', table: 'priority', column: 'priority_id', required: true },
+    { field: 'impact_id', table: 'impact', column: 'impact_id', required: true },
+    { field: 'urgency_id', table: 'urgency', column: 'urgency_id', required: true },
+    { field: 'status_id', table: 'status', column: 'status_id', required: true },
+    { field: 'sub_status_id', table: 'sub_status', column: 'sub_status_id', required: false },
+    { field: 'category_id', table: 'category', column: 'category_id', required: true },
+    { field: 'subcategory_id', table: 'subcategory', column: 'subcategory_id', required: true },
+    { field: 'channel_id', table: 'channel', column: 'channel_id', required: true },
+    { field: 'source_id', table: 'source', column: 'source_id', required: true },
+    { field: 'config_item_id', table: 'configuration_items', column: 'config_item_id', required: false },
+    { field: 'sla_id', table: 'sla', column: 'sla_id', required: true },
+];
+async function getStatusNameMap() {
+    const result = await query('SELECT status_id, status_name FROM status');
+    const map = new Map();
+    for (const row of result.rows) {
+        map.set(String(row.status_name).trim().toLowerCase(), Number(row.status_id));
+    }
+    return map;
+}
+async function getExistingIdSet(table, column, ids) {
+    if (ids.length === 0) {
+        return new Set();
+    }
+    const result = await query(`SELECT ${column} FROM ${table} WHERE ${column} = ANY($1::int[])`, [ids]);
+    return new Set(result.rows.map((row) => Number(row[column])));
+}
+async function getExistingTicketIdSet(ticketIds) {
+    if (ticketIds.length === 0) {
+        return new Set();
+    }
+    const result = await query('SELECT ticket_id FROM tickets WHERE ticket_id = ANY($1::text[])', [ticketIds]);
+    return new Set(result.rows.map((row) => String(row.ticket_id)));
+}
+async function validateAndSanitizeLookupReferences(records, existingTicketIds) {
+    const idsBySpec = new Map();
+    for (const spec of LOOKUP_SPECS) {
+        idsBySpec.set(spec, new Set());
+    }
+    for (const record of records) {
+        for (const spec of LOOKUP_SPECS) {
+            const rawValue = record[spec.field];
+            if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+                idsBySpec.get(spec)?.add(rawValue);
+            }
+        }
+    }
+    const existingBySpec = new Map();
+    for (const spec of LOOKUP_SPECS) {
+        const ids = Array.from(idsBySpec.get(spec) || []);
+        const existing = await getExistingIdSet(spec.table, spec.column, ids);
+        existingBySpec.set(spec, existing);
+    }
+    const errors = [];
+    const warnings = [];
+    for (const record of records) {
+        const isExistingTicket = existingTicketIds.has(record.ticket_id);
+        for (const spec of LOOKUP_SPECS) {
+            const value = record[spec.field];
+            const numericValue = typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+            if (numericValue === undefined) {
+                if (spec.required && !isExistingTicket) {
+                    errors.push(`${record.ticket_id}: missing ${String(spec.field)}`);
+                }
+                continue;
+            }
+            const existing = existingBySpec.get(spec);
+            if (!existing?.has(numericValue)) {
+                if (isExistingTicket && spec.field !== 'status_id') {
+                    record[spec.field] = undefined;
+                    warnings.push(`${record.ticket_id}: ignored unknown ${String(spec.field)}=${numericValue}`);
+                    continue;
+                }
+                errors.push(`${record.ticket_id}: unknown ${String(spec.field)}=${numericValue}`);
+            }
+        }
+    }
+    if (errors.length > 0) {
+        const preview = errors.slice(0, 25).join(' | ');
+        throw new Error(`Import validation failed with ${errors.length} invalid reference(s). ${preview}`);
+    }
+    return warnings;
+}
 async function buildTicketQuery(filters, selectClause, includeOrder = true) {
     let queryStr = `${selectClause} FROM tickets WHERE 1=1`;
     const params = [];
@@ -172,17 +261,28 @@ export async function importTickets(tickets) {
     if (!Array.isArray(tickets) || tickets.length === 0) {
         throw new Error('No tickets provided for import');
     }
-    const rows = [];
-    const placeholders = [];
+    const incomingTicketIds = tickets
+        .map((ticket) => String(ticket?.ticket_id || '').trim())
+        .filter((ticketId) => ticketId.length > 0);
+    const existingTicketIds = await getExistingTicketIdSet(incomingTicketIds);
+    const normalizedRecords = [];
     const columnCount = 28;
-    let rowIndex = 0;
+    const statusNameMap = await getStatusNameMap();
     for (const ticket of tickets) {
         const record = ticket ?? {};
         const ticketId = String(record.ticket_id || '').trim();
         if (!ticketId) {
             continue;
         }
-        const statusId = await resolveStatusId(record.status_id, record.status_name || record.status);
+        const isExistingTicket = existingTicketIds.has(ticketId);
+        const explicitStatusId = normalizeOptionalNumber(record.status_id);
+        const statusName = typeof record.status_name === 'string'
+            ? record.status_name
+            : typeof record.status === 'string'
+                ? record.status
+                : undefined;
+        const statusIdFromName = statusName ? statusNameMap.get(statusName.trim().toLowerCase()) : undefined;
+        const statusId = explicitStatusId ?? statusIdFromName;
         const createdDate = record.created_date ? new Date(record.created_date).toISOString() : new Date().toISOString();
         const resolvedDate = record.resolved_date ? new Date(record.resolved_date).toISOString() : null;
         const lastReopenedAt = record.last_reopened_at ? new Date(record.last_reopened_at).toISOString() : null;
@@ -193,32 +293,104 @@ export async function importTickets(tickets) {
         const workNotes = record.work_notes ? String(record.work_notes) : null;
         const madeSla = normalizeOptionalBoolean(record.made_sla);
         const fcr = normalizeOptionalBoolean(record.fcr);
-        const requesterId = normalizeOptionalNumber(record.requester_id) ?? 1;
+        const requesterId = normalizeOptionalNumber(record.requester_id) ?? (isExistingTicket ? undefined : 1);
         const assignedToId = normalizeOptionalNumber(record.assigned_to_id);
         const closedById = normalizeOptionalNumber(record.closed_by_id);
         const resolvedById = normalizeOptionalNumber(record.resolved_by_id);
         const assignmentGroupId = normalizeOptionalNumber(record.assignment_group_id);
-        const priorityId = normalizeOptionalNumber(record.priority_id) ?? 3;
-        const impactId = normalizeOptionalNumber(record.impact_id) ?? 3;
-        const urgencyId = normalizeOptionalNumber(record.urgency_id) ?? 2;
-        const statusIdValue = statusId ?? 6;
+        const priorityId = normalizeOptionalNumber(record.priority_id) ?? (isExistingTicket ? undefined : 3);
+        const impactId = normalizeOptionalNumber(record.impact_id) ?? (isExistingTicket ? undefined : 3);
+        const urgencyId = normalizeOptionalNumber(record.urgency_id) ?? (isExistingTicket ? undefined : 2);
+        const statusIdValue = statusId ?? (isExistingTicket ? undefined : 1);
         const subStatusId = normalizeOptionalNumber(record.sub_status_id);
-        const categoryId = normalizeOptionalNumber(record.category_id) ?? 1;
-        const subcategoryId = normalizeOptionalNumber(record.subcategory_id) ?? 1;
-        const channelId = normalizeOptionalNumber(record.channel_id) ?? 1;
-        const sourceId = normalizeOptionalNumber(record.source_id) ?? 1;
+        const categoryId = normalizeOptionalNumber(record.category_id) ?? (isExistingTicket ? undefined : 1);
+        const subcategoryId = normalizeOptionalNumber(record.subcategory_id) ?? (isExistingTicket ? undefined : 1);
+        const channelId = normalizeOptionalNumber(record.channel_id) ?? (isExistingTicket ? undefined : 1);
+        const sourceId = normalizeOptionalNumber(record.source_id) ?? (isExistingTicket ? undefined : 1);
         const configItemId = normalizeOptionalNumber(record.config_item_id);
-        const slaId = normalizeOptionalNumber(record.sla_id) ?? 3;
+        const slaId = normalizeOptionalNumber(record.sla_id) ?? (isExistingTicket ? undefined : 3);
         const slaDueDate = record.sla_duedate ? new Date(record.sla_duedate).toISOString() : null;
-        const baseIndex = rowIndex * columnCount;
-        placeholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, $${baseIndex + 17}, $${baseIndex + 18}, $${baseIndex + 19}, $${baseIndex + 20}, $${baseIndex + 21}, $${baseIndex + 22}, $${baseIndex + 23}, $${baseIndex + 24}, $${baseIndex + 25}, $${baseIndex + 26}, $${baseIndex + 27}, $${baseIndex + 28})`);
-        rows.push(ticketId, createdDate, resolvedDate, lastReopenedAt, duration, reopenCount, reassignmentCount, shortDescription, workNotes, madeSla, fcr, requesterId, assignedToId, closedById, resolvedById, assignmentGroupId, priorityId, impactId, urgencyId, statusIdValue, subStatusId, categoryId, subcategoryId, channelId, sourceId, configItemId, slaId, slaDueDate);
-        rowIndex += 1;
+        normalizedRecords.push({
+            ticket_id: ticketId,
+            created_date: createdDate,
+            resolved_date: resolvedDate,
+            last_reopened_at: lastReopenedAt,
+            duration,
+            reopen_count: reopenCount,
+            reassignment_count: reassignmentCount,
+            short_description: shortDescription,
+            work_notes: workNotes,
+            made_sla: madeSla,
+            fcr,
+            requester_id: requesterId,
+            assigned_to_id: assignedToId,
+            closed_by_id: closedById,
+            resolved_by_id: resolvedById,
+            assignment_group_id: assignmentGroupId,
+            priority_id: priorityId,
+            impact_id: impactId,
+            urgency_id: urgencyId,
+            status_id: statusIdValue,
+            sub_status_id: subStatusId,
+            category_id: categoryId,
+            subcategory_id: subcategoryId,
+            channel_id: channelId,
+            source_id: sourceId,
+            config_item_id: configItemId,
+            sla_id: slaId,
+            sla_duedate: slaDueDate,
+        });
     }
-    if (rows.length === 0) {
+    if (normalizedRecords.length === 0) {
         throw new Error('No valid tickets were found in the import payload');
     }
-    const sql = `INSERT INTO tickets (
+    const validationWarnings = await validateAndSanitizeLookupReferences(normalizedRecords, existingTicketIds);
+    if (validationWarnings.length > 0) {
+        console.warn(`Import warnings: ${validationWarnings.length} non-fatal lookup reference(s) ignored for existing tickets.`, validationWarnings.slice(0, 10));
+    }
+    const buildRowValues = (record) => [
+        record.ticket_id,
+        record.created_date,
+        record.resolved_date,
+        record.last_reopened_at,
+        record.duration,
+        record.reopen_count,
+        record.reassignment_count,
+        record.short_description,
+        record.work_notes,
+        record.made_sla,
+        record.fcr,
+        record.requester_id,
+        record.assigned_to_id,
+        record.closed_by_id,
+        record.resolved_by_id,
+        record.assignment_group_id,
+        record.priority_id,
+        record.impact_id,
+        record.urgency_id,
+        record.status_id,
+        record.sub_status_id,
+        record.category_id,
+        record.subcategory_id,
+        record.channel_id,
+        record.source_id,
+        record.config_item_id,
+        record.sla_id,
+        record.sla_duedate,
+    ];
+    const PG_MAX_BIND_PARAMS = 32767;
+    const maxRowsPerBatch = Math.max(1, Math.floor(PG_MAX_BIND_PARAMS / columnCount));
+    const importedRows = [];
+    for (let start = 0; start < normalizedRecords.length; start += maxRowsPerBatch) {
+        const batch = normalizedRecords.slice(start, start + maxRowsPerBatch);
+        const rows = [];
+        const placeholders = [];
+        for (let rowIndex = 0; rowIndex < batch.length; rowIndex += 1) {
+            const baseIndex = rowIndex * columnCount;
+            placeholders.push(`($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14}, $${baseIndex + 15}, $${baseIndex + 16}, $${baseIndex + 17}, $${baseIndex + 18}, $${baseIndex + 19}, $${baseIndex + 20}, $${baseIndex + 21}, $${baseIndex + 22}, $${baseIndex + 23}, $${baseIndex + 24}, $${baseIndex + 25}, $${baseIndex + 26}, $${baseIndex + 27}, $${baseIndex + 28})`);
+            rows.push(...buildRowValues(batch[rowIndex]));
+        }
+        const sql = `INSERT INTO tickets (
       ticket_id,
       created_date,
       resolved_date,
@@ -287,8 +459,10 @@ export async function importTickets(tickets) {
       END,
       updated_at = NOW()
     RETURNING *`;
-    const result = await query(sql, rows);
-    return result.rows;
+        const result = await query(sql, rows);
+        importedRows.push(...result.rows);
+    }
+    return importedRows;
 }
 export async function updateTicket(id, payload) {
     const existing = await query('SELECT status_id, reopen_count FROM tickets WHERE ticket_id = $1', [id]);

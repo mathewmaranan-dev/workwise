@@ -103,6 +103,7 @@ export interface Ticket {
   requester_id: number;
   assigned_to_id?: number;
   closed_by_id?: number;
+  resolved_by_id?: number;
   
   assignment_group_id?: number;
   priority_id: number;
@@ -117,6 +118,11 @@ export interface Ticket {
   config_item_id?: number;
   sla_id: number;
   sla_duedate?: string;
+
+  ticket_series_id?: string;
+  parent_ticket_id?: string;
+  reopen_reason?: string;
+  batch_id?: string;
 }
 
 export interface WeeklyCount {

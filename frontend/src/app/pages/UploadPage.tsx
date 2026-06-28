@@ -7,7 +7,7 @@ import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle } from 'lucide-react
 import { toast } from 'sonner';
 import { useData } from '../context/DataContext';
 import * as Papa from 'papaparse';
-import { loadTicketsFromCSVString, setTickets, getPriorityByLevel, getCategoryByName, getAssignmentGroupByName, getUserByEmail, getUserByName, statuses } from '../data/seedData';
+import { loadTicketsFromCSVString, setTickets, getPriorityByLevel, getCategoryByName, getAssignmentGroupByName, getUserByEmail, getUserByName, statuses, users } from '../data/seedData';
 
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -133,6 +133,17 @@ export default function UploadPage() {
           return false;
         };
 
+        const validUserIds = new Set(users.map((u) => u.user_id));
+        const sanitizeOptionalUserId = (value: unknown) => {
+          const id = normalizeOptionalNumber(value);
+          if (typeof id !== 'number') return undefined;
+          return validUserIds.has(id) ? id : undefined;
+        };
+        const sanitizeRequesterId = (value: unknown) => {
+          const id = sanitizeOptionalUserId(value);
+          return typeof id === 'number' ? id : 1;
+        };
+
         const erdTickets = records.map((row: any, i: number) => {
           const ticketNumber = getValue(row, ['Ticket Number', 'ticket_id', 'TicketId', 'Ticket Id', 'TicketID']) || `UP-${Date.now()}-${i}`;
           const created = getValue(row, ['Created', 'created_date', 'createdAt', 'created_at']) || new Date().toISOString();
@@ -144,6 +155,7 @@ export default function UploadPage() {
           const requesterVal = getValue(row, ['Requester', 'requester', 'requester_id']);
           const assignedVal = getValue(row, ['Assigned to', 'Assigned', 'assigned_to', 'Assigned To', 'assigned_to_id']);
           const closedVal = getValue(row, ['Closed by', 'closed_by', 'Closed By', 'closed_by_id']);
+          const resolvedByVal = getValue(row, ['Resolved by', 'resolved_by', 'Resolved By', 'resolved_by_id']);
           const lastReopenedValue = getValue(row, ['Last reopened at', 'last_reopened_at', 'lastReopenedAt']);
           const resolvedValue = getValue(row, ['Due Date', 'resolved_date', 'resolvedDate', 'resolved_at']);
           const slaDueValue = getValue(row, ['SLA due', 'sla_duedate', 'slaDueDate']);
@@ -161,7 +173,7 @@ export default function UploadPage() {
             : statusObj
             ? statusObj.status_id
             : 1;
-          const requester = getUserByEmail(String(requesterVal || ''))?.user_id || normalizeOptionalNumber(requesterVal) || 1;
+          const requester = getUserByEmail(String(requesterVal || ''))?.user_id || sanitizeRequesterId(requesterVal);
           const assignedUser = assignedVal ? (getUserByEmail(String(assignedVal)) || getUserByName(String(assignedVal))) : undefined;
           const closedUser = closedVal ? (getUserByEmail(String(closedVal)) || getUserByName(String(closedVal))) : undefined;
 
@@ -177,8 +189,9 @@ export default function UploadPage() {
             made_sla: parseBoolean(getValue(row, ['Made SLA', 'made_sla', 'madeSla'])),
             fcr: parseBoolean(getValue(row, ['FCR', 'fcr'])),
             requester_id: requester,
-            assigned_to_id: normalizeOptionalNumber(getValue(row, ['assigned_to_id', 'Assigned to', 'assigned_to', 'Assigned To'])),
-            closed_by_id: normalizeOptionalNumber(getValue(row, ['closed_by_id', 'Closed by', 'closed_by', 'Closed By'])),
+            assigned_to_id: sanitizeOptionalUserId(getValue(row, ['assigned_to_id', 'Assigned to', 'assigned_to', 'Assigned To'])) ?? assignedUser?.user_id,
+            closed_by_id: sanitizeOptionalUserId(getValue(row, ['closed_by_id', 'Closed by', 'closed_by', 'Closed By'])) ?? closedUser?.user_id,
+            resolved_by_id: sanitizeOptionalUserId(getValue(row, ['resolved_by_id', 'Resolved by', 'resolved_by', 'Resolved By'])) ?? sanitizeOptionalUserId(resolvedByVal),
             assignment_group_id: normalizeOptionalNumber(getValue(row, ['assignment_group_id', 'Assignment group', 'assignment_group', 'Assignment Group'])),
             priority_id: normalizeOptionalNumber(priorityVal) ?? priority,
             impact_id: normalizeOptionalNumber(getValue(row, ['impact_id', 'Impact', 'impact'] )) ?? 3,
@@ -197,7 +210,7 @@ export default function UploadPage() {
         });
 
         // Send the parsed tickets to the backend so the database is updated
-        const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || '';
+        const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
         const endpoint = apiBase ? `${apiBase.replace(/\/$/, '')}/api/tickets/import` : '/api/tickets/import';
         const token = typeof window !== 'undefined' ? localStorage.getItem('workwise_token') : null;
         const importResponse = await fetch(endpoint, {
@@ -325,6 +338,9 @@ export default function UploadPage() {
             </div>
             <p className="text-xs text-gray-600 mb-3">
               Optional Fields: SLA time, SLA due, Due Date, Survey, Comments, Survey Response, Sub Status, Assignment group, Assigned to, Closed by, Short description, Work notes, Requester, Source, Subcategory, Impact, Urgency, Channel, Duration, Last reopened at, Reopen count, Reassignment count, Configuration item, Tags
+            </p>
+            <p className="text-xs text-gray-600">
+              Raw DB-style headers are also accepted (for example: ticket_id, created_date, priority_id, status_id, category_id, made_sla, fcr).
             </p>
           </div>
 

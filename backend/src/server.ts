@@ -42,7 +42,9 @@ app.use(cors({
   credentials: true,
   optionsSuccessStatus: 200,
 }));
-app.use(express.json());
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || '100mb';
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -197,7 +199,20 @@ app.use((req, res) => {
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);
-  res.status(500).json({ error: err.message || 'Internal server error' });
+  const status =
+    typeof err?.status === 'number'
+      ? err.status
+      : typeof err?.statusCode === 'number'
+      ? err.statusCode
+      : 500;
+
+  if (status === 413) {
+    return res.status(413).json({
+      error: `Request payload too large. Increase JSON_BODY_LIMIT (current: ${JSON_BODY_LIMIT}) or upload in smaller batches.`,
+    });
+  }
+
+  res.status(status).json({ error: err.message || 'Internal server error' });
 });
 
 // Start server
