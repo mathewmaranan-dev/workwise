@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Users, Activity, AlertTriangle, Target, Filter } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, ReferenceLine } from 'recharts';
-import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance, isActionableNonFCRTicket } from '../../utils/analytics';
+import { calculateKPIs, getAssignmentGroupPerformance, getNonFCRTickets, getNonFCRTicketsWithCategoryRisk, getNewTickets, getInProgressTickets, getClosedTickets, getEmployeePerformance, getWeeklyTicketSeries, isActionableNonFCRTicket } from '../../utils/analytics';
 import { predictNonFCRRisk, NonFCRRiskScore } from '../../utils/mlAlgorithms';
 import NonFCRRiskPanel from '../../components/NonFCRRiskPanel';
 import { 
@@ -36,7 +36,17 @@ interface EmployeeWorkloadPayload {
   current_workload: number;
 }
 
+interface MasterRecommendationSummaryRow {
+  flag: string;
+  categories: string;
+  redirectPct: number;
+  suggestedTeam: string;
+  expectedSla: string;
+  expectedFcr: string;
+}
+
 const env = (import.meta as any).env as Record<string, string | undefined>;
+const enableMasterRecommendationDecisionTree = String(env.VITE_ENABLE_MASTER_REC_DT ?? 'true').toLowerCase() !== 'false';
 
 // Mapping of assignment group -> ticket categories they handle
 const GROUP_CATEGORY_MAPPING: Record<number, number[]> = {
@@ -192,6 +202,17 @@ export default function ManagerDashboard() {
     () => currentTickets.filter(t => Number(t.assignment_group_id) === Number(selectedGroupId)),
     [currentTickets, selectedGroupId]
   );
+  const activeGroupTicketsForRedistribution = useMemo(() => {
+    return selectedGroupTickets.filter((ticket: any) => {
+      const normalizedStatus = String(getStatusName(ticket.status_id) ?? '').trim().toLowerCase();
+      if (normalizedStatus) {
+        return normalizedStatus === 'new' || normalizedStatus === 'in progress' || normalizedStatus === 'pending';
+      }
+
+      const statusId = Number(ticket.status_id);
+      return statusId !== 3 && statusId !== 4;
+    });
+  }, [selectedGroupTickets, getStatusName]);
   const selectedGroupNonFCRTickets = useMemo(
     () => getNonFCRTickets(selectedGroupTickets),
     [selectedGroupTickets]
@@ -550,23 +571,6 @@ export default function ManagerDashboard() {
     return values.reduce((sum, value) => sum + value, 0) / values.length;
   }, [groupNonFCRTickets, riskScoreMap]);
 
-  // Weekly workload for this group (from uploaded data)
-  const weeklyGroupData = (() => {
-    if (!hasData) return [] as { week: string; tickets: number }[];
-    const map: Record<string, number> = {};
-    currentTickets.forEach((t: any) => {
-      if (t.assignment_group_id !== displayGroupId) return;
-      const d = new Date(t.created_date);
-      const wk = new Date(d);
-      wk.setDate(wk.getDate() - wk.getDay());
-      const key = wk.toISOString().split('T')[0];
-      map[key] = (map[key] || 0) + 1;
-    });
-    return Object.entries(map)
-      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
-      .map(([week, count]) => ({ week: new Date(week).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), tickets: count }));
-  })();
-
   const forecastDemand = mlInsights.forecastMean ?? (groupTickets.length > 0 ? groupTickets.length : 0);
   const agentCapacityTarget = 10;
   const currentCapacity = currentStaffCount * agentCapacityTarget;
@@ -707,45 +711,154 @@ export default function ManagerDashboard() {
   }, [effectiveWorkloadBalance, workloadAnalysis]);
 
   const isServiceDeskGroup = selectedGroup?.group_name === 'Service Desk';
+  const activeTicketCount = activeGroupTicketsForRedistribution.length;
+  const activeLoadPerAgent = activeTicketCount / Math.max(currentStaffCount, 1);
+  const activeCapacityRatio = activeLoadPerAgent / Math.max(agentCapacityTarget, 1);
+  const modeledSlaGain = Number(predictedKpiImprovements?.sla_compliance_gain_pct ?? 0);
+  const modeledFcrGain = Number(predictedKpiImprovements?.fcr_rate_gain_pct ?? 0);
+  const heuristicSlaGain = Math.max(
+    0,
+    Math.min(
+      6,
+      (activeCapacityRatio - 1) * 6 +
+      Math.max(0, 90 - groupKPIs.slaCompliance) * 0.22 +
+      Math.max(0, 75 - groupKPIs.fcrRate) * 0.08
+    )
+  );
+  const heuristicFcrGain = Math.max(
+    0,
+    Math.min(
+      5,
+      (activeCapacityRatio - 1) * 4 +
+      Math.max(0, 75 - groupKPIs.fcrRate) * 0.18 +
+      Math.max(0, 90 - groupKPIs.slaCompliance) * 0.05
+    )
+  );
+  const effectiveProjectedSlaGain = Number(Math.max(modeledSlaGain, heuristicSlaGain).toFixed(1));
+  const effectiveProjectedFcrGain = Number(Math.max(modeledFcrGain, heuristicFcrGain).toFixed(1));
+  const substantialKpiDecay =
+    groupKPIs.slaCompliance < 91 ||
+    groupKPIs.fcrRate < 73 ||
+    (groupKPIs.slaCompliance < 93 && groupKPIs.fcrRate < 78);
+  const meaningfulPredictedKpiImprovement =
+    effectiveProjectedSlaGain >= 0.6 ||
+    effectiveProjectedFcrGain >= 0.6;
+  const severeServiceDeskOverload =
+    activeCapacityRatio >= 1.2 ||
+    activeTicketCount >= Math.ceil(currentStaffCount * agentCapacityTarget * 1.2);
 
-  const workloadBalanceRecommendations = useMemo(() => {
-    if (!effectiveWorkloadBalance) return [];
-    return Array.isArray(effectiveWorkloadBalance.recommendations) ? effectiveWorkloadBalance.recommendations as any[] : [];
-  }, [effectiveWorkloadBalance, effectiveWorkloadBalance?.recommendations]);
+  const masterRecommendationDecision = useMemo(() => {
+    if (!enableMasterRecommendationDecisionTree) {
+      return {
+        state: 'triggered' as const,
+        reason: 'Decision gate is disabled by feature flag.',
+      };
+    }
+
+    if (!isServiceDeskGroup) {
+      return {
+        state: 'normal' as const,
+        reason: 'Master recommendation summary is scoped to Service Desk.',
+      };
+    }
+
+    if (!severeServiceDeskOverload) {
+      return {
+        state: 'normal' as const,
+        reason: 'Service Desk active workload is not yet substantially above capacity.',
+      };
+    }
+
+    if (activeTicketCount < 3) {
+      return {
+        state: 'watch' as const,
+        reason: 'Overload signal detected, but active ticket sample is still too small.',
+      };
+    }
+
+    if (!substantialKpiDecay) {
+      return {
+        state: 'watch' as const,
+        reason: 'Overload detected, but KPI decay is not yet substantial enough for redistribution.',
+      };
+    }
+
+    if (!meaningfulPredictedKpiImprovement) {
+      return {
+        state: 'watch' as const,
+        reason: 'KPI decay detected, but projected KPI uplift from redistribution is still marginal.',
+      };
+    }
+
+    return {
+      state: 'triggered' as const,
+      reason: 'Service Desk is severely overloaded on active tickets with substantial KPI decay and meaningful projected KPI recovery from redistribution.',
+    };
+  }, [
+    isServiceDeskGroup,
+    severeServiceDeskOverload,
+    activeTicketCount,
+    substantialKpiDecay,
+    meaningfulPredictedKpiImprovement,
+  ]);
 
   const workloadRecommendationSummary = useMemo(() => {
-    if (workloadBalanceRecommendations.length === 0) return [];
-    return workloadBalanceRecommendations.map((rec) => {
-      const currentLoad = Number(rec.current_load ?? 0);
-      const adjustment = Number(rec.adjustment ?? 0);
-      const redirectPct = currentLoad > 0 ? Math.round(Math.abs(adjustment) / currentLoad * 100) : 0;
-      const flag = adjustment > 1 ? 'Overloaded' : adjustment < -1 ? 'Underloaded' : 'Balanced';
-      const expectedSla = `+${predictedKpiImprovements.sla_compliance_gain_pct ?? 0}%`;
-      const expectedFcr = `+${predictedKpiImprovements.fcr_rate_gain_pct ?? 0}%`;
+    if (!isServiceDeskGroup) return [];
+    if (masterRecommendationDecision.state !== 'triggered') return [];
 
-      const targetGroupId = Number(rec.assignment_group_id ?? 0);
-      let suggestedTeam = targetGroupId && targetGroupId !== selectedGroupId
-        ? getAssignmentGroupById(targetGroupId)?.group_name
-        : null;
-
-      if (!suggestedTeam && flag === 'Overloaded' && acceptingGroupsForOffload.length > 0) {
-        suggestedTeam = getAssignmentGroupById(acceptingGroupsForOffload[0])?.group_name ?? null;
-      }
-
-      if (!suggestedTeam) {
-        suggestedTeam = selectedGroup?.group_name ?? 'Current Group';
-      }
-
-      return {
-        user_id: rec.user_id,
-        flag,
-        redirectPct,
-        suggestedTeam,
-        expectedSla,
-        expectedFcr,
-      };
+    const sourceGroupId = Number(selectedGroupId ?? 0);
+    const targetGroupsByCategory = new Map<number, number>();
+    Object.entries(GROUP_CATEGORY_MAPPING).forEach(([groupIdStr, categories]) => {
+      const groupId = Number(groupIdStr);
+      if (groupId === sourceGroupId) return;
+      categories.forEach((categoryId) => {
+        if (!targetGroupsByCategory.has(categoryId)) {
+          targetGroupsByCategory.set(categoryId, groupId);
+        }
+      });
     });
-  }, [workloadBalanceRecommendations, predictedKpiImprovements, acceptingGroupsForOffload, selectedGroupId, selectedGroup]);
+
+    const fallbackTargetGroupId = acceptingGroupsForOffload.find((groupId) => groupId !== sourceGroupId);
+    const aggregate = new Map<number, { ticketCount: number; categoryIds: Set<number> }>();
+
+    activeGroupTicketsForRedistribution.forEach((ticket: any) => {
+      const categoryId = Number(ticket.category_id ?? 0);
+      if (!categoryId) return;
+
+      const targetGroupId = targetGroupsByCategory.get(categoryId) ?? fallbackTargetGroupId;
+      if (!targetGroupId || targetGroupId === sourceGroupId) return;
+
+      if (!aggregate.has(targetGroupId)) {
+        aggregate.set(targetGroupId, { ticketCount: 0, categoryIds: new Set<number>() });
+      }
+
+      const entry = aggregate.get(targetGroupId)!;
+      entry.ticketCount += 1;
+      entry.categoryIds.add(categoryId);
+    });
+
+    const totalActive = Math.max(1, activeTicketCount);
+    const rows: MasterRecommendationSummaryRow[] = Array.from(aggregate.entries()).map(([targetGroupId, entry]) => ({
+      flag: 'Overloaded (Active)',
+      categories: Array.from(entry.categoryIds).map((categoryId) => getCategoryName(categoryId)).join(', '),
+      redirectPct: Math.round((entry.ticketCount / totalActive) * 100),
+      suggestedTeam: getAssignmentGroupById(targetGroupId)?.group_name ?? `Group ${targetGroupId}`,
+      expectedSla: `+${effectiveProjectedSlaGain}%`,
+      expectedFcr: `+${effectiveProjectedFcrGain}%`,
+    }));
+
+    return rows.sort((a, b) => b.redirectPct - a.redirectPct);
+  }, [
+    isServiceDeskGroup,
+    masterRecommendationDecision.state,
+    selectedGroupId,
+    activeGroupTicketsForRedistribution,
+    activeTicketCount,
+    acceptingGroupsForOffload,
+    getCategoryName,
+    effectiveProjectedSlaGain,
+    effectiveProjectedFcrGain,
+  ]);
 
   const staffingScenarioData = [0, 1, 2, 3].map((extraAgents) => {
     const scenarioStaff = currentStaffCount + extraAgents;
@@ -777,51 +890,71 @@ export default function ManagerDashboard() {
       workloadPerAgent: Number((count / Math.max(currentStaffCount, 1)).toFixed(1))
     }));
 
+  const latestGroupCreatedDate = useMemo(() => {
+    const parsedDates = groupTickets
+      .map((ticket: any) => new Date(
+        ticket.created_date ??
+        ticket.createdDate ??
+        ticket.created_at ??
+        ticket.createdAt ??
+        ticket.opened_at ??
+        ticket.openedAt ??
+        ticket.updated_at ??
+        ticket.updatedAt ??
+        ''
+      ))
+      .filter((date: Date) => !Number.isNaN(date.getTime()));
+
+    if (parsedDates.length === 0) return null;
+    return new Date(Math.max(...parsedDates.map((date: Date) => date.getTime())));
+  }, [groupTickets]);
+
   const weightedForecastData = useMemo(() => {
-    if (weeklyGroupData.length === 0) return [];
-    
-    // Historical data from actual tickets
-    const historicalData = weeklyGroupData.map((entry) => ({
-      week: entry.week,
-      actualTickets: entry.tickets,
+    const canUseMlForecast = mlInsights.forecastArray.length > 0;
+    const historicalSeries = getWeeklyTicketSeries(groupTickets, {
+      weeks: 12,
+      futureWeeks: 0,
+    });
+
+    const actualWeeklySeries = historicalSeries.map((point) => ({
+      ...point,
+      week: point.weekLabel,
+      actualTickets: point.ticketCount,
       forecastTarget: null as number | null,
       capacityThreshold: currentStaffCount * agentCapacityTarget,
       isHistorical: true,
     }));
 
-    // Forecast data from ML
-    if (mlInsights.forecastArray.length === 0) return historicalData;
+    if (!canUseMlForecast) {
+      return actualWeeklySeries;
+    }
 
-    const forecastData: any[] = [];
-    const now = new Date();
-    
-    // Group forecast data by week for cleaner visualization
-    let weekAccum = 0;
-    let dayCount = 0;
-    
-    mlInsights.forecastArray.forEach((dailyForecast, index) => {
-      const forecastDate = new Date(now.getTime() + (index + 1) * 24 * 60 * 60 * 1000);
-      const weekKey = forecastDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      
-      weekAccum += dailyForecast;
-      dayCount += 1;
-      
-      // Every 7 days or at the end, add a weekly summary
-      if (dayCount === 7 || index === mlInsights.forecastArray.length - 1) {
-        forecastData.push({
-          week: weekKey,
-          actualTickets: null as number | null,
-          forecastTarget: Math.round(weekAccum / dayCount),
-          capacityThreshold: currentStaffCount * agentCapacityTarget,
-          isHistorical: false,
-        });
-        weekAccum = 0;
-        dayCount = 0;
-      }
+    const futureWeeks = Math.max(1, Math.ceil(mlInsights.forecastArray.length / 7));
+    const forecastSeries = getWeeklyTicketSeries(groupTickets, {
+      weeks: 12,
+      futureWeeks,
+      forecastDaily: mlInsights.forecastArray,
+      predictionStartDate: latestGroupCreatedDate ?? undefined,
     });
 
-    return [...historicalData, ...forecastData];
-  }, [weeklyGroupData, mlInsights.forecastArray, currentStaffCount, agentCapacityTarget]);
+    const actualByWeek = new Map(actualWeeklySeries.map((point) => [point.weekStart, point.actualTickets]));
+    const latestActualWeekStart = actualWeeklySeries.length > 0
+      ? actualWeeklySeries[actualWeeklySeries.length - 1].weekStart
+      : null;
+
+    return forecastSeries.map((point) => ({
+      ...point,
+      week: point.weekLabel,
+      actualTickets: actualByWeek.has(point.weekStart) ? actualByWeek.get(point.weekStart)! : null,
+      forecastTarget: latestActualWeekStart && point.weekStart === latestActualWeekStart
+        ? (actualByWeek.get(point.weekStart) ?? null)
+        : point.projected
+          ? (point.predictedTickets ?? null)
+          : null,
+      capacityThreshold: currentStaffCount * agentCapacityTarget,
+      isHistorical: !point.projected,
+    }));
+  }, [groupTickets, mlInsights.forecastArray, latestGroupCreatedDate, currentStaffCount, agentCapacityTarget]);
 
   const teamStaffingAnalysis = useMemo(() => {
     return assignmentGroups
@@ -1422,6 +1555,7 @@ export default function ManagerDashboard() {
                 <thead>
                   <tr className="border-b bg-gray-50">
                     <th className="text-left p-3 font-medium">Flag</th>
+                    <th className="text-left p-3 font-medium">Categories</th>
                     <th className="text-left p-3 font-medium">% Redirect</th>
                     <th className="text-left p-3 font-medium">Suggested Team</th>
                     <th className="text-left p-3 font-medium">Expected SLA Gain</th>
@@ -1429,14 +1563,14 @@ export default function ManagerDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {workloadRecommendationSummary.map((row) => (
-                    <tr key={`mrs-${row.user_id}-${row.flag}-${row.suggestedTeam}`} className="border-b hover:bg-gray-50">
+                  {workloadRecommendationSummary.map((row: MasterRecommendationSummaryRow) => (
+                    <tr key={`summary-${row.suggestedTeam}-${row.categories}`} className="border-b hover:bg-gray-50">
                       <td className="p-3">
                         <span
                           className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                            row.flag === 'Overloaded'
+                            row.flag.startsWith('Overloaded')
                               ? 'bg-rose-100 text-rose-700'
-                              : row.flag === 'Underloaded'
+                              : row.flag.startsWith('Underloaded')
                               ? 'bg-amber-100 text-amber-700'
                               : 'bg-emerald-100 text-emerald-700'
                           }`}
@@ -1444,6 +1578,7 @@ export default function ManagerDashboard() {
                           {row.flag}
                         </span>
                       </td>
+                      <td className="p-3">{row.categories}</td>
                       <td className="p-3">{row.redirectPct}%</td>
                       <td className="p-3">{row.suggestedTeam}</td>
                       <td className="p-3">{row.expectedSla}</td>

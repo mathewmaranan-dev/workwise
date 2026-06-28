@@ -40,12 +40,18 @@ BUSINESS_THRESHOLDS = {
     'training_sla_max': 90.0,
     'training_fcr_max': 75.0,
     'training_avg_resolution_min': 1.8,
-    'training_severe_sla_max': 86.0,
-    'training_severe_fcr_max': 55.0,
-    'training_severe_avg_resolution_min': 2.2,
+    'training_severe_sla_max': 84.0,
+    'training_severe_fcr_max': 52.0,
+    'training_severe_avg_resolution_min': 3.6,
     'training_load_ratio_min': 1.10,
     'training_growth_rate_min': 10.0,
     'training_capacity_gap_min': 2.0,
+    'training_priority_high_sla_max': 82.0,
+    'training_priority_high_fcr_max': 50.0,
+    'training_priority_high_avg_resolution_min': 4.5,
+    'training_priority_high_load_ratio_min': 1.18,
+    'training_priority_high_growth_rate_min': 15.0,
+    'training_priority_high_capacity_gap_min': 2.0,
     'min_confidence_any_action': 0.55,
     'min_confidence_hire': 0.70,
 }
@@ -226,14 +232,17 @@ def _build_outcome(action: str, team_name: str, capacity_gap: int, row: Dict[str
         avg_resolution = _to_float(row.get('avgResolutionTime', row.get('avg_resolution_time', 0.0)))
         sla = _to_float(row.get('slaCompliance', row.get('sla_compliance', 0.0)))
         fcr = _to_float(row.get('fcrRate', row.get('fcr_rate', 0.0)))
-        severe_training_pressure = (
-            sla < BUSINESS_THRESHOLDS['training_severe_sla_max']
-            or fcr < BUSINESS_THRESHOLDS['training_severe_fcr_max']
-            or avg_resolution > BUSINESS_THRESHOLDS['training_severe_avg_resolution_min']
-            or capacity_gap >= BUSINESS_THRESHOLDS['training_capacity_gap_min']
-            or load_ratio >= BUSINESS_THRESHOLDS['hire_load_ratio_min']
-            or row_growth_rate >= BUSINESS_THRESHOLDS['hire_growth_rate_min']
+        severe_quality_pressure = (
+            sla < BUSINESS_THRESHOLDS['training_priority_high_sla_max']
+            or fcr < BUSINESS_THRESHOLDS['training_priority_high_fcr_max']
+            or avg_resolution > BUSINESS_THRESHOLDS['training_priority_high_avg_resolution_min']
         )
+        severe_workload_pressure = (
+            capacity_gap >= BUSINESS_THRESHOLDS['training_priority_high_capacity_gap_min']
+            or load_ratio >= BUSINESS_THRESHOLDS['training_priority_high_load_ratio_min']
+            or row_growth_rate >= BUSINESS_THRESHOLDS['training_priority_high_growth_rate_min']
+        )
+        severe_training_pressure = severe_quality_pressure and severe_workload_pressure
 
         return ActionOutcome(
             impact=impact_text,

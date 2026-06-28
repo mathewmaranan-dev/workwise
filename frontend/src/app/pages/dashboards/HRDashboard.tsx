@@ -590,10 +590,21 @@ export default function HRDashboard() {
         return priorityValue(b.decision) - priorityValue(a.decision);
       })
       .slice(0, 6)
-      .map((entry) => ({
-        category: entry.decision === 'Hire' ? 'Hiring' : entry.decision === 'Training' ? 'Training' : entry.decision === 'Temporary staffing / reassign' ? 'Temporary staffing' : 'Retention',
-        teamName: entry.teamName,
-        action: (() => {
+      .map((entry) => {
+        const severeTrainingQualityPressure =
+          entry.slaCompliance < 82 ||
+          entry.fcrRate < 50 ||
+          entry.avgResolutionTime > 4.5;
+        const severeTrainingWorkloadPressure =
+          entry.loadRatio >= 1.18 ||
+          entry.groupGrowthRate >= 15 ||
+          entry.capacityGap >= 2;
+        const trainingPriority = severeTrainingQualityPressure && severeTrainingWorkloadPressure ? 'High' : 'Medium';
+
+        return {
+          category: entry.decision === 'Hire' ? 'Hiring' : entry.decision === 'Training' ? 'Training' : entry.decision === 'Temporary staffing / reassign' ? 'Temporary staffing' : 'Retention',
+          teamName: entry.teamName,
+          action: (() => {
           if (entry.decision === 'Hire') {
             return `Add ${entry.capacityGap || 1} agent${entry.capacityGap === 1 ? '' : 's'} to ${entry.teamName} to close the sustained capacity gap.`;
           }
@@ -615,9 +626,10 @@ export default function HRDashboard() {
             : entry.decision === 'Temporary staffing / reassign'
               ? 'Covers demand peaks without committing to permanent headcount.'
               : 'Maintains service stability while keeping hiring decisions evidence-based.',
-        priority: entry.decision === 'Hire' ? 'High' : entry.decision === 'Training' ? 'High' : entry.decision === 'Temporary staffing / reassign' ? 'Medium' : 'Low',
+        priority: entry.decision === 'Hire' ? 'High' : entry.decision === 'Training' ? trainingPriority : entry.decision === 'Temporary staffing / reassign' ? 'Medium' : 'Low',
         rationale: entry.rationale,
-      }));
+        };
+      });
 
     return {
       groupSummary,

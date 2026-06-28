@@ -60,9 +60,9 @@ Core features used for action selection:
 ### Training thresholds
 Triggered when either condition is true:
 1. Severe quality pressure:
-   - SLA < 86.0 OR
-   - FCR < 55.0 OR
-   - avg_resolution_time > 2.2
+  - SLA < 84.0 OR
+  - FCR < 52.0 OR
+  - avg_resolution_time > 3.6
 2. Quality pressure plus workload pressure:
    - Quality pressure:
      - SLA < 90.0 OR
@@ -113,7 +113,16 @@ Training behavior:
 ## Priority Labels in Output
 - Hire -> High
 - Temporary staffing / reassign -> Medium
-- Training -> High if severe pressure, otherwise Medium
+- Training -> High only when BOTH are true:
+  - Severe quality pressure:
+    - SLA < 82.0 OR
+    - FCR < 50.0 OR
+    - avg_resolution_time > 4.5
+  - Severe workload pressure:
+    - load_ratio >= 1.18 OR
+    - growth_rate >= 15.0 OR
+    - capacity_gap >= 2.0
+  Otherwise Training -> Medium
 - Retain and monitor -> Low
 
 ## KPI Impact Output Policy
