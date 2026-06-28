@@ -1407,44 +1407,6 @@ export default function ManagerDashboard() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Team staffing gap analysis</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">Cross-team staffing needs by forecast volume, capacity utilization, and workload risk.</p>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr>
-                  <th className="text-left">Team</th>
-                  <th className="text-left">Forecast volume</th>
-                  <th className="text-left">Current staff</th>
-                  <th className="text-left">Required staff</th>
-                  <th className="text-left">Gap</th>
-                  <th className="text-left">Load / agent</th>
-                  <th className="text-left">Avg risk</th>
-                  <th className="text-left">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teamStaffingAnalysis.map((entry) => (
-                  <tr key={entry.groupId} className={entry.groupId === displayGroupId ? 'bg-indigo-50' : undefined}>
-                    <td className="font-medium">{entry.groupName}</td>
-                    <td>{entry.forecastVolume}</td>
-                    <td>{entry.currentStaff}</td>
-                    <td>{entry.requiredStaff}</td>
-                    <td className={entry.staffingGap > 0 ? 'font-semibold text-rose-600' : 'font-semibold text-emerald-600'}>{entry.staffingGap >= 0 ? `+${entry.staffingGap}` : entry.staffingGap}</td>
-                    <td>{entry.workloadPerAgent.toFixed(1)} tickets</td>
-                    <td>{entry.avgRisk.toFixed(1)}%</td>
-                    <td>{entry.recommendation}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -1567,12 +1529,6 @@ export default function ManagerDashboard() {
         </Card>
       </div>
 
-      {/* Non-FCR Detection List */}
-      <div className="grid grid-cols-1 gap-6">
-        <div>
-          <NonFCRRiskPanel tickets={groupHighRiskNonFCRTicketRecords} riskScoreMap={riskScoreMap} />
-        </div>
-      </div>
 
       <Card>
         <CardHeader>
