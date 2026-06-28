@@ -211,6 +211,88 @@ export default function ManagerDashboard() {
       (riskScoreMap[ticket.ticket_id]?.riskScore ?? 0) > 50
     );
   }, [groupNonFCRTicketRecords, riskScoreMap]);
+
+  const agentProblemRows = useMemo(() => {
+    const agentMap: Record<number, { agentId: number; totalRisk: number; ticketCount: number }> = {};
+
+    groupNonFCRTicketRecords.forEach((ticket) => {
+      const score = riskScoreMap[ticket.ticket_id]?.riskScore;
+      if (score == null || score <= 50) return;
+
+      const agentId = Number(ticket.assigned_to_id);
+      if (!Number.isFinite(agentId)) return;
+
+      if (!agentMap[agentId]) {
+        agentMap[agentId] = { agentId, totalRisk: 0, ticketCount: 0 };
+      }
+
+      agentMap[agentId].totalRisk += score;
+      agentMap[agentId].ticketCount += 1;
+    });
+
+    return Object.values(agentMap)
+      .map((row) => ({ ...row, avgRisk: row.totalRisk / row.ticketCount }))
+      .sort((a, b) => b.avgRisk - a.avgRisk)
+      .slice(0, 5);
+  }, [groupNonFCRTicketRecords, riskScoreMap]);
+
+  const categoryProblemRows = useMemo(() => {
+    const categoryMap: Record<number, { categoryId: number; scores: number[]; fcrTickets: number; totalTickets: number; uniqueAgents: Set<number> }> = {};
+
+    groupTickets.forEach((ticket) => {
+      const categoryId = Number(ticket.category_id);
+      if (!Number.isFinite(categoryId)) return;
+
+      if (!categoryMap[categoryId]) {
+        categoryMap[categoryId] = { categoryId, scores: [], fcrTickets: 0, totalTickets: 0, uniqueAgents: new Set<number>() };
+      }
+
+      const entry = categoryMap[categoryId];
+      entry.totalTickets += 1;
+
+      const isFCR = ticket.fcr === true || ticket.fcr === 'true' || Number(ticket.reopen_count || 0) === 0;
+      if (isFCR) entry.fcrTickets += 1;
+
+      const score = riskScoreMap[ticket.ticket_id]?.riskScore;
+      if (score != null && score > 50) {
+        entry.scores.push(score);
+        entry.uniqueAgents.add(Number(ticket.assigned_to_id));
+      }
+    });
+
+    return Object.values(categoryMap)
+      .map((entry) => {
+        const avgRisk = entry.scores.length > 0 ? entry.scores.reduce((sum, value) => sum + value, 0) / entry.scores.length : 0;
+        const fcrRate = entry.totalTickets > 0 ? (entry.fcrTickets / entry.totalTickets) * 100 : 0;
+        const uniqueAgents = entry.uniqueAgents.size;
+        let problemTypeLabel = 'Agent-specific issue';
+        if (uniqueAgents >= 3) {
+          problemTypeLabel = 'Category-wide issue';
+        } else if (uniqueAgents >= 2) {
+          problemTypeLabel = 'Mixed issue';
+        }
+
+        let recommendation = 'Monitor';
+        if (fcrRate < 40) {
+          recommendation = 'Needs training + process review';
+        } else if (fcrRate < 60) {
+          recommendation = 'Needs coaching + documentation';
+        }
+
+        return {
+          categoryId: entry.categoryId,
+          categoryName: getCategoryName(entry.categoryId),
+          avgRisk,
+          fcrRate,
+          problemTypeLabel,
+          recommendation,
+        };
+      })
+      .filter((row) => row.avgRisk > 0)
+      .sort((a, b) => b.avgRisk - a.avgRisk)
+      .slice(0, 5);
+  }, [groupTickets, riskScoreMap, getCategoryName]);
+
   const groupNonFCRCategoryRiskRows = useMemo(
     () => getNonFCRTicketsWithCategoryRisk(groupTickets),
     [groupTickets]
@@ -1141,62 +1223,90 @@ export default function ManagerDashboard() {
         <CardHeader>
           <CardTitle>Non-FCR Risk Summary</CardTitle>
           <p className="text-xs text-gray-500 mt-1">
-            Category- and agent-level non-FCR risk guidance for {displayGroup?.group_name || `Group ${displayGroupId}`}
+            Agent and category-level non-FCR risk guidance for {displayGroup?.group_name || `Group ${displayGroupId}`}
           </p>
         </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Category</th>
-                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Category FCR Rate</th>
-                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Agent</th>
-                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Agent Category FCR Rate</th>
-                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Recommended Action</th>
-                  <th className="px-3 py-3 text-left font-semibold text-slate-700">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 bg-white">
-                {(() => {
-                  const visibleRows = aggregatedDisplayRows.filter((r: any) => !/No Risk/i.test(r.action)).slice(0, 10);
-                  if (visibleRows.length === 0) {
-                    return (
-                      <tr>
-                        <td colSpan={6} className="px-3 py-4 text-sm text-slate-500">
-                          No non-FCR category risk rows available for this team yet.
-                        </td>
-                      </tr>
-                    );
-                  }
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">High-risk actionable tickets</p>
+              <p className="mt-2 text-2xl font-bold text-rose-600">{groupHighRiskNonFCRTicketRecords.length}</p>
+              <p className="text-sm text-slate-600">Tickets with risk over 50%</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Agent problem signals</p>
+              <p className="mt-2 text-2xl font-bold text-blue-600">{agentProblemRows.length}</p>
+              <p className="text-sm text-slate-600">Agents flagged for coaching or escalation</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Category problem signals</p>
+              <p className="mt-2 text-2xl font-bold text-amber-600">{categoryProblemRows.length}</p>
+              <p className="text-sm text-slate-600">Categories needing process or training support</p>
+            </div>
+          </div>
 
-                  return visibleRows.map((row: any) => {
-                    const agent = row.agentId ? getUserById(row.agentId) : null;
-                    const agentName = agent ? `${agent.first_name} ${agent.last_name}` : 'Unknown agent';
-                    const categoryName = getCategoryName(row.categoryId);
-
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-700">Agent problems</h3>
+                <span className="text-xs text-slate-500">ML-assisted risk view</span>
+              </div>
+              <div className="space-y-2">
+                {agentProblemRows.length === 0 ? (
+                  <p className="text-sm text-slate-500">No agent problem patterns available yet.</p>
+                ) : (
+                  agentProblemRows.map((row) => {
+                    const agent = getUserById(row.agentId);
+                    const agentName = agent ? `${agent.first_name} ${agent.last_name}` : `Agent ${row.agentId}`;
                     return (
-                      <tr key={`${row.categoryId}-${row.agentId || 'unknown'}`}> 
-                        <td className="px-3 py-3 text-slate-700">{categoryName}</td>
-                        <td className="px-3 py-3 text-slate-700">{Number(row.categoryFCRRate).toFixed(1)}%</td>
-                        <td className="px-3 py-3 text-slate-700">{agentName}</td>
-                        <td className="px-3 py-3 text-slate-700">{Number(row.agentCategoryFCRRate).toFixed(1)}%</td>
-                        <td className="px-3 py-3 text-slate-700">{row.action}</td>
-                        <td className="px-3 py-3 text-slate-700">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => selectRiskRow(row)}
-                          >
-                            View sample
-                          </Button>
-                        </td>
-                      </tr>
+                      <div key={row.agentId} className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-slate-800">{agentName}</p>
+                            <p className="text-xs text-slate-500">{row.ticketCount} high-risk tickets</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-semibold text-blue-700">{Math.round(row.avgRisk)}%</p>
+                            <p className="text-xs text-slate-600">avg risk score</p>
+                          </div>
+                        </div>
+                      </div>
                     );
-                  });
-                })()}
-              </tbody>
-            </table>
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-700">Category problems & recommendations</h3>
+                <span className="text-xs text-slate-500">Process and coaching guidance</span>
+              </div>
+              <div className="space-y-2">
+                {categoryProblemRows.length === 0 ? (
+                  <p className="text-sm text-slate-500">No category problem patterns available yet.</p>
+                ) : (
+                  categoryProblemRows.map((row) => (
+                    <div key={row.categoryId} className="rounded-lg border border-slate-200 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-slate-800">{row.categoryName}</p>
+                          <p className="mt-1 text-xs text-slate-500">{row.problemTypeLabel}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-semibold text-slate-700">{Math.round(row.avgRisk)}%</p>
+                          <p className="text-xs text-slate-500">avg risk score</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                        <span className="rounded-full bg-slate-100 px-2 py-1">FCR {Math.round(row.fcrRate)}%</span>
+                        <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">{row.recommendation}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
