@@ -605,7 +605,6 @@ export default function ManagerDashboard() {
 
   const fallbackWorkloadBalance = useMemo(() => {
     if (!teamMemberMetrics || teamMemberMetrics.length === 0) return null;
-    if (!isGroupImbalanced) return null; // Only show recommendations if imbalanced
 
     const currentLoads = teamMemberMetrics.map((member) => Number(member.current_tickets ?? 0));
     const totalCurrentLoad = currentLoads.reduce((sum, load) => sum + load, 0);
@@ -711,12 +710,11 @@ export default function ManagerDashboard() {
 
   const workloadBalanceRecommendations = useMemo(() => {
     if (!effectiveWorkloadBalance) return [];
-    if (!isGroupImbalanced || !isServiceDeskGroup) return [];
     return Array.isArray(effectiveWorkloadBalance.recommendations) ? effectiveWorkloadBalance.recommendations as any[] : [];
-  }, [effectiveWorkloadBalance, effectiveWorkloadBalance?.recommendations, isGroupImbalanced, isServiceDeskGroup]);
+  }, [effectiveWorkloadBalance, effectiveWorkloadBalance?.recommendations]);
 
   const workloadRecommendationSummary = useMemo(() => {
-    if (!isGroupImbalanced || !isServiceDeskGroup || workloadBalanceRecommendations.length === 0) return [];
+    if (workloadBalanceRecommendations.length === 0) return [];
     return workloadBalanceRecommendations.map((rec) => {
       const currentLoad = Number(rec.current_load ?? 0);
       const adjustment = Number(rec.adjustment ?? 0);
@@ -1445,6 +1443,59 @@ export default function ManagerDashboard() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Master recommendation summary</CardTitle>
+          <p className="text-xs text-gray-500 mt-1">
+            Actionable flags and expected SLA/FCR impact if the recommended redistribution plan is followed.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {workloadRecommendationSummary.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    <th className="text-left p-3 font-medium">Flag</th>
+                    <th className="text-left p-3 font-medium">% Redirect</th>
+                    <th className="text-left p-3 font-medium">Suggested Team</th>
+                    <th className="text-left p-3 font-medium">Expected SLA Gain</th>
+                    <th className="text-left p-3 font-medium">Expected FCR Gain</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workloadRecommendationSummary.map((row) => (
+                    <tr key={`mrs-${row.user_id}-${row.flag}-${row.suggestedTeam}`} className="border-b hover:bg-gray-50">
+                      <td className="p-3">
+                        <span
+                          className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
+                            row.flag === 'Overloaded'
+                              ? 'bg-rose-100 text-rose-700'
+                              : row.flag === 'Underloaded'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-emerald-100 text-emerald-700'
+                          }`}
+                        >
+                          {row.flag}
+                        </span>
+                      </td>
+                      <td className="p-3">{row.redirectPct}%</td>
+                      <td className="p-3">{row.suggestedTeam}</td>
+                      <td className="p-3">{row.expectedSla}</td>
+                      <td className="p-3">{row.expectedFcr}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              No redistribution recommendations are currently required.
+            </div>
+          )}
         </CardContent>
       </Card>
 
