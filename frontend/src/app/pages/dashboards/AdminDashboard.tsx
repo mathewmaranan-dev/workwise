@@ -8,6 +8,7 @@ import { LookupPriority, useLookupData } from '../../hooks/useLookupData';
 import { Button } from '../../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { exportTicketsToCSV } from '../../utils/csvUtils';
+import { getKpiStatus } from '../../utils/kpiStatus';
 import { toast } from 'sonner';
 import { WelcomeBanner } from '../../components/WelcomeBanner';
 import { useAuth } from '../../context/AuthContext';
@@ -216,6 +217,18 @@ function AdminView({
       resolvedTickets: asNumber(dashboardMetrics.resolvedTickets?.count ?? dashboardMetrics.resolvedTickets, fallback.resolvedTickets),
     };
   }, [dashboardMetrics, currentTickets]);
+
+  const slaStatus = useMemo(
+    () => getKpiStatus('sla', hasData ? dashboardKpis.slaCompliance : null),
+    [hasData, dashboardKpis.slaCompliance]
+  );
+
+  const fcrStatus = useMemo(
+    () => getKpiStatus('fcr', hasData ? dashboardKpis.fcrRate : null),
+    [hasData, dashboardKpis.fcrRate]
+  );
+
+  const formatTicketCount = (value: number) => new Intl.NumberFormat('en-US').format(Math.round(Number(value || 0)));
 
   const priorityOrder = useMemo(() => {
     const order = new Map<string, number>();
@@ -467,7 +480,12 @@ function AdminView({
           </CardHeader>
           <CardContent className="pt-2 px-4 pb-4">
               <div className="text-2xl font-bold text-gray-900">{hasData ? `${dashboardKpis.slaCompliance.toFixed(1)}%` : 'N/A'}</div>
-              <p className="text-xs text-gray-500 mt-1">{hasData ? `${dashboardKpis.totalTickets} total tickets` : 'No data'}</p>
+              <div className="mt-2">
+                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${slaStatus.badgeClass}`}>
+                  {slaStatus.label}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">{hasData ? `${formatTicketCount(dashboardKpis.totalTickets)} total tickets` : 'No data'}</p>
           </CardContent>
         </Card>
 
@@ -478,7 +496,12 @@ function AdminView({
           </CardHeader>
           <CardContent className="pt-2 px-4 pb-4">
             <div className="text-2xl font-bold text-gray-900">{hasData ? `${dashboardKpis.fcrRate.toFixed(1)}%` : 'N/A'}</div>
-            <p className="text-xs text-gray-500 mt-1">First Contact Resolution</p>
+            <div className="mt-2">
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${fcrStatus.badgeClass}`}>
+                {fcrStatus.label}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">First Contact Resolution</p>
           </CardContent>
         </Card>
 

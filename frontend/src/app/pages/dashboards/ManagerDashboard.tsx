@@ -18,6 +18,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
+import { getKpiStatus } from '../../utils/kpiStatus';
 
 interface TeamMemberMetrics {
   user_id: number;
@@ -438,6 +439,10 @@ export default function ManagerDashboard() {
     activeTickets: groupTickets.filter(t => Number(t.status_id) !== 3 && Number(t.status_id) !== 4).length,
     resolvedTickets: backendTicketSummary?.resolved_count ?? groupTickets.filter(t => Number(t.status_id) === 3 || Number(t.status_id) === 4).length,
   };
+
+  const slaStatus = getKpiStatus('sla', hasData ? groupKPIs.slaCompliance : null);
+  const fcrStatus = getKpiStatus('fcr', hasData ? groupKPIs.fcrRate : null);
+  const formatTicketCount = (value: number) => new Intl.NumberFormat('en-US').format(Math.round(Number(value || 0)));
 
   // Task allocation by status
   const newTasks = groupTickets.filter(t => t.status_id === 1).length;
@@ -1324,7 +1329,12 @@ export default function ManagerDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.slaCompliance.toFixed(1)}%` : 'N/A'}</div>
-            <p className="text-xs text-gray-500 mt-1">{hasData ? `${groupKPIs.totalTickets} total tickets` : 'No data'}</p>
+            <div className="mt-2">
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${slaStatus.badgeClass}`}>
+                {slaStatus.label}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">{hasData ? `${formatTicketCount(groupKPIs.totalTickets)} total tickets` : 'No data'}</p>
           </CardContent>
         </Card>
 
@@ -1335,7 +1345,12 @@ export default function ManagerDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-gray-900">{hasData ? `${groupKPIs.fcrRate.toFixed(1)}%` : 'N/A'}</div>
-            <p className="text-xs text-gray-500 mt-1">First contact resolution</p>
+            <div className="mt-2">
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${fcrStatus.badgeClass}`}>
+                {fcrStatus.label}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">First contact resolution</p>
           </CardContent>
         </Card>
 
