@@ -10,6 +10,15 @@ const capitalizeName = (value) => {
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
         .join(' ');
 };
+const normalizeForPasswordPart = (value) => {
+    return String(value || '')
+        .trim()
+        .split(/[\s'-]+/)
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join('')
+        .replace(/[^A-Za-z0-9]/g, '');
+};
 const generateEmailCandidate = (firstName, lastName, suffix) => {
     const localPart = `${sanitizeForEmail(firstName)}.${sanitizeForEmail(lastName)}`;
     return `${localPart}${String(suffix).padStart(5, '0')}@workwise.it.com`;
@@ -34,7 +43,7 @@ async function getSuggestedEmail(firstName, lastName) {
         candidate = generateEmailCandidate(firstName, lastName, nextId);
         attempts += 1;
     }
-    const password = `${capitalizeName(firstName)}.${capitalizeName(lastName)}${String(nextId).padStart(5, '0')}`;
+    const password = `${normalizeForPasswordPart(firstName)}.${normalizeForPasswordPart(lastName)}${String(nextId).padStart(5, '0')}`;
     return { email: candidate, password, full_name: fullName };
 }
 export async function getAllUsers() {
@@ -152,5 +161,28 @@ export async function deleteUser(id, requesterEmail) {
     }
     await query('DELETE FROM users WHERE user_id = $1', [id]);
     return true;
+}
+export async function resetUserPassword(id) {
+    const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'admin@workwise.it.com';
+    const SUPER_ADMIN_FULL_NAME = 'default admin';
+    const targetResult = await query(`SELECT user_id, first_name, last_name, email
+       FROM users
+       WHERE user_id = $1`, [id]);
+    if (targetResult.rows.length === 0) {
+        return null;
+    }
+    const target = targetResult.rows[0];
+    const targetEmail = String(target.email || '').trim().toLowerCase();
+    const targetFullName = `${String(target.first_name || '').trim()} ${String(target.last_name || '').trim()}`.trim().toLowerCase();
+    if (targetEmail === String(SUPER_ADMIN_EMAIL).toLowerCase() || targetFullName === SUPER_ADMIN_FULL_NAME) {
+        throw new Error('Cannot reset the super admin password');
+    }
+    const password = `${normalizeForPasswordPart(target.first_name)}.${normalizeForPasswordPart(target.last_name)}${String(target.user_id).padStart(5, '0')}`;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await query(`UPDATE users
+        SET password_hash = $1,
+            updated_at = NOW()
+      WHERE user_id = $2`, [hashedPassword, id]);
+    return { defaultPassword: password };
 }
 //# sourceMappingURL=userService.js.map

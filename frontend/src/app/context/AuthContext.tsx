@@ -26,6 +26,7 @@ interface AuthContextType {
   createUser: (user: User, password: string, assignment_group_id?: number) => Promise<boolean>;
   updateUser: (user: User) => Promise<boolean>;
   deleteUser: (email: string) => Promise<{ success: boolean; message?: string }>;
+  resetUserPassword: (userId: string) => Promise<{ success: boolean; message?: string; defaultPassword?: string }>;
   acceptTerms: () => Promise<void>;
   forgotPassword: (email: string) => Promise<string | null>;
   validateResetToken: (token: string) => boolean;
@@ -386,6 +387,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const resetUserPassword = async (userId: string) => {
+    if (!API_BASE || !token) {
+      return { success: false, message: 'Not connected to API' };
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/api/users/${userId}/reset-password`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+
+      if (!response.ok) {
+        let msg = 'Failed to reset password';
+        try {
+          const body = await response.json();
+          msg = body?.error || body?.message || msg;
+        } catch (e) {
+          try {
+            msg = await response.text();
+          } catch (e) {
+            // ignore
+          }
+        }
+        return { success: false, message: msg };
+      }
+
+      const body = await response.json();
+      return { success: true, message: body?.message, defaultPassword: body?.defaultPassword };
+    } catch (error) {
+      console.error('Reset user password error:', error);
+      return { success: false, message: 'Reset password request failed' };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -398,6 +433,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         createUser,
         updateUser,
         deleteUser,
+        resetUserPassword,
         acceptTerms,
         forgotPassword,
         validateResetToken,

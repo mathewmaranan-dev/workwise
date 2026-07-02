@@ -5,7 +5,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '../components/ui/dialog';
-import { UserPlus, Mail, User, Trash2, Pencil } from 'lucide-react';
+import { UserPlus, Mail, User, Trash2, Pencil, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth, User as AuthUser, UserRole } from '../context/AuthContext';
 import { assignmentGroups, getAssignmentGroupById } from '../data/seedData';
@@ -13,10 +13,12 @@ import { assignmentGroups, getAssignmentGroupById } from '../data/seedData';
 interface AppUser extends AuthUser { createdAt: string }
 
 export default function UserManagementPage() {
-  const { users: authUsers, createUser, updateUser, deleteUser } = useAuth();
+  const { users: authUsers, createUser, updateUser, deleteUser, resetUserPassword } = useAuth();
   const [users, setUsers] = React.useState<AppUser[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
+  const [resettingUser, setResettingUser] = useState<AppUser | null>(null);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [emailSuggestion, setEmailSuggestion] = useState('');
   
   const [formData, setFormData] = useState({
@@ -281,6 +283,34 @@ export default function UserManagementPage() {
     toast.success('User deleted successfully');
   };
 
+  const handleConfirmResetPassword = async () => {
+    if (!resettingUser) return;
+
+    if (isProtectedSuperAdmin(resettingUser)) {
+      toast.error('Default Admin password cannot be reset');
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      const result = await resetUserPassword(resettingUser.id);
+      if (!result.success) {
+        toast.error(result.message || 'Failed to reset password');
+        return;
+      }
+
+      const generated = String(result.defaultPassword || '').trim();
+      if (generated) {
+        toast.success(`Password reset. New default password: ${generated}`);
+      } else {
+        toast.success('Password reset successfully');
+      }
+      setResettingUser(null);
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
   const resetForm = () => {
     setFormData({ firstName: '', lastName: '', email: '', name: '', role: 'agent', assignment_group_id: undefined });
     setEmailSuggestion('');
@@ -510,6 +540,16 @@ export default function UserManagementPage() {
                             variant="outline"
                             size="icon"
                             className="h-8 w-8"
+                            onClick={() => setResettingUser(user)}
+                            aria-label={`Reset password for ${user.name}`}
+                            title="Reset password"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
                             onClick={() => openEditDialog(user)}
                             aria-label={`Edit role for ${user.name}`}
                             title="Edit role"
@@ -609,6 +649,36 @@ export default function UserManagementPage() {
             </Button>
             <Button onClick={handleUpdateUser}>
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!resettingUser} onOpenChange={(open) => { if (!open && !isResettingPassword) setResettingUser(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset User Password</DialogTitle>
+            <DialogDescription>
+              {resettingUser
+                ? `Reset password for ${resettingUser.name} (${resettingUser.email}) to the default naming convention?`
+                : 'Confirm password reset.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="text-sm text-gray-600">
+            Format: NormalizedFirst.NormalizedLast + 5-digit user ID.
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setResettingUser(null)}
+              disabled={isResettingPassword}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmResetPassword} disabled={isResettingPassword}>
+              {isResettingPassword ? 'Resetting...' : 'Confirm Reset'}
             </Button>
           </DialogFooter>
         </DialogContent>

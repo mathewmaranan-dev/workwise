@@ -20,4 +20,7 @@ export declare function updateUser(id: string, payload: {
     assignment_group_id?: unknown;
 }): Promise<any>;
 export declare function deleteUser(id: string, requesterEmail?: string): Promise<true | null>;
+export declare function resetUserPassword(id: string): Promise<{
+    defaultPassword: string;
+} | null>;
 //# sourceMappingURL=userService.d.ts.map

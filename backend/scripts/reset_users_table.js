@@ -43,6 +43,10 @@ const employeeUsers = [
   { firstName: 'Jorge Jesse', lastName: 'Cabinian', assignmentGroupId: 5 },
   { firstName: 'Jacob Riley', lastName: 'Fernandez', assignmentGroupId: 5 },
   { firstName: 'Matthew Nicolai', lastName: 'Competente', assignmentGroupId: 5 },
+  { firstName: 'Network', lastName: 'Manager', assignmentGroupId: 2, roleId: 2 },
+  { firstName: 'Security', lastName: 'Manager', assignmentGroupId: 3, roleId: 2 },
+  { firstName: 'Hardware', lastName: 'Manager', assignmentGroupId: 4, roleId: 2 },
+  { firstName: 'Service Desk', lastName: 'Manager', assignmentGroupId: 5, roleId: 2 },
 ];
 
 function sanitizeEmailName(value) {
@@ -61,6 +65,16 @@ function capitalizeName(value) {
     .join(' ');
 }
 
+function normalizeForPasswordPart(value) {
+  return String(value || '')
+    .trim()
+    .split(/[\s'-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join('')
+    .replace(/[^A-Za-z0-9]/g, '');
+}
+
 function generatePassword(firstName, lastName, email, userId, isDefault) {
   const defaultUsers = {
     'admin@workwise.it.com': 'Admin!23',
@@ -74,7 +88,7 @@ function generatePassword(firstName, lastName, email, userId, isDefault) {
   }
 
   const idFormatted = String(userId).padStart(5, '0');
-  return `${capitalizeName(firstName)}.${capitalizeName(lastName)}${idFormatted}`;
+  return `${normalizeForPasswordPart(firstName)}.${normalizeForPasswordPart(lastName)}${idFormatted}`;
 }
 
 function generateEmail(firstName, lastName, userId, isDefault) {
@@ -144,11 +158,12 @@ async function resetUsersTable() {
       const email = generateEmail(user.firstName, user.lastName, userId, false);
       const password = generatePassword(user.firstName, user.lastName, email, userId, false);
       const hashedPassword = await bcrypt.hash(password, 10);
+      const roleId = Number(user.roleId || 3);
 
       await client.query(
         `INSERT INTO users (user_id, first_name, last_name, email, password_hash, role_id, assignment_group_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [userId, user.firstName, user.lastName, email, hashedPassword, 3, user.assignmentGroupId]
+        [userId, user.firstName, user.lastName, email, hashedPassword, roleId, user.assignmentGroupId]
       );
 
       console.log(`  ${userId}. ${user.firstName} ${user.lastName}`);
@@ -169,7 +184,7 @@ async function resetUsersTable() {
     console.log('\n📝 Naming Convention:');
     console.log('   - Default users: [FirstName]@workwise.it.com');
     console.log('   - Employees: firstname.lastname{user_id} (e.g., laura.diaz00005@workwise.it.com)');
-    console.log('   - Employee passwords: FirstName.LastName{user_id} (e.g., Laura.Diaz00005)');
+    console.log('   - Employee passwords: NormalizedFirst.NormalizedLast{user_id} (e.g., JorgeJesse.Cabinian00023)');
     console.log('   - Default passwords: [Role]!23 (e.g., Admin!23, Manager!23)');
 
   } catch (error) {

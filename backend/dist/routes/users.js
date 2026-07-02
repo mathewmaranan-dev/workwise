@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { verifyToken, requireRole } from '../middleware/auth.js';
-import { createUser, deleteUser, getAllUsers, getUserById, getUsersByGroup, suggestEmail, updateUser, } from '../services/userService.js';
+import { createUser, deleteUser, getAllUsers, getUserById, getUsersByGroup, resetUserPassword, suggestEmail, updateUser, } from '../services/userService.js';
 const router = Router();
 const isDev = process.env.NODE_ENV !== 'production';
 // Get all users (admin only)
@@ -132,6 +132,27 @@ router.delete('/:id', verifyToken, requireRole('admin'), async (req, res) => {
         console.error('Delete user error:', error);
         const message = error?.message || 'Failed to delete user';
         if (message === 'Cannot delete the super admin account' || message === 'Only the super admin can delete other admin users') {
+            return res.status(403).json({ error: message });
+        }
+        res.status(500).json({ error: message });
+    }
+});
+// Reset user password to default naming convention (admin only)
+router.post('/:id/reset-password', verifyToken, requireRole('admin'), async (req, res) => {
+    try {
+        const result = await resetUserPassword(req.params.id);
+        if (!result) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.json({
+            message: 'Password reset successfully',
+            defaultPassword: result.defaultPassword,
+        });
+    }
+    catch (error) {
+        console.error('Reset password error:', error);
+        const message = error?.message || 'Failed to reset password';
+        if (message === 'Cannot reset the super admin password') {
             return res.status(403).json({ error: message });
         }
         res.status(500).json({ error: message });
