@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../config/database.js';
 import { verifyToken } from '../middleware/auth.js';
 import { getAllTicketsAnalytics, getAllTicketsAnalyticsWithSummary } from '../services/ticketService.js';
+import { getAgentInsights } from '../services/agentInsightsService.js';
 const router = Router();
 // Get KPI dashboard data
 router.get('/dashboard', verifyToken, async (req, res) => {
@@ -82,6 +83,27 @@ router.get('/dashboard/tickets', verifyToken, async (req, res) => {
     catch (error) {
         console.error('Get KPI dashboard tickets error:', error);
         res.status(500).json({ error: 'Failed to fetch dashboard ticket analytics' });
+    }
+});
+router.get('/agent/:agentId/insights', verifyToken, async (req, res) => {
+    try {
+        const requestedAgentId = Number(req.params.agentId);
+        if (!Number.isFinite(requestedAgentId) || requestedAgentId <= 0) {
+            return res.status(400).json({ error: 'Invalid agent id' });
+        }
+        if (req.user?.role === 'agent' && Number(req.user.id) !== requestedAgentId) {
+            return res.status(403).json({ error: 'Agents can only view their own insights' });
+        }
+        const insights = await getAgentInsights(requestedAgentId);
+        return res.json(insights);
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch agent insights';
+        if (message === 'Agent not found') {
+            return res.status(404).json({ error: message });
+        }
+        console.error('Get agent insights error:', error);
+        return res.status(500).json({ error: 'Failed to fetch agent insights' });
     }
 });
 // Get current staff counts by assignment group directly from users table.

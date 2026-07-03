@@ -1,5 +1,10 @@
 export type KpiStatusMetric = 'sla' | 'fcr';
 
+export const KPI_EXPECTATIONS = {
+  sla: 80,
+  fcr: 70,
+} as const;
+
 export interface KpiStatusResult {
   label: string;
   badgeClass: string;
@@ -22,7 +27,7 @@ export function getKpiStatus(metric: KpiStatusMetric, value: number | null | und
   }
 
   if (metric === 'sla') {
-    if (numericValue >= 80) {
+    if (numericValue >= KPI_EXPECTATIONS.sla) {
       return {
         label: 'Performing',
         badgeClass: STATUS_STYLES.performing,
@@ -40,7 +45,7 @@ export function getKpiStatus(metric: KpiStatusMetric, value: number | null | und
     };
   }
 
-  if (numericValue >= 70) {
+  if (numericValue >= KPI_EXPECTATIONS.fcr) {
     return {
       label: 'Performing',
       badgeClass: STATUS_STYLES.performing,
