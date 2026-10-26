@@ -53,25 +53,6 @@ Also included: KPI monitoring (SLA compliance, FCR rate, median resolution time,
 
 ---
 
-## How it works
-
-```mermaid
-flowchart LR
-    A[Admin uploads ticket CSV] --> B[(Database)]
-    B --> C[Non-FCR Detection<br/>logistic regression]
-    B --> D[Ticket Forecast<br/>ARIMA / SARIMA]
-    B --> E[Workforce Recommendation<br/>regression + simulation]
-    C --> F[(Recommendations store)]
-    D --> F
-    E --> F
-    F --> G[Admin]
-    F --> H[Team Managers]
-    F --> I[HR / Senior Mgmt]
-    F --> J[IT Support Agents]
-    F -. recommendation vs. actual outcome .-> B
-```
-
-A forecast table keeps each recommendation next to the actual outcome so accuracy can be audited over time.
 
 ### Models
 
