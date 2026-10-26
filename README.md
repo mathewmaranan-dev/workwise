@@ -116,7 +116,7 @@ Highest-rated items: practical for real-world ITSM operations (4.30), would reco
 
 ## Tech stack
 
-Python (NumPy, Pandas, scikit-learn) · PHP / CodeIgniter · HTML, CSS, JavaScript · Bootstrap / Tailwind · Chart.js · PostgreSQL · Render (hosting) · Figma (design) · Git / GitHub
+React, Vite, TypeScript · Node.js, Express, TypeScript · PostgreSQL · JWT / bcrypt · MUI / Tailwind CSS · Recharts · Python ML service · Figma-inspired UI design · Git / GitHub
 
 ---
 
